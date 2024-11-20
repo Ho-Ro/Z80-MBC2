@@ -33,3 +33,18 @@ development disks in the zip file.
 
 Note: all the previous revisions of BIOS modules are present here (see the Changelog inside each file).
 
+-----
+
+Ho-Ro: Another possibility is to create the BIOS directly on the MBC2 system.
+So I extracted the source files with cpmtools, with this [format definition](diskdefs_z80emu_cpmdsk)
+and put them into the directories `gencpm_64k` and `gencpm_128k`. Then I copied the files on
+`DS2N06.DSK` (CP/M3 disc G:) and `DS2N07.DSK` (CP/M3 disc H:) of the SD card.
+I also created the tool [`CPMTST.ASM`](gencpm_128k/cpmtst.asm),
+a [slightly modified](gencpm_128k/cpmtst.asm.patch) `CPMLDR.ASM`, which takes the 1st
+command line argument as file name and loads this file as a new `CPM3.SYS` file.
+You can experiment with the BIOS functions, create a new `CPM3.SYS`,
+copy it as e.g. `BIOSV7.SYS` to drive `A:` and load it with `CPMTST BIOSV7.SYS`.
+If you are not satisfied with the result, go back to the stable system by simply typing `CPMLDR`.
+And even if your `BIOSV7.SYS` crashes, just press RESET and you are back in business
+without pulling the SD card and replacing CPM3.SYS.
+
