@@ -1,0 +1,10 @@
+*~
+.*~
+
+*.bak
+*.new
+*.old
+*.orig
+*.work
+
+build
