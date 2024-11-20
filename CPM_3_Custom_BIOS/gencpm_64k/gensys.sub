@@ -1,0 +1,25 @@
+; Batch to generate CPM3.SYS file for Z80-MBC2 (A040618)
+; for CP/M 3 64kB Non-Banked
+; -----------------------------------------------------------------------
+; You need the DR linker LINK.COM and the DR relocatable macro assembler
+; RMAC.COM to generate the needed .REL files linked by LINK.COM
+;
+; Needed custom Z80-SBC2 files: BOOT.ASM, CHARIO.ASM, VDISK.ASM, GENCPM.DAT
+; Needed ditribution files: BIOSKRNL.ASM, SCB.ASM, MOVE.ASM
+;
+; You need also the following .LIB files: CPM3.LIB, MODEBAUD.LIB, Z80.LIB
+; -----------------------------------------------------------------------
+;
+; Compile with RMAC.COM all the needed .ASM files, generating .REL files
+rmac bioskrnl
+rmac scb
+rmac move
+rmac vdisk
+rmac boot
+rmac chario
+;
+; Generation of BIOS3.SPR from the needed .REL files
+link bios3[b]=bioskrnl,scb,boot,chario,move,vdisk
+;
+; Generation of CPM3.SYS using the configuration data in GENCPM.DAT
+gencpm auto

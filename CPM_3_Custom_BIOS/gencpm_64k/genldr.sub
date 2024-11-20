@@ -1,0 +1,17 @@
+; ---------------------------------------------------------------------
+; Z80-MBC2 CPMLDR.COM Generation
+;
+; CPMLDR.REL file is supplied from Digital Research CP/M 3 distribition
+; LDRBIOS.ASM is the custom CPMLDR Bios for the Z80-MBC2
+;
+; Library needed: Z80.LIB, CPM3.LIB
+;
+; ---------------------------------------------------------------------
+;
+; Generation of LDRBIOS.REL
+;
+rmac ldrbios
+;
+; Generation of CPMLDR.COM (the loader for CPM3.SYS)
+;
+link cpmldr[l100]=cpmldr,ldrbios

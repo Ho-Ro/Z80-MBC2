@@ -1,0 +1,43 @@
+H>gentst
+
+H>; ---------------------------------------------------------------------
+H>; Z80-MBC2 CPMTST.COM Generation
+H>;
+H>; CPMLDR.ASM file is supplied from Digital Research CP/M 3 distribition
+H>; CPMTST.ASM file is modified to use the cmd line arg as name of SYS file
+H>; LDRBIOS.ASM is the custom CPMLDR Bios for the Z80-MBC2
+H>;
+H>; Library needed: Z80.LIB, CPM3.LIB
+H>;
+H>; ---------------------------------------------------------------------
+H>;
+H>; Generation of CPMTST.REL
+H>;
+H>rmac cpmtst
+CP/M RMAC ASSEM 1.1
+0A00
+018H USE FACTOR
+END OF ASSEMBLY
+
+H>;
+H>; Generation of LDRBIOS.REL
+H>;
+H>rmac ldrbios
+CP/M RMAC ASSEM 1.1
+0982
+034H USE FACTOR
+END OF ASSEMBLY
+
+H>;
+H>; Generation of CPMTST.COM (the test loader for CPM3xxx.SYS)
+H>;
+H>link cpmtst[l100]=cpmtst,ldrbios
+LINK 1.31
+
+ABSOLUTE     0000
+CODE SIZE    1382 (0100-1481)
+DATA SIZE    0000
+COMMON SIZE  0000
+USE FACTOR     1E
+
+H>

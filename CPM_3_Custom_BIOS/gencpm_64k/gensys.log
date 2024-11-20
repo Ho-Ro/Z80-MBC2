@@ -1,0 +1,84 @@
+G>gensys
+
+G>; Batch to generate CPM3.SYS file for Z80-MBC2 (A040618)
+G>; for CP/M 3 64kB Non-Banked
+G>; -----------------------------------------------------------------------
+G>; You need the DR linker LINK.COM and the DR relocatable macro assembler
+G>; RMAC.COM to generate the needed .REL files linked by LINK.COM
+G>;
+G>; Needed custom Z80-SBC2 files: BOOT.ASM, CHARIO.ASM, VDISK.ASM, GENCPM.DAT
+G>; Needed ditribution files: BIOSKRNL.ASM, SCB.ASM, MOVE.ASM
+G>;
+G>; You need also the following .LIB files: CPM3.LIB, MODEBAUD.LIB, Z80.LIB
+G>; -----------------------------------------------------------------------
+G>;
+G>; Compile with RMAC.COM all the needed .ASM files, generating .REL files
+G>rmac bioskrnl
+CP/M RMAC ASSEM 1.1
+0237
+00BH USE FACTOR
+END OF ASSEMBLY
+
+G>rmac scb
+CP/M RMAC ASSEM 1.1
+0000
+001H USE FACTOR
+END OF ASSEMBLY
+
+G>rmac move
+CP/M RMAC ASSEM 1.1
+0007
+022H USE FACTOR
+END OF ASSEMBLY
+
+G>rmac vdisk
+CP/M RMAC ASSEM 1.1
+02CF
+034H USE FACTOR
+END OF ASSEMBLY
+
+G>rmac boot
+CP/M RMAC ASSEM 1.1
+01B0
+025H USE FACTOR
+END OF ASSEMBLY
+
+G>rmac chario
+CP/M RMAC ASSEM 1.1
+
+0124
+025H USE FACTOR
+END OF ASSEMBLY
+
+G>;
+G>; Generation of BIOS3.SPR from the needed .REL files
+G>link bios3[b]=bioskrnl,scb,boot,chario,move,vdisk
+LINK 1.31
+
+@ADRV    08ED   @RDRV    08EE   @TRK     08EF   @SECT    08F1
+@DMA     08F3   @DBNK    08F6   @CNT     08F5   @CBNK    0236
+@COVEC   FE24   @CIVEC   FE22   @AOVEC   FE28   @AIVEC   FE26
+@LOVEC   FE2A   @MXTPA   FE62   @BNKBF   FE35   @CTBL    04E8
+@DTBL    0742   @CRDMA   FE3C   @CRDSK   FE3E   @VINFO   FE3F
+@RESEL   FE41   @FX      FE43   @USRCD   FE44   @MLTIO   FE4A
+@ERMDE   FE4B   @ERDSK   FE51   @MEDIA   FE54   @BFLGS   FE57
+@DATE    FE58   @HOUR    FE5A   @MIN     FE5B   @SEC     FE5C
+
+ABSOLUTE     0000
+CODE SIZE    07E1 (0000-07E0)
+DATA SIZE    00F7 (0800-08F6)
+COMMON SIZE  0000
+USE FACTOR     20
+
+G>;
+G>; Generation of CPM3.SYS using the configuration data in GENCPM.DAT
+G>gencpm auto
+
+
+CP/M 3.0 System Generation
+Copyright (C) 1982, Digital Research
+
+
+
+*** CP/M 3.0 SYSTEM GENERATION DONE ***
+G>

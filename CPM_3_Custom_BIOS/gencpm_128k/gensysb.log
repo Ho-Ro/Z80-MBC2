@@ -1,0 +1,100 @@
+H>gensysb
+
+H>; GENSYSB.SUB
+H>; Batch to generate CPM3.SYS file for the Z80-MBC2 (A040618)
+H>; for CP/M 3 128KB Banked
+H>;
+H>; Execute as:
+H>; SUBMIT GENSYSB
+H>;
+H>; -----------------------------------------------------------------------
+H>; You need the DR linker LINK.COM and the DR relocatable macro assembler
+H>; RMAC.COM to generate the .REL files linked by LINK.COM
+H>;
+H>; Needed custom Z80-SBC2 files: BOOT.ASM, CHARIO.ASM, VDISK.ASM, GENCPM.DAT,
+H>;                               MOVE.ASM
+H>; Needed ditribution files:     BIOSKRNL.ASM, SCB.ASM, RESBDOS3.SPR,
+H>;                               BNKBDOS.SPR
+H>;
+H>; NOTE: The GENCPM.DAT is needed for automatic excution of GENCPM.COM
+H>;       (see CP/M 3 System Guide par. 5.1.1) and it is customized here
+H>;       for the Z80-MBC2 (banked system)
+H>;
+H>; You need also the following .LIB files: CPM3.LIB, MODEBAUD.LIB, Z80.LIB
+H>; -----------------------------------------------------------------------
+H>;
+H>; Compile with RMAC.COM all the needed .ASM files, generating .REL files
+H>;
+H>rmac bioskrnl
+CP/M RMAC ASSEM 1.1
+024A
+00BH USE FACTOR
+END OF ASSEMBLY
+
+H>rmac scb
+CP/M RMAC ASSEM 1.1
+0000
+001H USE FACTOR
+END OF ASSEMBLY
+
+H>rmac move
+CP/M RMAC ASSEM 1.1
+000F
+022H USE FACTOR
+END OF ASSEMBLY
+
+H>rmac vdisk
+CP/M RMAC ASSEM 1.1
+02AC
+034H USE FACTOR
+END OF ASSEMBLY
+
+H>rmac boot
+CP/M RMAC ASSEM 1.1
+01C6
+025H USE FACTOR
+END OF ASSEMBLY
+
+H>rmac chario
+CP/M RMAC ASSEM 1.1
+
+016B
+026H USE FACTOR
+END OF ASSEMBLY
+
+H>;
+H>; Make BNKBIOS3.SPR from the .REL files
+H>;
+H>link BNKBIOS3[b,os]=bioskrnl,scb,boot,chario,move,vdisk
+LINK 1.31
+
+@ADRV    06ED   @RDRV    06EE   @TRK     06EF   @SECT    06F1
+@DMA     06F3   @DBNK    06F6   @CNT     06F5   @CBNK    0249
+@COVEC   FE24   @CIVEC   FE22   @AOVEC   FE28   @AIVEC   FE26
+@LOVEC   FE2A   @MXTPA   FE62   @BNKBF   FE35   @CTBL    0550
+@DTBL    093C   @CRDMA   FE3C   @CRDSK   FE3E   @VINFO   FE3F
+@RESEL   FE41   @FX      FE43   @USRCD   FE44   @MLTIO   FE4A
+@ERMDE   FE4B   @ERDSK   FE51   @MEDIA   FE54   @BFLGS   FE57
+@DATE    FE58   @HOUR    FE5A   @MIN     FE5B   @SEC     FE5C
+
+ABSOLUTE     0000
+CODE SIZE    05D5 (0000-05D4)
+DATA SIZE    03B8 (0600-09B7)
+COMMON SIZE  0000
+USE FACTOR     22
+
+H>;
+H>; Make CPM3.SYS using the configuration data in GENCPM.DAT
+H>; Needed ditribution files: RESBDOS3.SPR, BNKBDOS.SPR
+H>; NOTE: For this you need the GENCPM.DAT file customized for the Z80-MBC2
+H>;
+H>gencpm auto
+
+
+CP/M 3.0 System Generation
+Copyright (C) 1982, Digital Research
+
+
+
+*** CP/M 3.0 SYSTEM GENERATION DONE ***
+H>

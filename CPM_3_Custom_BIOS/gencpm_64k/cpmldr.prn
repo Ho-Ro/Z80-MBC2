@@ -1,0 +1,1630 @@
+CP/M RMAC ASSEM 1.1	#001	CP/M V3.0 LOADER
+
+                	title	'CP/M V3.0 Loader'
+                
+                
+                ;	Copyright (C) 1982
+                ;	Digital Research
+                ;	Box 579, Pacific Grove
+                ;	California, 93950
+                
+                ;  Revised:
+                ;    01 Nov 82  by Bruce Skidmore
+                
+ 0000 =         base	equ	$
+ FF00 =         abase	equ	base-0100h
+                
+ 000D =         cr	equ	0dh
+ 000A =         lf	equ	0ah
+                
+ FF5C =         fcb	equ	abase+005ch	;default FCB address
+ FF80 =         buff	equ	abase+0080h	;default buffer address
+                
+                ;
+                ;	System Equates
+                ;
+ 000D =         resetsys	equ	13	;reset disk system
+ 0009 =         printbuf	equ	09	;print string
+ 000F =         open$func	equ	15	;open function
+ 0014 =         read$func	equ	20	;read sequential
+ 001A =         setdma$func	equ	26	;set dma address
+                ;
+                ;	Loader Equates
+                ;
+ FF80 =         comtop	equ	abase+80h
+ FF81 =         comlen	equ	abase+81h
+ FF82 =         bnktop	equ	abase+82h
+ FF83 =         bnklen	equ	abase+83h
+ FF84 =         osentry	equ	abase+84h
+                
+                	cseg
+                
+ 0000 316A01    	lxi	sp,stackbot
+                
+ 0003 CD000A    	call	bootf		;first call is to Cold Boot
+                
+ 0006 0E0D      	mvi	c,resetsys	;Initialize the System
+ 0008 CD7601    	call	bdos
+                
+ 000B 0E09      	mvi	c,printbuf	;print the sign on message
+ 000D 112501    	lxi	d,signon
+ 0010 CD7601    	call	bdos
+                
+ 0013 0E0F      	mvi	c,open$func	;open the CPM3.SYS file
+ 0015 11AB00    	lxi	d,cpmfcb
+ 0018 CD7601    	call	bdos
+ 001B FEFF      	cpi	0ffh
+ 001D 11CF00    	lxi	d,openerr
+ 0020 CAA200    	jz	error
+CP/M RMAC ASSEM 1.1	#002	CP/M V3.0 LOADER
+
+                
+ 0023 1180FF    	lxi	d,buff
+ 0026 CD8F00    	call	setdma$proc
+                
+ 0029 CD9500    	call	read$proc	;read the load record
+                
+ 002C 2180FF    	lxi	h,buff
+ 002F 116A01    	lxi	d,mem$top
+ 0032 0E06      	mvi	c,6
+                cloop:
+ 0034 7E        	mov	a,m
+ 0035 12        	stax	d
+ 0036 13        	inx	d
+ 0037 23        	inx	h
+ 0038 0D        	dcr	c
+ 0039 C23400    	jnz	cloop
+                	
+ 003C CD9500    	call	read$proc	;read display info
+                
+ 003F 0E09      	mvi	c,printbuf	;print the info
+ 0041 1180FF    	lxi	d,buff
+ 0044 CD7601    	call	bdos
+                	
+                ;
+                ;	Main System Load
+                ;
+                
+                ;
+                ;	Load Common Portion of System
+                ;
+ 0047 3A6B01    	lda	res$len
+ 004A 67        	mov	h,a
+ 004B 3A6A01    	lda	mem$top
+ 004E CD7300    	call	load
+                ;
+                ;	Load Banked Portion of System
+                ;
+ 0051 3A6D01    	lda	bank$len
+ 0054 B7        	ora	a
+ 0055 CA5F00    	jz	execute
+ 0058 67        	mov	h,a
+ 0059 3A6C01    	lda	bank$top
+ 005C CD7300    	call	load
+                ;
+                ;	Execute System
+                ;
+                execute:
+ 005F 215DFF    	lxi	h,fcb+1
+ 0062 7E        	mov	a,m
+ 0063 FE24      	cpi	'$'
+ 0065 C26F00    	jnz	execute$sys
+ 0068 23        	inx	h
+ 0069 7E        	mov	a,m
+ 006A FE42      	cpi	'B'
+ 006C CCA900    	cz	break
+                execute$sys:
+CP/M RMAC ASSEM 1.1	#003	CP/M V3.0 LOADER
+
+ 006F 316E01    	lxi	sp,osentry$adr
+ 0072 C9        	ret
+                
+                ;
+                ;	Load Routine
+                ;
+                ;	Input:   A = Page Address of load top
+                ;		 H = Length in pages of module to read
+                ;
+                load:
+ 0073 B7        	ora	a	;clear carry
+ 0074 57        	mov	d,a
+ 0075 1E00      	mvi	e,0
+ 0077 7C        	mov	a,h
+ 0078 17        	ral
+ 0079 67        	mov	h,a	;h = length in records of module
+                loop:
+ 007A EB        	xchg
+ 007B 0180FF    	lxi	b,-128
+ 007E 09        	dad	b	;decrement dma address by 128
+ 007F EB        	xchg
+ 0080 D5        	push	d
+ 0081 E5        	push	h
+ 0082 CD8F00    	call	setdma$proc
+ 0085 CD9500    	call	read$proc
+ 0088 E1        	pop	h
+ 0089 D1        	pop	d
+ 008A 25        	dcr	h
+ 008B C27A00    	jnz	loop
+ 008E C9        	ret
+                
+                ;
+                ;	Set DMA Routine
+                ;
+                setdma$proc:
+ 008F 0E1A      	mvi	c,setdma$func
+ 0091 CD7601    	call	bdos
+ 0094 C9        	ret
+                
+                ;
+                ;	Read Routine
+                ;
+                read$proc:
+ 0095 0E14      	mvi	c,read$func	;Read the load record
+ 0097 11AB00    	lxi	d,cpmfcb	;into address 80h
+ 009A CD7601    	call	bdos
+ 009D B7        	ora	a
+ 009E 11FA00    	lxi	d,readerr
+ 00A1 C8        	rz
+                ;
+                ;	Error Routine
+                ;
+                error:
+ 00A2 0E09      	mvi	c,printbuf	;print error message
+ 00A4 CD7601    	call	bdos
+ 00A7 F3        	di
+CP/M RMAC ASSEM 1.1	#004	CP/M V3.0 LOADER
+
+ 00A8 76        	hlt
+                
+                break:
+ 00A9 FF        	db	0ffh
+ 00AA C9        	ret
+                
+                cpmfcb:
+ 00AB 0043504D33	db	0,'CPM3    SYS',0,0,0,0,0,0
+ 00BD 0000000000	dw	0,0,0,0,0,0,0,0,0
+                
+                openerr:
+ 00CF 0D0A      	db	cr,lf
+ 00D1 43504D4C44	db	'CPMLDR error:  failed to open CPM3.SYS'
+ 00F7 0D0A24    	db	cr,lf,'$'
+                
+                readerr:
+ 00FA 0D0A      	db	cr,lf
+ 00FC 43504D4C44	db	'CPMLDR error:  failed to read CPM3.SYS'
+ 0122 0D0A24    	db	cr,lf,'$'
+                
+                signon:
+ 0125 0D0A      	db	cr,lf
+ 0127 43502F4D20	db	'CP/M V3.0 Loader',cr,lf
+ 0139 436F707972	db	'Copyright (C) 1982, Digital Research'
+ 015D 0D0A24    	db	cr,lf,'$'
+                	maclib	makedate
+                	@BDATE		;[JCE] Build date
+ 0160+3130313139	DB	'101198'
+ 0166 00000000  	db	0,0,0,0
+                stackbot:
+                
+                mem$top:
+ 016A           	ds	1
+                res$len:
+ 016B           	ds	1
+                bank$top:
+ 016C           	ds	1
+                bank$len:
+ 016D           	ds	1
+                osentry$adr:
+ 016E           	ds	2
+                
+                ;	title	'CP/M 3.0 LDRBDOS Interface, Version 3.1 Nov, 1982'
+                ;*****************************************************************
+                ;*****************************************************************
+                ;**                                                             **
+                ;**   B a s i c    D i s k   O p e r a t i n g   S y s t e m    **
+                ;**								**
+                ;**            I n t e r f a c e   M o d u l e                  **
+                ;**                                                             **
+                ;*****************************************************************
+                ;*****************************************************************
+                ;
+                ;	Copyright (c) 1978, 1979, 1980, 1981, 1982
+                ;	Digital Research
+                ;	Box 579, Pacific Grove
+CP/M RMAC ASSEM 1.1	#005	CP/M V3.0 LOADER
+
+                ;	California
+                ;
+                ;       Nov 1982
+                ;
+                ;
+                ;	equates for non graphic characters
+                ;
+                
+ 007F =         rubout	equ	7fh	; char delete
+ 0009 =         tab	equ	09h	; tab char
+ 000D =         cr	equ	0dh	; carriage return
+ 000A =         lf	equ	0ah	; line feed
+ 0008 =         ctlh	equ	08h	; backspace
+                
+                
+                ;
+ 0170 0000000000serial: db	0,0,0,0,0,0
+                ;
+                ;	Enter here from the user's program with function number in c,
+                ;	and information address in d,e
+                ;
+                
+                bdos:
+                bdose:					; Arrive here from user programs
+ 0176 EB22C808EB	xchg! shld info! xchg 		; info=de, de=info
+                
+ 017B 79FE0EDA8E	mov a,c! cpi 14! jc bdose2
+ 0181 32CB08    	sta fx 				; Save disk function #
+ 0184 AF32A008  	xra a! sta dircnt 
+ 0188 3AC70832A7	lda seldsk! sta olddsk 		; Save seldsk
+                
+                bdose2:
+ 018E 7B32A308  	mov a,e! sta linfo 		; linfo = low(info) - don't equ
+ 0192 21000022F2	lxi h,0! shld aret 		; Return value defaults to 0000
+ 0198 22CA08    	shld resel 			; resel = 0
+                				; Save user's stack pointer, set to local stack
+ 019B 39222902  	dad sp! shld entsp 		; entsp = stackptr
+                
+ 019F 317B02    	lxi sp,lstack 			; local stack setup
+                
+ 01A2 213708    	lxi h,goback 			; Return here after all functions
+ 01A5 E5        	push h 				; jmp goback equivalent to ret
+ 01A6 79FE32D2B3	mov a,c! cpi nfuncs! jnc high$fxs ; Skip if invalid #
+ 01AC 4B        	mov c,e 			; possible output character to c
+ 01AD 21C501C3B8	lxi h,functab! jmp bdos$jmp
+                
+                	; look for functions 100 ->
+                high$fxs:
+ 01B3 DE64DA8406	sbi 100! jc lret$eq$ff 		; Skip if function < 100
+                
+                bdos$jmp:
+                
+ 01B8 5F1600    	mov e,a! mvi d,0 		; de=func, hl=.ciotab
+ 01BB 19195E2356	dad d! dad d! mov e,m! inx h! mov d,m ; de=functab(func)
+ 01C0 2AC808    	lhld info 			; info in de for later xchg	
+ 01C3 EBE9      	xchg! pchl 			; dispatched
+CP/M RMAC ASSEM 1.1	#006	CP/M V3.0 LOADER
+
+                
+                
+                ;	dispatch table for functions
+                
+                functab:
+ 01C5 D102D102A4	dw	func$ret, func1, func2, func3
+ 01CD D102D102D1	dw	func$ret, func$ret, func6, func$ret
+ 01D5 D102C802D1	dw	func$ret, func9, func10, func11
+ 000C =         diskf	equ	($-functab)/2	; disk funcs
+ 01DD D102E90700	dw	func12,func13,func14,func15
+ 01E5 D102D102D1	dw	func16,func17,func18,func19
+ 01ED 2408D102D1	dw	func20,func21,func22,func23
+ 01F5 D1022A0830	dw	func24,func25,func26,func27
+ 01FD D102D102D1	dw	func28,func29,func30,func31
+ 0205 D102D102D1	dw	func32,func33,func34,func35
+ 020D D102D102D1	dw	func36,func37,func38,func39
+ 0215 D102D102D1	dw	func40,func42,func43
+ 021B D102D102D1	dw	func44,func45,func46,func47
+ 0223 D102D102D1	dw	func48,func49,func50
+ 0032 =         nfuncs	equ	($-functab)/2
+                
+                
+ 0229           entsp:	ds	2	; entry stack pointer
+                
+                	;	40 level stack
+                
+ 022B C7C7C7C7C7	dw	0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h
+ 023B C7C7C7C7C7	dw	0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h
+ 024B C7C7C7C7C7	dw	0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h
+ 025B C7C7C7C7C7	dw	0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h
+ 026B C7C7C7C7C7	dw	0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h,0c7c7h
+                lstack:
+                
+                
+                page
+CP/M RMAC ASSEM 1.1	#007	CP/M V3.0 LOADER
+
+                
+                	title	'CP/M 3.0 LDRBDOS Interface, Version 3.1 July, 1982'
+                ;*****************************************************************
+                ;*****************************************************************
+                ;**                                                             **
+                ;**   B a s i c    D i s k   O p e r a t i n g   S y s t e m    **
+                ;**								**
+                ;**               C o n s o l e   P o r t i o n                 **
+                ;**                                                             **
+                ;*****************************************************************
+                ;*****************************************************************
+                ;
+                ;       July, 1982
+                ;
+                ;
+                ;	console handlers
+                
+                conout:
+                			;compute character position/write console char from C
+                			;compcol = true if computing column position
+ 027B 3AD702B7C2	lda compcol! ora a! jnz compout
+                			;write the character, then compute the column
+                			;write console character from C
+ 0282 C5        	push b 				;recall/save character
+ 0283 CD0C0A    	call conoutf 			;externally, to console
+ 0286 C1        	pop b 				;recall the character
+                  compout:
+ 0287 79        		mov a,c 		;recall the character
+                					;and compute column position
+ 0288 21C308    		lxi h,column 		;A = char, HL = .column
+ 028B FE7FC8    		cpi rubout! rz 		;no column change if nulls
+ 028E 34        		inr m 			;column = column + 1
+ 028F FE20D0    		cpi ' '! rnc 		;return if graphic
+                					;not graphic, reset column position
+ 0292 35        		dcr m 			;column = column - 1
+ 0293 7EB7C8    		mov a,m! ora a! rz 	;return if at zero
+                					;not at zero, may be backspace or eol
+ 0296 79        		mov a,c 		;character back to A
+ 0297 FE08C29E02		cpi ctlh! jnz notbacksp
+                					;backspace character
+ 029C 35        		dcr m 			;column = column - 1
+ 029D C9        		ret
+                
+                  notbacksp:
+                					;not a backspace character, eol?
+ 029E FE0AC0    		cpi lf! rnz 		;return if not
+                					;end of line, column = 0
+ 02A1 3600      		mvi m,0 		;column = 0
+ 02A3 C9        		ret
+                ;
+                ;
+                tabout:
+                					;expand tabs to console
+ 02A4 79FE09C27B	mov a,c! cpi tab! jnz conout 	;direct to conout if not
+                					;tab encountered, move to next tab pos
+                  tab0:
+CP/M RMAC ASSEM 1.1	#008	CP/M V3.0 LOADER
+
+ 02AA 0E20CD7B02	mvi c,' '! call conout 		;another blank
+ 02AF 3AC308E607	lda column! ani 111b 		;column mod 8 = 0 ?
+ 02B4 C2AA02    	jnz tab0 			;back for another if not
+ 02B7 C9        	ret
+                ;
+                print:
+                					;print message until M(BC) = '$'
+ 02B8 21C408    	LXI H,OUTDELIM
+ 02BB 0ABEC8    	ldax b! CMP M! rz 		;stop on $
+                					;more to print
+ 02BE 03C54F    	inx b! push b! mov c,a 		;char to C
+ 02C1 CDA402    	call tabout 			;another character printed
+ 02C4 C1C3B802  	pop b! jmp print
+                ;
+                ;
+ 02A4 =         func2:	equ	tabout
+                			;write console character with tab expansion
+                ;
+                func9:
+                					;write line until $ encountered
+ 02C8 EB        	xchg				;was lhld info	
+ 02C9 4D44      	mov c,l! mov b,h 		;BC=string address
+ 02CB C3B802    	jmp print 			;out to console	
+                ;
+                sta$ret:
+                					;store the A register to aret
+ 02CE 32F202    	sta aret
+                func$ret:
+ 02D1 C9        	ret 			;jmp goback (pop stack for non cp/m functions)
+                ;
+                setlret1:
+                					;set lret = 1
+ 02D2 3E01C3CE02	mvi a,1! jmp sta$ret
+                ;
+ 02D1 =         func1:	equ 	func$ret
+                ;
+ 02D1 =         func3:	equ 	func$ret
+                ;
+ 02D1 =         func6:	equ 	func$ret
+                ;
+ 02D1 =         func10:	equ	func$ret
+ 02D1 =         func11:	equ	func$ret
+                ;
+                ;	data areas
+                ;
+                
+                
+ 02D7 00        compcol:db	0	;true if computing column position
+                ;	end of BDOS Console module
+                
+                ;**********************************************************************
+                ;*****************************************************************
+                ;
+                ;	Error Messages
+                
+ 0024 =         md	equ	24h
+CP/M RMAC ASSEM 1.1	#009	CP/M V3.0 LOADER
+
+                
+ 02D8 0D0A42444Ferr$msg:	db	cr,lf,'BDOS ERR: ',md
+ 02E5 53656C6563err$select:	db	'Select',md
+ 02EC 5065726D2Eerr$phys:	db	'Perm.',md
+                
+                ;*****************************************************************
+                ;*****************************************************************
+                ;
+                ;	common values shared between bdosi and bdos
+                
+                
+ 02F2           aret:	ds	2	; address value to return
+ 02F2 =         lret	equ	aret	; low(aret)
+                
+                ;*****************************************************************
+                ;*****************************************************************
+                ;**                                                             **
+                ;**   b a s i c    d i s k   o p e r a t i n g   s y s t e m    **
+                ;**                                                             **
+                ;*****************************************************************
+                ;*****************************************************************
+                
+                ;	literal constants
+                
+ 00FF =         true	equ	0ffh	; constant true
+ 0000 =         false	equ	000h	; constant false
+ FFFF =         enddir	equ	0ffffh	; end of directory
+ 0001 =         byte	equ	1	; number of bytes for "byte" type
+ 0002 =         word	equ	2	; number of bytes for "word" type
+                
+                ;	fixed addresses in low memory
+                
+ 0080 =         tbuff	equ	0080h	; default buffer location
+                
+                ;	error message handlers
+                
+                sel$error:
+                				; report select error
+ 02F4 01D802    	lxi b,err$msg
+ 02F7 CDB802    	call print
+ 02FA 01E502    	lxi b,err$select
+ 02FD C30903    	jmp goerr1
+                
+                goerr:
+ 0300 01D802    	lxi b,err$msg
+ 0303 CDB802    	call print
+ 0306 01EC02    	lxi b,err$phys
+                goerr1:
+ 0309 CDB802    	call print
+ 030C F376      	di ! hlt
+                
+                bde$e$bde$m$hl:
+ 030E 7B955F    	mov a,e! sub l! mov e,a
+ 0311 7A9C57    	mov a,d! sbb h! mov d,a
+ 0314 D005C9    	rnc! dcr b! ret
+                
+CP/M RMAC ASSEM 1.1	#010	CP/M V3.0 LOADER
+
+                bde$e$bde$p$hl:
+ 0317 7B855F    	mov a,e! add l! mov e,a
+ 031A 7A8C57    	mov a,d! adc h! mov d,a
+ 031D D004C9    	rnc! inr b! ret
+                
+                shl3bv:
+ 0320 0C        	inr c
+                shl3bv1:
+ 0321 0DC8      	dcr c! rz
+ 0323 298FC32103	dad h! adc a! jmp shl3bv1
+                
+                compare:
+ 0328 1ABEC0    	ldax d! cmp m! rnz
+ 032B 23130DC8  	inx h! inx d! dcr c! rz
+ 032F C32803    	jmp compare
+                
+                ;
+                ;	local subroutines for bios interface
+                ;
+                
+                move:
+                	; Move data length of length c from source de to
+                	; destination given by hl
+ 0332 0C        	inr c ; in case it is zero
+                	move0:
+ 0333 0DC8      		dcr c! rz ; more to move
+ 0335 1A77      		ldax d! mov m,a ; one byte moved
+ 0337 1323      		inx d! inx h ; to next byte
+ 0339 C33303    		jmp move0
+                
+                selectdisk:
+                			; Select the disk drive given by register D, and fill
+                			; the base addresses curtrka - alloca, then fill
+                			; the values of the disk parameter block
+ 033C 4A        	mov c,d 			; current disk# to c
+                					; lsb of e = 0 if not yet logged - in
+ 033D CD1B0A    	call seldskf 			; hl filled by call
+                				; hl = 0000 if error, otherwise disk headers
+ 0340 7CB5C8    	mov a,h! ora l! rz 	; Return with C flag reset if select error
+                					; Disk header block address in hl
+ 0343 5E235623  	mov e,m! inx h! mov d,m! inx h ; de=.tran
+ 0347 2323      	inx h ! inx h
+ 0349 2279082323	shld curtrka! inx h! inx h ; hl=.currec
+ 034E 227B082323	shld curreca! inx h! inx h ; hl=.buffa
+ 0353 2323      	inx h! inx h
+ 0355 2323      	inx h! inx h
+                					; de still contains .tran
+ 0357 EB22A108  	xchg! shld tranv 		; .tran vector
+ 035B 218108    	lxi h,dpbaddr 			; de= source for move, hl=dest
+ 035E 0E0DCD3203	mvi c,addlist! call move 	; addlist filled
+                					; Now fill the disk parameter block
+ 0363 2A8108EB  	lhld dpbaddr! xchg 		; de is source
+ 0367 218E08    	lxi h,sectpt 			; hl is destination
+ 036A 0E11CD3203	mvi c,dpblist! call move 	; data filled
+                					; Now set single/double map mode
+ 036F 2A9308    	lhld maxall 			; largest allocation number
+CP/M RMAC ASSEM 1.1	#011	CP/M V3.0 LOADER
+
+ 0372 7C        	mov a,h 			; 00 indicates < 255
+ 0373 21A60836FF	lxi h,single! mvi m,true 	; Assume a=00
+ 0378 B7CA7E03  	ora a! jz retselect
+                				; high order of maxall not zero, use double dm
+ 037C 3600      	mvi m,false
+                  retselect:
+                				; C flag set indicates successful select
+ 037E 37        		stc
+ 037F C9        		ret
+                
+                home:
+                			; Move to home position, then offset to start of dir
+ 0380 CD180A    	call homef
+ 0383 AF        	xra a 				; constant zero to accumulator
+ 0384 2A79087723	lhld curtrka! mov m,a! inx h! mov m,a ; curtrk=0000
+ 038A 2A7B087723	lhld curreca! mov m,a! inx h! mov m,a ; currec=0000
+ 0390 2377      	inx h! mov m,a 			; currec high byte=00
+                
+ 0392 C9        	ret
+                
+                pass$arecord:
+ 0393 21AC08    	lxi h,arecord
+ 0396 5E23562346	mov e,m! inx h! mov d,m! inx h! mov b,m
+ 039B C9        	ret
+                
+                rdbuff:
+                			; Read buffer and check condition
+ 039C CD9303    	call pass$arecord
+ 039F CD270A    	call readf 			; current drive, track, sector, dma
+                
+                
+                diocomp: 		; Check for disk errors
+ 03A2 B7C8      	ora a! rz
+ 03A4 4F        	mov c,a
+ 03A5 FE03DA0003	cpi 3! jc goerr
+ 03AA 0E01C30003	mvi c,1! jmp goerr
+                
+                seekdir:
+                			; Seek the record containing the current dir entry
+                
+ 03AF 2ACC08    	lhld dcnt 			; directory counter to hl
+ 03B2 0E02CD0F05	mvi c,dskshf! call hlrotr 	; value to hl
+                
+ 03B7 0600EB    	mvi b,0! xchg
+                
+ 03BA 21AC08    	lxi h,arecord
+ 03BD 7323722370	mov m,e! inx h! mov m,d! inx h! mov m,b
+ 03C2 C9        	ret
+                
+                seek:
+                			; Seek the track given by arecord (actual record)
+                
+ 03C3 2A79084E23	lhld curtrka! mov c,m! inx h! mov b,m 	; bc = curtrk
+ 03C9 C5        	push b 					; s0 = curtrk 
+ 03CA 2A7B085E23	lhld curreca! mov e,m! inx h! mov d,m
+ 03D0 2346      	inx h! mov b,m 				; bde = currec
+CP/M RMAC ASSEM 1.1	#012	CP/M V3.0 LOADER
+
+ 03D2 2AAC083AAE	lhld arecord! lda arecord+2! mov c,a 	; chl = arecord
+                seek0:
+ 03D9 7D937C9A79	mov a,l! sub e! mov a,h! sbb d! mov a,c! sbb b
+ 03DF E5        	push h 					; Save low(arecord)
+ 03E0 D2F003    	jnc seek1 			; if arecord >= currec then go to seek1
+ 03E3 2A8E08CD0E	lhld sectpt! call bde$e$bde$m$hl 	; currec = currec - sectpt
+ 03E9 E1E32BE3  	pop h! xthl! dcx h! xthl 		; curtrk = curtrk - 1
+ 03ED C3D903    	jmp seek0
+                seek1:
+ 03F0 2A8E08CD17	lhld sectpt! call bde$e$bde$p$hl 	; currec = currec + sectpt
+ 03F6 E1        	pop h 					; Restore low(arecord)
+ 03F7 7D937C9A79	mov a,l! sub e! mov a,h! sbb d! mov a,c! sbb b
+ 03FD DA0704    	jc seek2 			; if arecord < currec then go to seek2
+ 0400 E323E3    	xthl! inx h! xthl 			; curtrk = curtrk + 1
+ 0403 E5        	push h 					; save low (arecord)
+ 0404 C3F003    	jmp seek1
+                seek2:
+ 0407 E3E5      	xthl! push h 			; hl,s0 = curtrk, s1 = low(arecord)
+ 0409 2A8E08CD0E	lhld sectpt! call bde$e$bde$m$hl 	; currec = currec - sectpt
+ 040F E1D5C5E5  	pop h! push d! push b! push h 		; hl,s0 = curtrk, 
+                			; s1 = high(arecord,currec), s2 = low(currec), 
+                			; s3 = low(arecord)
+ 0413 EB2A9B0819	xchg! lhld offset! dad d
+ 0418 444D22B708	mov b,h! mov c,l! shld track
+ 041D CD1E0A    	call settrkf 				; call bios settrk routine
+                						; Store curtrk
+ 0420 D12A790873	pop d! lhld curtrka! mov m,e! inx h! mov m,d
+                						; Store currec
+ 0427 C1D1      	pop b! pop d!
+ 0429 2A7B087323	lhld curreca! mov m,e! inx h! mov m,d
+ 042F 2370      	inx h! mov m,b 				; currec = bde
+ 0431 C1        	pop b 				; bc = low(arecord), de = low(currec)
+ 0432 79936F    	mov a,c! sub e! mov l,a 		; hl = bc - de
+ 0435 789A67    	mov a,b! sbb d! mov h,a
+ 0438 CD5404    	call shr$physhf
+ 043B 444D      	mov b,h! mov c,l
+                
+ 043D 2AA108EB  	lhld tranv! xchg 			; bc=sector#, de=.tran
+ 0441 CD300A    	call sectran 				; hl = tran(sector)
+ 0444 4D44      	mov c,l! mov b,h 			; bc = tran(sector)
+ 0446 22B908    	shld sector
+ 0449 CD210A    	call setsecf 				; sector selected
+ 044C 2A73084D44	lhld curdma! mov c,l! mov b,h! jmp setdmaf
+                
+                shr$physhf:
+ 0454 3A9D084FC3	lda physhf! mov c,a! jmp hlrotr
+                
+                
+                ;	file control block (fcb) constants
+                
+ 00E5 =         empty	equ	0e5h	; empty directory entry
+ 0080 =         recsiz	equ	128	; record size
+ 0020 =         fcblen	equ	32	; file control block size
+ 0004 =         dirrec	equ	recsiz/fcblen	; directory fcbs / record
+ 0002 =         dskshf	equ	2	; log2(dirrec)
+ 0003 =         dskmsk	equ	dirrec-1
+CP/M RMAC ASSEM 1.1	#013	CP/M V3.0 LOADER
+
+ 0005 =         fcbshf	equ	5	; log2(fcblen)
+                
+ 000C =         extnum	equ	12	; extent number field
+ 001F =         maxext	equ	31	; largest extent number
+ 000D =         ubytes	equ	13	; unfilled bytes field
+                
+ 000F =         namlen	equ	15	; name length
+ 000F =         reccnt	equ	15	; record count field
+ 0010 =         dskmap	equ	16	; disk map field
+ 0020 =         nxtrec	equ	fcblen
+                
+                ;	utility functions for file access
+                
+                dm$position:
+                	; Compute disk map position for vrecord to hl
+ 045B 2190084E  	lxi h,blkshf! mov c,m ; shift count to c
+ 045F 3AAA08    	lda vrecord ; current virtual record to a
+                	dmpos0:
+ 0462 B71F0DC262		ora a! rar! dcr c! jnz dmpos0
+                	; a = shr(vrecord,blkshf) = vrecord/2**(sect/block)
+ 0468 47        	mov b,a ; Save it for later addition
+ 0469 3E0896    	mvi a,8! sub m ; 8-blkshf to accumulator
+ 046C 4F        	mov c,a ; extent shift count in register c
+ 046D 3AA908    	lda extval ; extent value ani extmsk
+                	dmpos1:
+                		; blkshf = 3,4,5,6,7, c=5,4,3,2,1
+                		; shift is 4,3,2,1,0
+ 0470 0DCA7904  		dcr c! jz dmpos2
+ 0474 B717C37004		ora a! ral! jmp dmpos1
+                	dmpos2:
+                	; Arrive here with a = shl(ext and extmsk,7-blkshf)
+ 0479 80        	add b ; Add the previous shr(vrecord,blkshf) value
+                	; a is one of the following values, depending upon alloc
+                	; bks blkshf
+                	; 1k   3     v/8 + extval * 16
+                	; 2k   4     v/16+ extval * 8
+                	; 4k   5     v/32+ extval * 4
+                	; 8k   6     v/64+ extval * 2
+                	; 16k  7     v/128+extval * 1
+ 047A C9        	ret ; with dm$position in a
+                
+                getdma:
+ 047B 2AC8081110	lhld info! lxi d,dskmap! dad d! ret
+                
+                getdm:
+                	; Return disk map value from position given by bc
+ 0483 CD7B04    	call getdma
+ 0486 09        	dad b ; Index by a single byte value
+ 0487 3AA608    	lda single ; single byte/map entry?
+ 048A B7CA9104  	ora a! jz getdmd ; Get disk map single byte
+ 048E 6E60C9    		mov l,m! mov h,b! ret ; with hl=00bb
+                	getdmd:
+ 0491 09        		dad b ; hl=.fcb(dm+i*2)
+                		; double precision value returned
+ 0492 7E23666FC9		mov a,m! inx h! mov h,m! mov l,a! ret
+                
+CP/M RMAC ASSEM 1.1	#014	CP/M V3.0 LOADER
+
+                index:
+                	; Compute disk block number from current fcb
+ 0497 CD5B04    	call dm$position ; 0...15 in register a
+ 049A 32A408    	sta dminx
+ 049D 4F0600CD83	mov c,a! mvi b,0! call getdm ; value to hl
+ 04A3 22AC087DB4	shld arecord! mov a,l! ora h! ret
+                
+                atran:
+                	; Compute actual record address, assuming index called
+                
+                ;	arecord = shl(arecord,blkshf)
+                
+ 04A9 3A90084F  	lda blkshf! mov c,a
+ 04AD 2AAC08AFCD	lhld arecord! xra a! call shl3bv
+ 04B4 22AC0832AE	shld arecord! sta arecord+2
+                
+ 04BA 22AF08    	shld arecord1 ; Save low(arecord)
+                
+                ;	arecord = arecord or (vrecord and blkmsk)
+                
+ 04BD 3A91084F3A	lda blkmsk! mov c,a! lda vrecord! ana c
+ 04C5 47        	mov b,a ; Save vrecord & blkmsk in reg b & blk$off
+ 04C6 329F08    	sta blk$off
+ 04C9 21AC08B677	lxi h,arecord! ora m! mov m,a! ret
+                
+                
+                getexta:
+                	; Get current extent field address to hl
+ 04CF 2AC808110C	lhld info! lxi d,extnum! dad d ; hl=.fcb(extnum)
+ 04D6 C9        	ret
+                
+                getrcnta:
+                	; Get reccnt address to hl
+ 04D7 2AC808110F	lhld info! lxi d,reccnt! dad d! ret
+                
+                getfcba:
+                	; Compute reccnt and nxtrec addresses for get/setfcb
+ 04DF CDD704EB  	call getrcnta! xchg ; de=.fcb(reccnt)
+ 04E3 21110019  	lxi h,(nxtrec-reccnt)! dad d ; hl=.fcb(nxtrec) 
+ 04E7 C9        	ret
+                
+                getfcb:
+                	; Set variables from currently addressed fcb
+ 04E8 CDDF04    	call getfcba ; addresses in de, hl
+ 04EB 7E32AA08  	mov a,m! sta vrecord ; vrecord=fcb(nxtrec)
+ 04EF EB7E32A808	xchg! mov a,m! sta rcount ; rcount=fcb(reccnt)
+ 04F4 CDCF04    	call getexta ; hl=.fcb(extnum)
+ 04F7 3A9208    	lda extmsk ; extent mask to a
+ 04FA A6        	ana m ; fcb(extnum) and extmsk
+ 04FB 32A908    	sta extval
+ 04FE C9        	ret
+                
+                setfcb:
+                					; Place values back into current fcb
+ 04FF CDDF04    	call getfcba 			; addresses to de, hl
+ 0502 0E01      	mvi c,1
+CP/M RMAC ASSEM 1.1	#015	CP/M V3.0 LOADER
+
+                
+ 0504 3AAA088177	lda vrecord! add c! mov m,a 	; fcb(nxtrec)=vrecord+seqio
+ 0509 EB3AA80877	xchg! lda rcount! mov m,a 	; fcb(reccnt)=rcount
+ 050E C9        	ret
+                
+                hlrotr:
+                					; hl rotate right by amount c
+ 050F 0C        	inr c 				; in case zero
+ 0510 0DC8      	hlrotr0: dcr c! rz 		; return when zero
+                
+ 0512 7CB71F67  	mov a,h! ora a! rar! mov h,a 	; high byte
+ 0516 7D1F6F    	mov a,l! rar! mov l,a 		; low byte
+ 0519 C31005    	jmp hlrotr0
+                
+                hlrotl:
+                				 	; Rotate the mask in hl by amount in c
+ 051C 0C         	inr c 				; may be zero
+ 051D 0DC8       	hlrotl0: dcr c! rz 		; return if zero
+                
+ 051F 29C31D05  	dad h! jmp hlrotl0
+                
+                set$cdisk:
+                				; Set a "1" value in curdsk position of bc
+ 0523 3AC708    	lda seldsk
+ 0526 C5        	push b 				; Save input parameter
+ 0527 4F        	mov c,a 			; Ready parameter for shift
+ 0528 210100    	lxi h,1 			; number to shift
+ 052B CD1C05    	call hlrotl 			; hl = mask to integrate
+ 052E C1        	pop b 				; original mask
+ 052F 79B56F    	mov a,c! ora l! mov l,a
+ 0532 78B467    	mov a,b! ora h! mov h,a 	; hl = mask or rol(1,curdsk)
+ 0535 C9        	ret
+                
+                test$vector:
+ 0536 3AC708    	lda seldsk
+ 0539 4FCD0F05  	mov c,a! call hlrotr
+ 053D 7DE601C9  	mov a,l! ani 1b! ret 		; non zero if curdsk bit on
+                
+                getdptra:
+                			; Compute the address of a directory element at
+                			; positon dptr in the buffer
+                
+ 0541 2A75083AB2	lhld buffa! lda dptr
+                					; hl = hl + a
+ 0547 856FD0    	add l! mov l,a! rnc
+                					; overflow to h
+ 054A 24C9      	inr h! ret
+                
+                clr$ext:
+                			; fcb ext = fcb ext & 1fh
+                
+ 054C CDCF047EE6	call getexta! mov a,m! ani 0001$1111b! mov m,a!
+ 0553 C9        	ret
+                
+                
+                subdh:
+CP/M RMAC ASSEM 1.1	#016	CP/M V3.0 LOADER
+
+                			; Compute hl = de - hl
+ 0554 7B956F7A9C	mov a,e! sub l! mov l,a! mov a,d! sbb h! mov h,a
+ 055A C9        	ret
+                
+                get$buffa:
+ 055B D5110A0019	push d! lxi d,10! dad d
+ 0560 5E2356    	mov e,m! inx h! mov d,m
+ 0563 EBD1C9    	xchg! pop d! ret
+                
+                
+                rddir:
+                			; Read a directory entry into the directory buffer
+ 0566 CDAF03    	call seek$dir
+ 0569 3A9E08B7CA	lda phymsk! ora a! jz rddir1
+ 0570 3E03      	mvi a,3
+ 0572 CDD108C384	call deblock$dir! jmp setdata
+                
+                rddir1:
+ 0578 CD8A05    	call setdir 				; directory dma
+ 057B 227508CDC3	shld buffa! call seek
+ 0581 CD9C03    	call rdbuff 				; directory record loaded
+                
+                setdata:
+                			; Set data dma address
+ 0584 2AC508C390	lhld dmaad! jmp setdma 			; to complete the call
+                
+                setdir:
+                			; Set directory dma address
+                
+ 058A 2A8708    	lhld dirbcba
+ 058D CD5B05    	call get$buffa
+                
+                setdma:
+                			; hl=.dma address to set (i.e., buffa or dmaad)
+ 0590 227308C9  	shld curdma! ret
+                
+                end$of$dir:
+                			; Return zero flag if at end of directory, non zero
+                			; if not at end (end of dir if dcnt = 0ffffh)
+ 0594 21CC08    	lxi h,dcnt
+ 0597 7E        	mov a,m 			; may be 0ffh
+ 0598 23BE      	inx h! cmp m 			; low(dcnt) = high(dcnt)?
+ 059A C0        	rnz 				; non zero returned if different
+                					; high and low the same, = 0ffh?
+ 059B 3C        	inr a 				; 0ffh becomes 00 if so
+ 059C C9        	ret
+                
+                set$end$dir:
+                			; Set dcnt to the end of the directory
+ 059D 21FFFF22CC	lxi h,enddir! shld dcnt! ret
+                
+                
+                read$dir:
+                		; Read next directory entry, with c=true if initializing
+                
+ 05A4 2A9508EB  	lhld dirmax! xchg 		; in preparation for subtract
+CP/M RMAC ASSEM 1.1	#017	CP/M V3.0 LOADER
+
+ 05A8 2ACC082322	lhld dcnt! inx h! shld dcnt 	; dcnt=dcnt+1
+                
+                					; while(dirmax >= dcnt)
+ 05AF CD5405    	call subdh 			; de-hl
+ 05B2 DA9D05    	jc set$end$dir
+                				; not at end of directory, seek next element
+                				; initialization flag is in c
+                
+ 05B5 3ACC08E603		lda dcnt! ani dskmsk 	; low(dcnt) and dskmsk
+ 05BA 0605      		mvi b,fcbshf 		; to multiply by fcb size
+                
+                	read$dir1:
+ 05BC 8705C2BC05		add a! dcr b! jnz read$dir1
+                					; a = (low(dcnt) and dskmsk) shl fcbshf
+ 05C1 32B208    		sta dptr 		; ready for next dir operation
+ 05C4 B7C0      		ora a! rnz 		; Return if not a new record
+                
+ 05C6 C5        		push b 			; Save initialization flag c
+ 05C7 CD6605    		call rd$dir 		; Read the directory record
+ 05CA C1        		pop b 			; Recall initialization flag
+ 05CB C9        		ret
+                compext:
+                			; Compare extent# in a with that in c, return nonzero
+                			; if they do not match
+ 05CC C5        	push b 				; Save c's original value
+ 05CD F53A92082F	push psw! lda extmsk! cma! mov b,a
+                					; b has negated form of extent mask
+ 05D3 79A04F    	mov a,c! ana b! mov c,a 	; low bits removed from c
+ 05D6 F1A0      	pop psw! ana b 			; low bits removed from a
+ 05D8 91E61F    	sub c! ani maxext 		; Set flags
+ 05DB C1        	pop b 				; Restore original values
+ 05DC C9        	ret
+                
+                get$dir$ext:
+                			; Compute directory extent from fcb
+                			; Scan fcb disk map backwards
+ 05DD CDDF04    	call getfcba 	; hl = .fcb(vrecord)
+ 05E0 0E10410CC5	mvi c,16! mov b,c! inr c! push b
+                			; b=dskmap pos (rel to 0)
+                get$de0:
+ 05E5 C1        	pop b
+ 05E6 0D        	dcr c
+ 05E7 AF        	xra a 				; Compare to zero
+                get$de1:
+ 05E8 2B05      	dcx h! dcr b			; Decr dskmap position
+ 05EA BEC2F205  	cmp m! jnz get$de2 		; fcb(dskmap(b)) ~= 0
+ 05EE 0DC2E805  	dcr c! jnz get$de1
+                				; c = 0 -> all blocks = 0 in fcb disk map
+                get$de2:
+ 05F2 7932A408  	mov a,c! sta dminx
+ 05F6 3AA608B778	lda single! ora a! mov a,b
+ 05FB C2FF05    	jnz get$de3
+ 05FE 1F        	rar 				; not single, divide blk idx by 2
+                get$de3:
+ 05FF C5E5      	push b! push h 			; Save dskmap position & count
+ 0601 6F2600    	mov l,a! mvi h,0 		; hl = non-zero blk idx
+CP/M RMAC ASSEM 1.1	#018	CP/M V3.0 LOADER
+
+                					; Compute ext offset from last non-zero
+                					; block index by shifting blk idx right
+                					; 7 - blkshf
+ 0604 3A9008573E	lda blkshf! mov d,a! mvi a,7! sub d
+ 060B 4FCD0F0545	mov c,a! call hlrotr! mov b,l
+                					; b = ext offset
+ 0610 3A9208B8E1	lda extmsk! cmp b! pop h! jc get$de0
+                				; Verify computed extent offset <= extmsk
+ 0618 CDCF044E  	call getexta! mov c,m
+ 061C 2FE61FA1B0	cma! ani maxext! ana c! ora b
+                		; dir ext = (fcb ext & (~ extmsk) & maxext) | ext offset
+ 0621 C1        	pop b 				; Restore stack
+ 0622 C9        	ret 				; a = directory extent
+                
+                
+                search:
+                			; Search for directory element of length c at info
+ 0623 2AC80822CE	lhld info! shld searcha 	; searcha = info
+ 0629 7932D008  	mov a,c! sta searchl 		; searchl = c
+                
+ 062D CD9D05    	call set$end$dir 		; dcnt = enddir
+ 0630 CD8003    	call home 			; to start at the beginning
+                
+                searchn:
+                			; Search for the next directory element, assuming
+                			; a previous call on search which sets searcha and
+                			; searchl
+                
+ 0633 0E00CDA405	mvi c,false! call read$dir 	; Read next dir element
+ 0638 CD9405CA84	call end$of$dir! jz lret$eq$ff
+                					; not end of directory, scan for match
+ 063E 2ACE08EB  	lhld searcha! xchg 		; de=beginning of user fcb
+                
+ 0642 CD4105    		call getdptra 		; hl = buffa+dptr
+ 0645 3AD0084F  		lda searchl! mov c,a 	; length of search to c
+ 0649 0600      		mvi b,0 		; b counts up, c counts down
+                
+ 064B 7EFEE5CA33		mov a,m! cpi empty! jz searchn
+                
+                  searchloop:
+ 0651 79B7CA7D06			mov a,c! ora a! jz endsearch
+                					; Scan next character if not ubytes
+ 0656 78FE0DCA76			mov a,b! cpi ubytes! jz searchok
+                					; not the ubytes field, extent field?
+ 065C FE0C      			cpi extnum 	; may be extent field
+ 065E CA6B06    			jz searchext 	; Skip to search extent
+ 0661 1A        			ldax d
+ 0662 96E67F    			sub m! ani 7fh 	; Mask-out flags/extent modulus
+ 0665 C23306    			jnz searchn 	; Skip if not matched
+ 0668 C37606    			jmp searchok 	; matched character
+                		searchext:
+ 066B 1A        			ldax d
+                					; Attempt an extent # match
+ 066C C5        			push b 		; Save counters
+ 066D 4E        			mov c,m 	; directory character to c
+ 066E CDCC05    			call compext 	; Compare user/dir char
+CP/M RMAC ASSEM 1.1	#019	CP/M V3.0 LOADER
+
+ 0671 C1        			pop b 		; Recall counters
+ 0672 B7        			ora a 		; Set flag
+ 0673 C23306    			jnz searchn 	; Skip if no match
+                		searchok:
+                					; current character matches
+ 0676 1323040D  			inx d! inx h! inr b! dcr c
+ 067A C35106    			jmp searchloop
+                		endsearch:
+                				; entire name matches, return dir position
+ 067D AF        			xra a
+ 067E 32F202    			sta lret 	; lret = 0
+                					; successful search -
+                					; return with zero flag reset
+ 0681 4704      			mov b,a! inr b
+ 0683 C9        			ret
+                		lret$eq$ff:
+                					; unsuccessful search -
+                					; return with zero flag set
+                					; lret,low(aret) = 0ffh
+ 0684 3EFF4704C3			mvi a,255 ! mov b,a ! inr b ! jmp sta$ret
+                
+                open:
+                			; Search for the directory entry, copy to fcb
+ 068B 0E0FCD2306	mvi c,namlen! call search
+ 0690 C8        	rz 				; Return with lret=255 if end
+                
+                			; not end of directory, copy fcb information
+                open$copy:
+ 0691 CDCF047EF5	call getexta ! mov a,m ! push a	; save extent to check for extent
+                					; folding - move moves entire dir FCB
+ 0696 CD4105EB  	call getdptra! xchg 		; hl = .buff(dptr)
+ 069A 2AC808    	lhld info 			; hl=.fcb(0)
+ 069D 0E20      	mvi c,nxtrec 			; length of move operation
+ 069F CD3203    	call move 			; from .buff(dptr) to .fcb(0)
+                
+                			; Note that entire fcb is copied, including indicators
+                
+ 06A2 CDDD054F  	call get$dir$ext! mov c,a
+ 06A6 F177      	pop a ! mov m,a			; restore extent
+                
+                		; hl = .user extent#, c = dir extent#
+                		; above move set fcb(reccnt) to dir(reccnt)
+                		; if fcb ext < dir ext then fcb(reccnt) = fcb(reccnt) | 128
+                		; if fcb ext = dir ext then fcb(reccnt) = fcb(reccnt)
+                		; if fcb ext > dir ext then fcb(reccnt) = 0
+                
+                set$rc: 				; hl=.fcb(ext), c=dirext
+ 06A8 0600      	mvi b,0
+ 06AA EB21030019	xchg! lxi h,(reccnt-extnum)! dad d
+ 06AF 1A91CAC106	ldax d! sub c! jz set$rc2
+ 06B4 78D2BB06  	mov a,b! jnc set$rc1
+ 06B8 3E8046    	mvi a,128! mov b,m
+                
+                  set$rc1:
+ 06BB 777832A508		mov m,a! mov a,b! sta actual$rc! ret 
+                  set$rc2:
+CP/M RMAC ASSEM 1.1	#020	CP/M V3.0 LOADER
+
+ 06C1 32A508    		sta actual$rc
+ 06C4 7EB7C0    		mov a,m! ora a! rnz 	; ret if rc ~= 0
+ 06C7 3AA408B7C8		lda dminx! ora a! rz 	; ret if no blks in fcb
+ 06CC 3ACB08FE0F		lda fx! cpi 15! rz 	; ret if fx = 15
+ 06D2 3680      		mvi m,128 		; rc = 128
+ 06D4 C9        		ret
+                
+                restore$rc:
+                			; hl = .fcb(extnum)
+                			; if actual$rc ~= 0 then rcount = actual$rc
+ 06D5 E5        	push h
+ 06D6 3AA508B7CA	lda actual$rc! ora a! jz restore$rc1
+ 06DD 11030019  	lxi d,(reccnt-extnum)! dad d
+ 06E1 77AF32A508	mov m,a! xra a! sta actual$rc
+                
+                restore$rc1:
+ 06E6 E1C9      	pop h! ret
+                
+                open$reel:
+                		; Close the current extent, and open the next one
+                		; if possible.
+                
+ 06E8 CDCF04    	call getexta
+ 06EB 7E4F      	mov a,m! mov c,a
+ 06ED 0CCDCC05  	inr c! call compext
+ 06F1 CA0A07    	jz open$reel3
+                
+ 06F4 3E1FA177  	mvi a,maxext! ana c! mov m,a 		; Incr extent field
+ 06F8 0E0FCD2306	mvi c,namlen! call search 		; Next extent found?
+                						; not end of file, open
+ 06FD CD9106    	call open$copy
+                
+                  open$reel2:
+ 0700 CDE804    		call getfcb 			; Set parameters
+ 0703 AF32AA08C3		xra a! sta vrecord! jmp sta$ret ; lret = 0
+                  open$reel3:
+ 070A 34        		inr m 				; fcb(ex) = fcb(ex) + 1
+ 070B CDDD054F  		call get$dir$ext! mov c,a
+                						; Is new extent beyond dir$ext?
+ 070F BED21707  		cmp m! jnc open$reel4 		; no
+ 0713 35        		dcr m 				; fcb(ex) = fcb(ex) - 1
+ 0714 C3D202    		jmp set$lret1
+                  open$reel4:
+ 0717 CDD506    		call restore$rc
+ 071A CDA806C300		call set$rc! jmp open$reel2
+                
+                seqdiskread:
+                			; Sequential disk read operation
+                			; Read the next record from the current fcb
+                
+ 0720 CDE804    	call getfcb 				; sets parameters for the read
+                
+ 0723 3AAA0821A8	lda vrecord! lxi h,rcount! cmp m 	; vrecord-rcount
+                						; Skip if rcount > vrecord
+ 072A DA3C07    	jc recordok
+                
+CP/M RMAC ASSEM 1.1	#021	CP/M V3.0 LOADER
+
+                				; not enough records in the extent
+                				; record count must be 128 to continue
+ 072D FE80      		cpi 128 			; vrecord = 128?
+ 072F C2D202    		jnz setlret1 			; Skip if vrecord<>128
+ 0732 CDE806    		call open$reel 			; Go to next extent if so
+                						; Check for open ok
+ 0735 3AF202B7C2		lda lret! ora a! jnz setlret1 	; Stop at eof
+                
+                  recordok:
+                			; Arrive with fcb addressing a record to read
+                
+ 073C CD9704    		call index 			; Z flag set if arecord = 0
+                
+ 073F CAD202    		jz setlret1 			; Reading unwritten data
+                
+                						; Record has been allocated
+ 0742 CDA904    		call atran 			; arecord now a disk address
+                
+ 0745 3A9E08B7  		lda phymsk! ora a		; if not 128 byte sectors
+ 0749 C2BB08    		jnz read$deblock		; go to deblock
+                
+ 074C CD8405    		call setdata			; Set curdma = dmaad
+ 074F CDC303    		call seek			; Set up for read
+ 0752 CD9C03    		call rdbuff			; Read into (curdma)
+ 0755 C3FF04    		jmp setfcb			; Update FCB
+                
+                curselect:
+ 0758 3AC7083CCA	lda seldsk! inr a! jz sel$error
+ 075F 3D21AB08BE	dcr a! lxi h,curdsk! cmp m! rz
+                
+                				; Skip if seldsk = curdsk, fall into select
+                select:
+                			; Select disk info for subsequent input or output ops
+ 0765 77        	mov m,a 				; curdsk = seldsk
+                
+ 0766 57        	mov d,a 		; Save seldsk in register D for selectdisk call
+ 0767 2A7108CD36	lhld dlog! call test$vector 	; test$vector does not modify DE
+ 076D 5FD5      	mov e,a! push d 		; Send to seldsk, save for test below
+ 076F CD3C03E1  	call selectdisk! pop h 		; Recall dlog vector
+ 0773 D2F402    	jnc sel$error			; returns with C flag set if select ok
+                					; Is the disk logged in?
+ 0776 2D        	dcr l 				; reg l = 1 if so
+ 0777 C8        	rz 				; yes - drive previously logged in
+                
+ 0778 2A71084D44	lhld dlog! mov c,l! mov b,h 	; call ready
+ 077D CD23052271	call set$cdisk! shld dlog 	; dlog=set$cdisk(dlog)
+ 0783 C9        	ret
+                
+                set$seldsk:
+ 0784 3AA30832C7	lda linfo! sta seldsk! ret
+                
+                reselectx:
+ 078B AF32B108C3	xra a! sta high$ext! jmp reselect1
+                reselect:
+                			; Check current fcb to see if reselection necessary
+ 0792 3E80473D4F	mvi a,80h! mov b,a! dcr a! mov c,a 	; b = 80h, c = 7fh
+CP/M RMAC ASSEM 1.1	#022	CP/M V3.0 LOADER
+
+ 0797 2AC8081107	lhld info! lxi d,7! xchg! dad d
+ 079F 7EA0      	mov a,m! ana b
+                						; fcb(7) = fcb(7) & 7fh
+ 07A1 7EA177    	mov a,m! ana c! mov m,a
+                						; high$ext = 80h & fcb(8)
+ 07A4 237EA032B1	inx h! mov a,m! ana b! sta high$ext
+                						; fcb(8) = fcb(8) & 7fh
+ 07AA 7EA177    	mov a,m! ana c! mov m,a
+                						; fcb(ext) = fcb(ext) & 1fh
+ 07AD CD4C05    	call clr$ext
+                
+                	; if fcb(rc) & 80h 
+                	;    then fcb(rc) = 80h, actual$rc = fcb(rc) & 7fh
+                	;    else actual$rc = 0
+                
+ 07B0 CDD7047EA0	call getrcnta! mov a,m! ana b! jz reselect1
+ 07B8 7EA170    	mov a,m! ana c! mov m,b
+                
+                reselect1:
+ 07BB 32A508    	sta actual$rc
+                
+ 07BE 210000    	lxi h,0
+ 07C1 22B308    	shld fcbdsk 				; fcbdsk = 0
+ 07C4 3EFF32CA08	mvi a,true! sta resel 			; Mark possible reselect
+ 07C9 2AC8087E  	lhld info! mov a,m 			; drive select code
+ 07CD E61F      	ani 1$1111b 				; non zero is auto drive select
+ 07CF 3D        	dcr a 			; Drive code normalized to 0..30, or 255
+ 07D0 32A308    	sta linfo 				; Save drive code
+ 07D3 FEFFCADF07	cpi 0ffh! jz noselect
+                				; auto select function, seldsk saved above
+ 07D8 7E32B308  	mov a,m! sta fcbdsk 			; Save drive code
+ 07DC CD8407    	call set$seldsk
+                
+                  noselect:
+ 07DF CD5807    		call curselect
+ 07E2 3E002AC808		mvi a,0 ! lhld info ! mov m,a
+ 07E8 C9        		ret
+                
+                ;
+                ;	individual function handlers
+                ;
+                
+ 02D1 =         func12	equ func$ret
+                
+                func13:
+                
+                			; Reset disk system - initialize to disk 0
+ 07E9 2100002271	lxi h,0! shld dlog
+                
+ 07EF AF32C708  	xra a! sta seldsk
+ 07F3 3D32AB08  	dcr a! sta curdsk
+                
+ 07F7 21800022C5	lxi h,tbuff! shld dmaad 		; dmaad = tbuff
+ 07FD C38405            jmp setdata 				; to data dma address
+                
+                func14:	
+CP/M RMAC ASSEM 1.1	#023	CP/M V3.0 LOADER
+
+                			; Select disk info
+ 0800 CD8407    	call set$seldsk 			; seldsk = linfo
+ 0803 C35807    	jmp curselect
+                
+                func15:
+                			; Open file
+ 0806 CD8B07    	call reselectx
+ 0809 CD8B06CD10	call open! call openx 		; returns if unsuccessful, a = 0
+ 080F C9        	ret
+                
+                openx:
+ 0810 CD9405C8  	call end$of$dir! rz
+ 0814 CDDF047E3C	call getfcba! mov a,m! inr a! jnz openxa
+ 081C 1B1B1A77  	dcx d! dcx d! ldax d! mov m,a
+                openxa:
+                						; open successful
+ 0820 E1        	pop h 					; Discard return address
+ 0821 0E40      	mvi c,0100$0000b
+ 0823 C9        	ret
+                
+ 02D1 =         func16	equ func$ret
+                
+ 02D1 =         func17	equ func$ret
+                
+ 02D1 =         func18	equ func$ret
+                
+ 02D1 =         func19	equ func$ret
+                
+                func20:
+                				; Read a file
+ 0824 CD9207    	call reselect
+ 0827 C32007    	jmp seqdiskread
+                
+ 02D1 =         func21	equ func$ret
+                
+ 02D1 =         func22	equ func$ret
+                
+ 02D1 =         func23	equ func$ret
+                
+ 02D1 =         func24	equ func$ret
+                
+ 082A 3AC708C3CEfunc25: lda seldsk ! jmp sta$ret
+                
+ 0830 EB22C508  func26:	xchg ! shld dmaad
+ 0834 C38405    	jmp setdata
+                
+ 02D1 =         func27	equ func$ret
+                
+ 02D1 =         func28:	equ func$ret
+                
+ 02D1 =         func29	equ func$ret
+                
+ 02D1 =         func30	equ func$ret
+                
+ 02D1 =         func31	equ func$ret
+                
+CP/M RMAC ASSEM 1.1	#024	CP/M V3.0 LOADER
+
+ 02D1 =         func32	equ func$ret
+                
+ 02D1 =         func33	equ func$ret
+                
+ 02D1 =         func34	equ func$ret
+                
+ 02D1 =         func35	equ func$ret
+                
+ 02D1 =         func36	equ func$ret
+                
+ 02D1 =         func37	equ func$ret
+                
+ 02D1 =         func38	equ func$ret
+                
+ 02D1 =         func39	equ func$ret
+                
+ 02D1 =         func40  equ func$ret
+                
+ 02D1 =         func42	equ func$ret
+                
+ 02D1 =         func43	equ func$ret
+                
+ 02D1 =         func44	equ func$ret
+                
+ 02D1 =         func45	equ func$ret
+                
+ 02D1 =         func46	equ func$ret
+                
+ 02D1 =         func47	equ	func$ret
+                
+ 02D1 =         func48	equ func$ret
+                
+ 02D1 =         func49	equ	func$ret
+                
+ 02D1 =         func50	equ	func$ret
+                
+ 02D1 =         func100	equ func$ret	
+                
+ 02D1 =         func101	equ func$ret
+                
+ 02D1 =         func102	equ func$ret
+                
+ 02D1 =         func103	equ func$ret
+                
+ 02D1 =         func104	equ func$ret
+                
+ 02D1 =         func105	equ func$ret
+                
+ 02D1 =         func106	equ func$ret
+                
+ 02D1 =         func107	equ func$ret
+                
+ 02D1 =         func108	equ func$ret
+                
+ 02D1 =         func109	equ func$ret
+                
+CP/M RMAC ASSEM 1.1	#025	CP/M V3.0 LOADER
+
+                
+                goback:
+                			; Arrive here at end of processing to return to user
+ 0837 3ACB08FE0F	lda fx! cpi 15! jc retmon
+ 083F 3AA70832C7	lda olddsk! sta seldsk 			; Restore seldsk
+ 0845 3ACA08B7CA	lda resel! ora a! jz retmon
+                
+ 084C 2AC8083600	lhld info! mvi m,0 ; fcb(0)=0
+ 0851 3AB308B7CA	lda fcbdsk! ora a! jz goback1
+                						; Restore fcb(0)
+ 0858 77        	mov m,a 				; fcb(0)=fcbdsk
+                  goback1:
+                						; fcb(8) = fcb(8) | high$ext
+ 0859 233AB108B6	inx h! lda high$ext! ora m! mov m,a
+                						; fcb(rc) = fcb(rc) | actual$rc
+ 085F CDD7043AA5	call getrcnta! lda actual$rc! ora m! mov m,a
+                						; return from the disk monitor
+                retmon:
+ 0867 2A2902F9  	lhld entsp! sphl
+ 086B 2AF2027D44	lhld aret! mov a,l! mov b,h
+ 0870 C9        	ret
+                ;
+                ;	data areas
+                ;
+ 0871 0000      dlog:	dw	0	; logged-in disks
+ 0873           curdma	ds	word	; current dma address
+ 0875           buffa:	ds	word	; pointer to directory dma address
+                
+                ;
+                ;	curtrka - alloca are set upon disk select
+                ;	(data must be adjacent, do not insert variables)
+                ;	(address of translate vector, not used)
+ 0877           cdrmaxa:ds	word	; pointer to cur dir max value (2 bytes)
+ 0879           curtrka:ds	word	; current track address (2)
+ 087B           curreca:ds	word	; current record address (3)
+ 087D           drvlbla:ds	word	; current drive label byte address (1)
+ 087F           lsn$add:ds	word	; login sequence # address (1)
+                			; +1 -> bios media change flag (1)
+ 0881           dpbaddr:ds	word	; current disk parameter block address
+ 0883           checka:	ds	word	; current checksum vector address
+ 0885           alloca:	ds	word	; current allocation vector address
+ 0887           dirbcba:ds	word	; dir bcb list head
+ 0889           dtabcba:ds	word	; data bcb list head
+                hash$tbla:
+ 088B           	ds	word
+ 088D           	ds	byte
+                
+ 000D =         addlist	equ	$-dpbaddr	; address list size
+                
+                ;
+                ; 	       buffer control block format
+                ;
+                ; bcb format : drv(1) || rec(3) || pend(1) || sequence(1) ||
+                ;	       0         1         4          5
+                ;
+                ;	       track(2) || sector(2) || buffer$add(2) ||
+CP/M RMAC ASSEM 1.1	#026	CP/M V3.0 LOADER
+
+                ;	       6           8            10
+                ;
+                ;	       link(2)
+                ;	       12
+                ;
+                
+                ;	sectpt - offset obtained from disk parm block at dpbaddr
+                ;	(data must be adjacent, do not insert variables)
+ 088E           sectpt:	ds	word	; sectors per track
+ 0890           blkshf:	ds	byte	; block shift factor
+ 0891           blkmsk:	ds	byte	; block mask
+ 0892           extmsk:	ds	byte	; extent mask
+ 0893           maxall:	ds	word	; maximum allocation number
+ 0895           dirmax:	ds	word	; largest directory number
+ 0897           dirblk:	ds	word	; reserved allocation bits for directory
+ 0899           chksiz:	ds	word	; size of checksum vector
+ 089B           offset:	ds	word	; offset tracks at beginning
+ 089D           physhf:	ds	byte	; physical record shift
+ 089E           phymsk:	ds	byte	; physical record mask
+ 0011 =         dpblist	equ	$-sectpt	; size of area
+                ;
+                ;	local variables
+                ;
+ 089F           blk$off:	ds	byte	; record offset within block
+ 08A0           dir$cnt:	ds	byte	; direct i/o count
+                
+ 08A1           tranv:	ds	word	; address of translate vector
+ 08A3           linfo:	ds	byte	; low(info)
+ 08A4           dminx:	ds	byte	; local for diskwrite
+                
+                actual$rc:
+ 08A5           	ds	byte	; directory ext record count
+                
+ 08A6           single:	ds	byte	; set true if single byte allocation map
+                
+                
+ 08A7           olddsk:	ds	byte	; disk on entry to bdos
+ 08A8           rcount:	ds	byte	; record count in current fcb
+ 08A9           extval:	ds	byte	; extent number and extmsk
+                
+ 08AA           vrecord:ds	byte	; current virtual record
+                
+                curdsk:
+                
+ 08AB FF        adrive: db	0ffh	; current disk
+ 08AC           arecord:ds	word	; current actual record
+ 08AE           	ds	byte
+                
+ 08AF           arecord1:	ds	word	; current actual block# * blkmsk
+                
+                ;******** following variable order critical *****************
+                
+ 08B1           high$ext:	ds	byte	; fcb high ext bits
+                ;xfcb$read$only:	ds	byte
+                
+                ;	local variables for directory access
+CP/M RMAC ASSEM 1.1	#027	CP/M V3.0 LOADER
+
+ 08B2           dptr:	ds	byte	; directory pointer 0,1,2,3
+                
+                ;
+                ;	local variables initialized by bdos at entry
+                ;
+ 08B3           fcbdsk:		ds	byte	; disk named in fcb
+                
+ 08B4           phy$off:	ds	byte
+ 08B5           curbcba:	ds	word
+                
+ 08B7           track:		ds	word
+ 08B9           sector:		ds	word
+                
+                read$deblock:
+ 08BB 3E01CDD708	mvi a,1! call deblock$dta
+ 08C0 C3FF04    	jmp setfcb
+                
+ 08C3 00        column		db 	0
+ 08C4 24        outdelim:	db	'$'
+                
+ 08C5 8000      dmaad:		dw	0080h
+ 08C7 00        seldsk:		db	0
+ 08C8 0000      info:		dw	0
+ 08CA 00        resel:		db	0
+ 08CB 00        fx:		db	0
+ 08CC 0000      dcnt:		dw	0
+ 08CE 0000      searcha:	dw	0
+ 08D0 00        searchl:	db	0
+                
+                
+                ; 	**************************
+                ; 	Blocking/Deblocking Module
+                ;	**************************
+                
+                deblock$dir:
+                
+ 08D1 2A8708    	lhld dirbcba
+                
+ 08D4 C3DA08    	jmp deblock
+                
+                deblock$dta:
+ 08D7 2A8908    	lhld dtabcba
+                
+                deblock:
+                
+                	; BDOS Blocking/Deblocking routine
+                	; a = 1 -> read command
+                	; a = 2 -> write command
+                	; a = 3 -> locate command
+                	; a = 4 -> flush command
+                	; a = 5 -> directory update
+                
+ 08DA F5        	push a 				; Save z flag and deblock fx
+                
+                					; phy$off = low(arecord) & phymsk
+                					; low(arecord) = low(arecord) & ~phymsk
+CP/M RMAC ASSEM 1.1	#028	CP/M V3.0 LOADER
+
+ 08DB CD3D09    	call deblock8
+ 08DE 3AAC085FA0	lda arecord! mov e,a! ana b! sta phy$off
+ 08E6 7BA132AC08	mov a,e! ana c! sta arecord
+                
+ 08EB 22B508CD5B	shld curbcba! call getbuffa! shld curdma
+                
+ 08F4 CD4409    	call deblock9
+                					; Is command flush?
+ 08F7 F1F5FE04  	pop a! push a! cpi 4
+ 08FB D20509    	jnc deblock1 			; yes
+                					; Is referenced physical record 
+                					;already in buffer?
+ 08FE CD2803CA15	call compare! jz deblock45 	; yes
+ 0904 AF        	xra a
+                deblock1:
+ 0905 CD4D09    	call deblock10
+                					; Read physical record buffer
+ 0908 3E02CD5509	mvi a,2! call deblock$io
+                
+ 090D CD4409    	call deblock9 			; phypfx = adrive || arecord
+ 0910 CD32033600	call move! mvi m,0 		; zero pending flag
+                
+                deblock45:
+                					; recadd = phybuffa + phy$off*80h
+ 0915 3AB4083C11	lda phy$off! inr a! lxi d,80h! lxi h,0ff80h
+                deblock5:
+ 091F 193DC21F09	dad d! dcr a! jnz deblock5
+ 0924 EB2A730819	xchg! lhld curdma! dad d
+                					; If deblock command = locate
+                					; then buffa = recadd; return
+ 0929 F1FE03C233	pop a! cpi 3! jnz deblock6
+ 092F 227508C9  	shld buffa! ret
+                deblock6:
+ 0933 EB2AC50801	xchg! lhld dmaad! lxi b,80h
+                					; If deblock command = read
+ 093A C34B0A    	jmp move$tpa 			; then move to dma
+                
+                deblock8:
+ 093D 3A9E08472F	lda phymsk! mov b,a! cma! mov c,a! ret
+                
+                deblock9:
+ 0944 2AB50811AB	lhld curbcba! lxi d,adrive! mvi c,4! ret
+                
+                deblock10:
+ 094D 110400    	lxi d,4
+                deblock11:
+ 0950 2AB50819C9	lhld curbcba! dad d! ret
+                
+                deblock$io:
+                					; a = 0 -> seek only
+                					; a = 1 -> write
+                					; a = 2 -> read
+ 0955 F5CDC303  	push a! call seek
+ 0959 F13D      	pop a! dcr a
+ 095B F49C03    	cp rdbuff
+                					; Move track & sector to bcb
+CP/M RMAC ASSEM 1.1	#029	CP/M V3.0 LOADER
+
+ 095E CD4D092323	call deblock10! inx h! inx h
+ 0963 11B7080E04	lxi d,track! mvi c,4! jmp move
+                
+ 09FF           	org	base+((($-base)+255) and 0ff00h)-1
+ 09FF 00        	db	0
+                
+                ; Bios equates
+                
+ 0A00 =         bios$pg		equ	$
+                
+ 0A00 =         bootf		equ	bios$pg+00	; 00. cold boot
+ 0A0C =         conoutf		equ	bios$pg+12	; 04. console output function
+ 0A18 =         homef		equ	bios$pg+24	; 08. disk home function
+ 0A1B =         seldskf		equ	bios$pg+27	; 09. select disk function
+ 0A1E =         settrkf		equ	bios$pg+30	; 10. set track function
+ 0A21 =         setsecf		equ	bios$pg+33	; 11. set sector function
+ 0A24 =         setdmaf		equ	bios$pg+36	; 12. set dma function
+ 0A30 =         sectran		equ	bios$pg+48	; 16. sector translate
+ 0A4B =         movef		equ	bios$pg+75	; 25. memory move function
+ 0A27 =         readf		equ	bios$pg+39	; 13. read disk function
+ 0A4B =         move$out	equ	movef
+ 0A4B =         move$tpa	equ	movef
+                
+ 0A00           		end
+

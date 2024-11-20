@@ -1,0 +1,414 @@
+CP/M RMAC ASSEM 1.1	#001	BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)
+
+                ;********************************************************************************************
+                ;
+                ; BOOT.ASM - S220918
+                ; CP/M 3.0 BOOT LOADER BIOS MODULE FOR THE Z80-MBC2 (HW ref. A040618)
+                ;
+                ; Required IOS S220718-R190918 (or newer revisions until otherwise stated)
+                ;
+                ; NOTE: Use the RMAC.COM relocatable assembler
+                ;
+                ;
+                ;
+                ;********************************************************************************************
+                
+                    TITLE   'BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)'
+                
+                    ; DEFINE LOGICAL VALUES:
+ FFFF =         TRUE        EQU -1
+ 0000 =         FALSE       EQU NOT TRUE
+                
+                    ; DETERMINE IF FOR BANK SELECT OR NOT:
+ 0000 =         BANKED      EQU FALSE               ; <------ BANKED/NON-BANKED SWITCH
+                
+                    ; DEFINE PUBLIC LABELS:
+                    PUBLIC  ?INIT,?LDCCP,?RLCCP,?TIME
+                    ;PUBLIC  OUT$BLOCKS
+                
+                    ; EXTERNALLY DEFINED ENTRY POINTS AND LABELS:
+                    EXTRN   ?PMSG,?CONIN
+                    EXTRN   @CIVEC,@COVEC,@AIVEC,@AOVEC,@LOVEC
+                    EXTRN   @CBNK,?BNKSL
+                    EXTRN   @SEC,@MIN,@HOUR,@DATE   ;FIELDS HOLDING CURRENT TIME AND DATE
+                
+                    ; INCLUDE Z-80 MACROS:
+                    MACLIB  Z80
+                
+                    ; SOME MISCELLANEOUS EQUATES:
+ 0005 =         BDOS    EQU 5
+ 000D =         CR      EQU 13          ; ASCII CARRIAGE RETURN
+ 000A =         LF      EQU 10          ; ASCII LINEFEED
+                
+                ; --------------------------------------------------------------------------------
+                ;
+                ; Z80-MBC2 IOS equates
+                ;
+                ; --------------------------------------------------------------------------------
+                
+ 0000 =         EXC$WR$OPCD  EQU    000H      ; Address of the EXECUTE WRITE OPCODE write port
+ 0000 =         EXC$RD$OPCD  EQU    000H      ; Address of the EXECUTE READ OPCODE read port
+ 0001 =         STO$OPCD     EQU    001H      ; Address of the STORE OPCODE write port
+ 0001 =         SERIAL$RX    EQU    001H      ; Address of the SERIAL RX read port
+ 0001 =         SERTX$OPC    EQU    001H      ; SERIAL TX opcode
+ 0009 =         SELDISK$OPC  EQU    009H      ; SELDISK opcode
+ 000A =         SELTRCK$OPC  EQU    00AH      ; SELTRACK opcode
+ 000B =         SELSECT$OPC  EQU    00BH      ; SELSECT opcode
+ 000C =         WRTSECT$OPC  EQU    00CH      ; WRITESECT opcode
+ 0083 =         SYSFLAG$OPC  EQU    083H      ; SYSFLAG opcode
+CP/M RMAC ASSEM 1.1	#002	BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)
+
+ 0084 =         DATETIM$OPC  EQU    084H      ; DATETIME opcode
+ 0085 =         ERRDSK$OPC   EQU    085H      ; ERRDISK opcode
+ 0086 =         RDSECT$OPC   EQU    086H      ; READSECT opcode
+ 0087 =         SDMOUNT$OPC  EQU    087H      ; SDMOUNT opcode
+                
+                
+                    ; WE CAN DO INITIALIZATION FROM BANKED MEMORY (IF WE HAVE IT):
+                    IF  BANKED
+                    ; --------------------------
+                    DSEG                ; INIT DONE FROM BANKED MEMORY
+                    ; --------------------------
+                    ELSE
+                    ; --------------------------
+                    CSEG                ; INIT TO BE DONE FROM COMMON MEMORY
+                    ; --------------------------
+                    ENDIF
+                
+                    ; HARDWARE INITIALIZATION OTHER THAN CHARACTER AND DISK I/O
+                    
+                ?INIT:
+                    ; ASSIGN CONSOLE INPUT AND OUTPUT TO CRT:
+ 0000 210080        LXI H,8000H         ;SIGNIFIES DEVICE 0
+ 0003 220000        SHLD    @CIVEC      ;CONSOLE INPUT VECTOR
+ 0006 220000        SHLD    @COVEC      ;CONSOLE OUTPUT VECTOR
+                    
+                    ; PRINT THE SIGN-ON MESSAGE:
+ 0009 215801        LXI H,SIGNON$MSG    ;POINT TO IT
+ 000C C30000        JMP ?PMSG           ;AND PRINT IT
+                    ; Note: "RET" here is not needed because we use the that one at the end of ?PMSG
+                
+                    IF  BANKED
+                    ; --------------------------
+                    CSEG
+                    ; --------------------------
+                    ENDIF
+                
+                    ; THIS ROUTINE IS ENTERED TO LOAD THE CCP.COM FILE INTO THE TPA BANK
+                    ;  AT SYSTEM COLD START
+                    
+                ?LDCCP:
+                    ; SET UP THE FCB FOR THE FILE OPERATION
+                    ; NOTE: If banked at this point bank 1 is alredy selected
+                    ; (see BIOSKRNL.ASM)
+ 000F AF            XRA A               ;ZERO EXTENT
+ 0010 324401        STA CCP$FCB+15
+ 0013 210000        LXI H,0             ;START AT BEGINNING OF FILE
+ 0016 225501        SHLD    FCB$NR
+                
+                    ; TRY TO OPEN THE CCP.COM FILE:
+ 0019 113501        LXI D,CCP$FCB       ;POINT TO FCB
+ 001C CD0001        CALL    OPEN        ;ATTEMPT THE OPEN OPERATION
+ 001F 3C            INR A               ;WAS IT ON THE DISK ?
+                    JRNZ    CCP$FOUND   ;YES -- GO LOAD IT
+ 0020+20        	DB	20H
+ 0021+0B        	DB	CCP$FOUND-$-1
+                
+CP/M RMAC ASSEM 1.1	#003	BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)
+
+                    ; WE ARRIVE HERE WHEN CCP.COM FILE WASN'T FOUND:
+ 0022 211401        LXI H,CCP$MSG       ;REPORT THE ERROR
+ 0025 CD0000        CALL    ?PMSG
+ 0028 CD0000        CALL    ?CONIN      ;GET A RESPONSE
+                    JR  ?LDCCP          ;AND TRY AGAIN
+ 002B+18        	DB	18H
+ 002C+E2        	DB	?LDCCP-$-1
+                
+                    ; FILE WAS OPENED OK -- READ IT IN:
+                CCP$FOUND:
+ 002D 110001        LXI D,0100H         ;LOAD AT BOTTOM OF TPA
+ 0030 CD0501        CALL    SETDMA      ;BY SETTING THE NEXT DMA ADDRESS
+ 0033 118000        LXI D,128           ;SET MULTI SECTOR I/O COUNT
+ 0036 CD0A01        CALL    SETMULTI    ; TO ALLOW UP TO 16K BYTES IN ONE OPERATION
+ 0039 113501        LXI D,CCP$FCB       ;POINT TO THE FCB
+ 003C CD0F01        CALL    READ        ;AND READ THE CCP IN
+ 003F C9            RET
+                
+                    ; ROUTINE RELOADS CCP IMAGE FROM BANK 2 IF BANKED SYSTEM OR FROM THE
+                    ;  DISK IF NON-BANKED VERSION
+                    
+                ?RLCCP:
+ 0040 C30F00        JMP ?LDCCP          ;JUST DO LOAD AS THOUGH COLD BOOT
+                
+                ; --------------------------------------------------------------------------------
+                ;    
+                ; SETS/GETS TIME (Z80-MBC2)
+                ;
+                ; The time of day is kept as four fields. 
+                ; @DATE is a binary word containing the number of days since 31 December 1977. 
+                ; The bytes @HOUR, @MIN, and @SEC in the System Control Block contain the 
+                ; hour, minute, and second in Binary Coded Decimal (BCD) format.
+                ;
+                ; C = Get/Set Flag
+                ; C=000H if get, C=0FFH if set
+                ; (see Appendix J, Table J-1 of CP/M 3 System Guide)
+                ;
+                ; NOTE1: Only the Get function is implemented. 
+                ;        To change RTC date/time use the IOS "SELECT BOOT MODE OR SYSTEM PARAMETERS" menu.
+                ; NOTE2: Because the IOS RTC year is from 00 to 99 only date from 1-1-2000 to 31-12-2099
+                ;        are valid for this algorithm (I think that it's enough...)
+                ;
+                ; --------------------------------------------------------------------------------
+                
+                ?TIME:
+                    ;
+                    ; Check if it is a get time operation
+ 0043 79            mov     a, c
+ 0044 B7            ora     a                   ; Get/Set Flag = 0?
+ 0045 C0            rnz                         ; Return if it is a Set Time request
+                    ;
+                    ; Check if the RTC module is present
+ 0046 3E83          mvi     a, SYSFLAG$OPC      ; Select SYSFLAG opcode
+ 0048 D301          out     STO$OPCD    
+ 004A DB00          in      EXC$RD$OPCD         ; A = SYSFLAG
+ 004C E602          ani     02h                 ; Isolate the RTC flag bit
+CP/M RMAC ASSEM 1.1	#004	BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)
+
+ 004E C8            rz                          ; Return if the RTC is not present
+ 004F C5            push    b
+ 0050 D5            push    d
+ 0051 E5            push    h
+                    ;
+                    ; Load date/time from the RTC to RTCBUFF
+ 0052 3E84          mvi     a, DATETIM$OPC      ; Select DATETIME opcode
+ 0054 D301          out     STO$OPCD    
+ 0056 0E00          mvi     c, EXC$RD$OPCD      ; C = EXECUTE READ opcode
+ 0058 21FA00        lxi     h, RTCBUFF          ; HL -> RTC Buffer
+ 005B 0606          mvi     b, 6                ; Byte counter = 6
+                    inir                        ; Read date/time to RTCBUFF
+ 005D+EDB2      	DB	0EDH,0B2H
+                    ;
+                    ; Update @SEC (BCD)
+ 005F 01FA00        lxi     b, RTCBUFF          ; BC -> RTC seconds
+ 0062 0A            ldax    b                   ; A = RTC seconds (binary)
+ 0063 CDE700        call    bin2bcd             ; Binary to BCD
+ 0066 320000        sta     @SEC                ; Store it into @SEC
+                    ;
+                    ; Update @MIN (BCD)
+ 0069 03            inx     b                   ; BC -> RTC minutes
+ 006A 0A            ldax    b                   ; A = RTC minutes (binary)
+ 006B CDE700        call    bin2bcd             ; Binary to BCD
+ 006E 320000        sta     @MIN                ; Store it into @MIN
+                    ;
+                    ; Update @HOUR (BCD)
+ 0071 03            inx     b                   ; BC -> RTC hours
+ 0072 0A            ldax    b                   ; A = RTC hours (binary)
+ 0073 CDE700        call    bin2bcd             ; Binary to BCD
+ 0076 320000        sta     @HOUR               ; Store it into @HOUR
+                    ;
+                    ; Calculate how many whole years elapsed from 31-12-1977 to now
+ 0079 3AFF00        lda     RTCYEAR
+ 007C C616          adi     22
+ 007E 4F            mov     c, a                ; C = elapsed_years = (RTCYEAR) + 22
+                    ;
+                    ; Convert it in days into HL (16 bit)
+ 007F AF            xra     a                   ; A = 0
+ 0080 47            mov     b, a                ; B = 0. BC = elapsed_years (16bit)
+ 0081 116D01        lxi     d, 365              ; DE = 365
+ 0084 CDDA00        call    Mult16              ; HL = elapsed_years * 365 = elapsed_years_days
+                    ;
+                    ; Calculate how many whole leap years elapsed from 31-12-1977 to now
+                    ;  (current year excluded) and add it to elapsed_years_days
+ 0087 3AFF00        lda     RTCYEAR
+ 008A B7            ora     a
+                    jrz     addleapyrs          ; If RTCYEAR = 00 -> A = 0
+ 008B+28        	DB	28H
+ 008C+06        	DB	ADDLEAPYRS-$-1
+ 008D 3D            dcr     a                   ; If RTCYEAR > 00 -> A = (RTRYEAR) - 1
+                    srlr    a                   ; / 2S
+ 008E+CB3F      	DB	0CBH, 38H + A
+                    srlr    a                   ; / 4
+ 0090+CB3F      	DB	0CBH, 38H + A
+ 0092 3C            inr     a                   ; If RTCYEAR > 00 -> A = (((RTCYEAR) - 1) / 4) + 1 =
+CP/M RMAC ASSEM 1.1	#005	BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)
+
+                                                ;  leap years from 31-12-1999 to now (current year excluded)
+                addleapyrs:
+ 0093 C605          adi     5                   ; Add leap years from 31-12-1977 to 31-12-1999
+ 0095 4F            mov     c, a                ; C = elapsed_leap_years = (((RTCYEAR) - 1) / 4) + 1 + 5
+ 0096 AF            xra     a                   ; A = 0
+ 0097 57            mov     d, a                ; D = 0
+ 0098 47            mov     b ,a                ; B = 0. BC = elapsed_leap_years (16bit)
+ 0099 09            dad     b                   ; HL = elapsed_years_days + elapsed_leap_years
+                    ;
+                    ; Add days of current month
+ 009A 3AFD00        lda     RTCDAY
+ 009D 4F            mov     c, a                ; BC = days_of_current_month (16bit)
+ 009E 09            dad     b                   ; Add to HL days_of_current_month (BC)
+ 009F 3AFE00        lda     RTCMONTH            ; A = current_month
+ 00A2 3D            dcr     a                   ; A = Number_of_months_before_current
+                    jrz     checkCurrYear       ; Jump if Number_of_months_before_current = 0
+ 00A3+28        	DB	28H
+ 00A4+0C        	DB	CHECKCURRYEAR-$-1
+                    ;
+                    ; Add days of all previous months of current year, starting with January
+ 00A5 01CF00        lxi     b, MONTHTAB         ; BC -> days_of_month (starting from Jan)
+                addDays:
+ 00A8 F5            push    a                   ; Save A = Number_of_months_before_current
+ 00A9 0A            ldax    b                   ; A = days_of_month (month pointed by BC)
+ 00AA 5F            mov     e, a                ; DE = days of month (16bit)
+ 00AB 19            dad     d                   ; Add it to HL
+ 00AC 03            inx     b                   ; BC -> next month
+ 00AD F1            pop     a
+ 00AE 3D            dcr     a                   ; There is an other month?
+                    jrnz    addDays             ; Jump if there is an other month to compute
+ 00AF+20        	DB	20H
+ 00B0+F7        	DB	ADDDAYS-$-1
+                    ;
+                    ; If current year is a leap year and current month is > February add one day
+                    ; to HL
+                checkCurrYear:
+ 00B1 3AFE00        lda     RTCMONTH
+ 00B4 FE03          cpi     3                   ; Current month < March?
+                    jrc     TIMEend             ; Jump if yes
+ 00B6+38        	DB	38H
+ 00B7+10        	DB	TIMEEND-$-1
+ 00B8 3AFF00        lda     RTCYEAR             ; No, check if current year is leap
+ 00BB 47            mov     b, a                ; A = B = current year
+                    srlr    a                   ; / 2
+ 00BC+CB3F      	DB	0CBH, 38H + A
+                    srlr    a                   ; / 4
+ 00BE+CB3F      	DB	0CBH, 38H + A
+                    slar    a                   ; * 2
+ 00C0+CB27      	DB	0CBH, 20H + A
+                    slar    a                   ; * 4
+ 00C2+CB27      	DB	0CBH, 20H + A
+ 00C4 B8            cmp     b                   ; A = B if A is leap
+                    jrnz    TIMEend             ; Jump if not leap
+ 00C5+20        	DB	20H
+ 00C6+01        	DB	TIMEEND-$-1
+ 00C7 23            inx     h                   ; Add 1 to HL
+CP/M RMAC ASSEM 1.1	#006	BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)
+
+                TIMEend:
+                    ;
+                    ; All done, store days from 31-12-1977 to now into @DATE
+ 00C8 220000        shld    @DATE               ; Store the date in days from CP/M epoch
+ 00CB E1            pop     h
+ 00CC D1            pop     d
+ 00CD C1            pop     b
+ 00CE C9            ret
+                    
+                MONTHTAB:
+ 00CF 1F1C1F1E1F    DB      31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30  ; Only Jan-Nov needed
+                    
+                ; Multiply 16-bit values (with 16-bit result)
+                ; In: Multiply BC with DE
+                ; Out: HL = result
+                ;
+                Mult16: 
+ 00DA 78            mov     a,  b
+ 00DB 0610          mvi     b, 16
+                Mult16Loop:
+ 00DD 29            dad     h
+                    slar    c
+ 00DE+CB21      	DB	0CBH, 20H + C
+ 00E0 17            ral
+                    jrnc    Mult16NoAdd
+ 00E1+30        	DB	30H
+ 00E2+01        	DB	MULT16NOADD-$-1
+ 00E3 19            dad     d
+                Mult16NoAdd:
+                    djnz    Mult16Loop
+ 00E4+10        	DB	10H
+ 00E5+F7        	DB	MULT16LOOP-$-1
+ 00E6 C9            ret    
+                    
+                ; BIN to BCD conversion
+                ;    a(BIN) =>  a(BCD) 
+                ;   [0..99] => [00h..99h]
+                ;
+                bin2bcd:
+ 00E7 C5            push    b
+ 00E8 060A          mvi     b,10
+ 00EA 0EFF          mvi     c,-1
+                div10:  
+ 00EC 0C            inr     c
+ 00ED 90            sub     b
+                    jrnc    div10
+ 00EE+30        	DB	30H
+ 00EF+FC        	DB	DIV10-$-1
+ 00F0 80            add     b
+ 00F1 47            mov     b, a
+ 00F2 79            mov     a, c
+ 00F3 87            add     a
+ 00F4 87            add     a
+ 00F5 87            add     a
+ 00F6 87            add     a
+ 00F7 B0            ora     b
+CP/M RMAC ASSEM 1.1	#007	BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)
+
+ 00F8 C1            pop     b
+ 00F9 C9            ret
+                    
+                RTCBUFF:                        ; Buffer for the RTC data (binary)
+ 00FA 01            DB  1                       ; Seconds [0..59]
+ 00FB 01            DB  1                       ; Minutes [0..59]
+ 00FC 01            DB  1                       ; Hours [0..23]
+                RTCDAY;
+ 00FD 01            DB  1                       ; Day [1..31]
+                RTCMONTH:
+ 00FE 01            DB  1                       ; Month [1..12]
+                RTCYEAR:
+ 00FF 01            DB  1                       ; Year [0..99]
+                    
+                ; --------------------------------------------------------------------------------
+                
+                    IF  BANKED
+                    ; --------------------------
+                    CSEG
+                    ; --------------------------
+                    ENDIF
+                
+                    ; CP/M BDOS FUNCTION INTERFACES
+                
+                    ; OPEN FILE:
+                OPEN:
+ 0100 0E0FC30500    MVI C,15 ! JMP BDOS     ; OPEN FILE CONTROL BLOCK
+                
+                    ; SET DMA ADDRESS:
+                SETDMA:
+ 0105 0E1AC30500    MVI C,26 ! JMP BDOS     ; SET DATA TRANSFER ADDRESS
+                
+                    ; SET MULTI SECTOR I/O COUNT:
+                SETMULTI:
+ 010A 0E2CC30500    MVI C,44 ! JMP BDOS     ; SET RECORD COUNT
+                
+                    ; READ FILE RECORD:
+                READ:
+ 010F 0E14C30500    MVI C,20 ! JMP BDOS     ; READ RECORDS
+                
+                    ; CCP NOT FOUND ERROR MESSAGE:
+                CCP$MSG:
+ 0114 0D0A42494F    DB  CR,LF,'BIOS ERR ON A: NO CCP.COM FILE',0
+                
+                
+                    ; FCB FOR CCP.COM FILE LOADING:
+                CCP$FCB:
+ 0135 01            DB  1                   ;AUTO-SELECT DRIVE A
+ 0136 4343502020    DB  'CCP     COM'       ;FILE NAME AND TYPE
+ 0141 00000000      DB  0,0,0,0
+ 0145               DS  16
+ 0155 000000    FCB$NR: DB  0,0,0
+                
+                    ; SYSTEM SIGN-ON MESSAGE:
+                SIGNON$MSG:
+ 0158 0D0A5A3830    DB  CR,LF,'Z80-MBC2 64KB '
+CP/M RMAC ASSEM 1.1	#008	BOOT LOADER MODULE FOR CP/M 3.0 - Z80-MBC2 (A040618)
+
+ 0168 43502F4D20    DB  'CP/M V3.0'
+ 0171 0D0A5A3830    DB  CR,LF,'Z80-MBC2 BIOS Modules: S200918, S210918, S220918, S290918'
+ 01AC 0D0A0A00      DB  CR,LF,LF,0
+                
+ 01B0               END-----------------------
+

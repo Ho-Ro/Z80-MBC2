@@ -1,0 +1,42 @@
+; GENSYSB.SUB
+; Batch to generate CPM3.SYS file for the Z80-MBC2 (A040618)
+; for CP/M 3 128KB Banked
+;
+; Execute as:
+; SUBMIT GENSYSB
+;
+; -----------------------------------------------------------------------
+; You need the DR linker LINK.COM and the DR relocatable macro assembler
+; RMAC.COM to generate the .REL files linked by LINK.COM
+;
+; Needed custom Z80-SBC2 files: BOOT.ASM, CHARIO.ASM, VDISK.ASM, GENCPM.DAT,
+;                               MOVE.ASM
+; Needed ditribution files:     BIOSKRNL.ASM, SCB.ASM, RESBDOS3.SPR, 
+;                               BNKBDOS.SPR
+;
+; NOTE: The GENCPM.DAT is needed for automatic excution of GENCPM.COM
+;       (see CP/M 3 System Guide par. 5.1.1) and it is customized here 
+;       for the Z80-MBC2 (banked system)
+;
+; You need also the following .LIB files: CPM3.LIB, MODEBAUD.LIB, Z80.LIB
+; -----------------------------------------------------------------------
+;
+; Compile with RMAC.COM all the needed .ASM files, generating .REL files
+;
+rmac bioskrnl
+rmac scb
+rmac move
+rmac vdisk
+rmac boot
+rmac chario
+;
+; Make BNKBIOS3.SPR from the .REL files
+;
+link BNKBIOS3[b,os]=bioskrnl,scb,boot,chario,move,vdisk
+;
+; Make CPM3.SYS using the configuration data in GENCPM.DAT
+; Needed ditribution files: RESBDOS3.SPR, BNKBDOS.SPR
+; NOTE: For this you need the GENCPM.DAT file customized for the Z80-MBC2
+;
+gencpm auto
+
