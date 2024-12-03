@@ -911,6 +911,7 @@ void loop()
       // Opcode 0x10  SETOPT          1
       // Opcode 0x11  SETSPP          1
       // Opcode 0x12  WRSPP           1
+      // Opcode 0x7E  SAVEBYTE        1
       // Opcode 0xFF  No operation    1
       //
       //
@@ -929,6 +930,7 @@ void loop()
       // Opcode 0x88  ATXBUFF         1
       // Opcode 0x89  SYSIRQ          1
       // Opcode 0x8A  GETSPP          1
+      // Opcode 0xFE  READBYTE        1
       // Opcode 0xFF  No operation    1
       //
       // See the following lines for the Opcodes details.
@@ -1533,7 +1535,7 @@ void loop()
             //
             // If the SPP mode is enabled send a byte to the SPP. No check is done here to know if the printer is 
             //  ready or not, so you have to use the GETSPP Opcode before for that.
-            // If the SPP mode is disabled (or the GPE is not installed) this Opcode is ignored.
+            // If the SPP mode is disabled (or the GPE is not installed) this Opcode is ignored.  
             //
             // NOTE: to use WRSPP the SETSPP Opcode should be called first to activate the SPP mode of the GPIO port.
             
@@ -1555,6 +1557,9 @@ void loop()
               Wire.write(tempByte);               // Set STROBE bit to not active (High)
               Wire.endTransmission();
             }
+          case 0x7E:
+            // save one byte
+            tempByte = ioData;
           break;
         }
         if ((ioOpcode != 0x0A) && (ioOpcode != 0x0C)) ioOpcode = 0xFF;  // All done for the single byte Opcodes. 
@@ -1970,6 +1975,9 @@ void loop()
                 ioData = Wire.read();
                 ioData = (ioData & 0b11111000) | 0b00000001;      // Set D0 = 1, D1 = D2 = 0
               }
+            case 0xFE:
+              ioData = tempByte;
+
             break;
           }
           if ((ioOpcode != 0x84) && (ioOpcode != 0x86)) ioOpcode = 0xFF;  // All done for the single byte Opcodes. 
