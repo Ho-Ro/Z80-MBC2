@@ -7,15 +7,15 @@ IOS - I/O Subsystem for the  Z80-MBC2 (Multi Boot Computer - Z80 128kB RAM @ 4/8
 
 Notes:
 
-1:  This SW is ONLY for the Atmega32A used as EEPROM and I/O subsystem (16MHz external oscillator) for 
+1:  This SW is ONLY for the Atmega32A used as EEPROM and I/O subsystem (16MHz external oscillator) for
     the Z80 CPU.
-    
+
 2:  Tested on Atmega32A/Atmega1284P @ Arduino IDE 1.8.19 and MightyCore v.2.2.2
 
 3:  Embedded FW: S200718 iLoad (Intel-Hex loader)
 
-4:  To run the stand-alone Basic and Forth interpreters the SD optional module must be installed with 
-    the required binary files on a microSD (FAT16 or FAT32 formatted). Without the SD module you can 
+4:  To run the stand-alone Basic and Forth interpreters the SD optional module must be installed with
+    the required binary files on a microSD (FAT16 or FAT32 formatted). Without the SD module you can
     only run the iLoad loader.
 
 5:  Utilities:   S111216 TASM conversion utility
@@ -25,7 +25,7 @@ Notes:
 
 Credits:
 
-SD library from: https://github.com/greiman/PetitFS (based on 
+SD library from: https://github.com/greiman/PetitFS (based on
 PetitFS: http://elm-chan.org/fsw/ff/00index_p.html)
 
 PetitFS licence:
@@ -47,7 +47,7 @@ PetitFS licence:
 
 Credits:
 
-Thanks to Christian Welzel (http://www.welzel-online.ch) for some suggestions 
+Thanks to Christian Welzel (http://www.welzel-online.ch) for some suggestions
 on Fuzix IRQ handling.
 
 ---------------------------------------------------------------------------------
@@ -59,14 +59,14 @@ CHANGELOG:
 S220718           First revision.
 S220718-R010918   Added "Disk Set" feature to manage multiple OS on SD (multi-booting).
                   Added support for QP/M 2.71 (with file names timestamping).
-                  Added support for Atmega32A @ 20MHz (overclocked) to show the Z80 clock speed 
+                  Added support for Atmega32A @ 20MHz (overclocked) to show the Z80 clock speed
                    accordingly (Note that 20MHz is out of Atmega32A specifications!).
 S220718-R190918   Added support for CP/M 3.
                   Fixed a bug in the manual RTC setting.
 S220718-R260119   Changed the default serial speed to 115200 bps.
-                  Added support for xmodem protocol (extended serial Rx buffer check and  
+                  Added support for xmodem protocol (extended serial Rx buffer check and
                    two new flags into the SYSFLAG Opcode for full 8 bit serial I/O control.
-                  Added support for uTerm (A071218-R250119 and following revisions unless stated otherwise) 
+                  Added support for uTerm (A071218-R250119 and following revisions unless stated otherwise)
                    reset at boot time.
 S220718-R280819   Added a new Disk Set for the UCSD Pascal implementation (porting by Michel Bernard).
 S220718-R240620   Added support for Collapse OS (https://collapseos.org/).
@@ -78,25 +78,25 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
                    added SYSIRQ Opcode to check the triggered IRQ;
                    added SETTICK Opcode to set/change the Systick time;
                   Changed the behavior of the selection 3 of the boot menu and others minor changes.
-                  Added support for the SPP Adapter (A240721-R270921 and following revisions unless stated 
+                  Added support for the SPP Adapter (A240721-R270921 and following revisions unless stated
                    otherwise) for parallel printers with 3 new Opcodes (SETSPP, WRSPP and GETSPP);
-                   please note that now when the GPIO is set to operate as an SPP port all 
-                   the GPIO write Opcodes (GPIOA Write, GPIOB Write, IODIRA Write, IODIRB Write, 
+                   please note that now when the GPIO is set to operate as an SPP port all
+                   the GPIO write Opcodes (GPIOA Write, GPIOB Write, IODIRA Write, IODIRB Write,
                    GPPUA Write, GPPUB Write) are ignored/disabled.
                   Added serial port speed selection inside the boot menu.
                   Added serial port Baud Recovery procedure. It can be triggered only if the serial port was
-                   set at a speed not equal then the default (115200), pressing the RESET + USER keys and 
-                   releasing the RESET key while holding down the USER key for about 4s until both USER and 
-                   IOS leds blink quickly. At the next reboot the serial speed will be set at the default 
+                   set at a speed not equal then the default (115200), pressing the RESET + USER keys and
+                   releasing the RESET key while holding down the USER key for about 4s until both USER and
+                   IOS leds blink quickly. At the next reboot the serial speed will be set at the default
                    value (115200).
                   Added support to run on an Atmega1284/Atmega1284P MCU (leaving more space for customiztions).
-                  Added SETOPT Opcode to enable/disable the message "CP/M WARM BOOT" (if CP/M CBIOS support 
+                  Added SETOPT Opcode to enable/disable the message "CP/M WARM BOOT" (if CP/M CBIOS support
                    this switch).
                   Now if the GPE expansion is found GPA0 and GPA2 are set with pullup enabled. This way if
-                   the SPP adapter is used and a printer is connected, selected online and powered on before 
-                   the Z80-MBC2, possible "strange" printer behaviors are avoided. This makes the STROBE and 
+                   the SPP adapter is used and a printer is connected, selected online and powered on before
+                   the Z80-MBC2, possible "strange" printer behaviors are avoided. This makes the STROBE and
                    INIT lines of the parallel port not active after a power on/reset.
-
+S220718-R010125   Added support for I2C SIO module:
 --------------------------------------------------------------------------------- */
 
 // ------------------------------------------------------------------------------
@@ -161,6 +161,16 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
 #define   DS3231_RTC    0x68  // DS3231 I2C address
 #define   DS3231_SECRG  0x00  // DS3231 Seconds Register
 #define   DS3231_STATRG 0x0F  // DS3231 Status Register
+
+// ------------------------------------------------------------------------------
+//
+// Hardware definitions for A040618 GPE Option (Optional GPIO Expander)
+//
+// ------------------------------------------------------------------------------
+
+#define   SIOEXP_ADDR   0x50  // I2C module address (see datasheet)
+#define   SIO_STAT_CTRL 0x80  // Status (RD) / Control (WR)
+#define   SIO_RXD_TXD   0x81  // RxD (RD) / TxD (WR)
 
 // ------------------------------------------------------------------------------
 //
@@ -242,44 +252,44 @@ const byte    maxDiskSet   = 6;           // Number of configured Disk Sets
 // Z80 programs images into flash and related constants
 const word  boot_A_StrAddr = 0xfd10;      // Payload A image starting address (flash)
 const byte  boot_A_[] PROGMEM = {         // Payload A image (S200718 iLoad)
-  0x31, 0x10, 0xFD, 0x21, 0x52, 0xFD, 0xCD, 0xC6, 0xFE, 0xCD, 0x3E, 0xFF, 0xCD, 0xF4, 0xFD, 0x3E, 
-  0xFF, 0xBC, 0x20, 0x10, 0xBD, 0x20, 0x0D, 0x21, 0xD9, 0xFD, 0xCD, 0xC6, 0xFE, 0x21, 0x88, 0xFD, 
-  0xCD, 0xC6, 0xFE, 0x76, 0xE5, 0x21, 0xD9, 0xFD, 0xCD, 0xC6, 0xFE, 0x21, 0x75, 0xFD, 0xCD, 0xC6, 
-  0xFE, 0xE1, 0xCD, 0x4B, 0xFF, 0xCD, 0x3E, 0xFF, 0xCD, 0x3E, 0xFF, 0xDB, 0x01, 0xFE, 0xFF, 0x20, 
-  0xFA, 0xE9, 0x69, 0x4C, 0x6F, 0x61, 0x64, 0x20, 0x2D, 0x20, 0x49, 0x6E, 0x74, 0x65, 0x6C, 0x2D, 
-  0x48, 0x65, 0x78, 0x20, 0x4C, 0x6F, 0x61, 0x64, 0x65, 0x72, 0x20, 0x2D, 0x20, 0x53, 0x32, 0x30, 
-  0x30, 0x37, 0x31, 0x38, 0x00, 0x53, 0x74, 0x61, 0x72, 0x74, 0x69, 0x6E, 0x67, 0x20, 0x41, 0x64, 
-  0x64, 0x72, 0x65, 0x73, 0x73, 0x3A, 0x20, 0x00, 0x4C, 0x6F, 0x61, 0x64, 0x20, 0x65, 0x72, 0x72, 
-  0x6F, 0x72, 0x20, 0x2D, 0x20, 0x53, 0x79, 0x73, 0x74, 0x65, 0x6D, 0x20, 0x68, 0x61, 0x6C, 0x74, 
-  0x65, 0x64, 0x00, 0x57, 0x61, 0x69, 0x74, 0x69, 0x6E, 0x67, 0x20, 0x69, 0x6E, 0x70, 0x75, 0x74, 
-  0x20, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6D, 0x2E, 0x2E, 0x2E, 0x00, 0x53, 0x79, 0x6E, 0x74, 0x61, 
-  0x78, 0x20, 0x65, 0x72, 0x72, 0x6F, 0x72, 0x21, 0x00, 0x43, 0x68, 0x65, 0x63, 0x6B, 0x73, 0x75, 
-  0x6D, 0x20, 0x65, 0x72, 0x72, 0x6F, 0x72, 0x21, 0x00, 0x69, 0x4C, 0x6F, 0x61, 0x64, 0x3A, 0x20, 
-  0x00, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x20, 0x76, 0x69, 0x6F, 0x6C, 0x61, 0x74, 0x69, 
-  0x6F, 0x6E, 0x21, 0x00, 0xF5, 0xD5, 0xC5, 0x01, 0xFF, 0xFF, 0x21, 0xA3, 0xFD, 0xCD, 0xC6, 0xFE, 
-  0xCD, 0x3E, 0xFF, 0xCD, 0x72, 0xFF, 0xFE, 0x0D, 0x28, 0xF9, 0xFE, 0x0A, 0x28, 0xF5, 0xFE, 0x20, 
-  0x28, 0xF1, 0xCD, 0x1A, 0xFF, 0xCD, 0x69, 0xFF, 0xFE, 0x3A, 0xC2, 0xA3, 0xFE, 0xCD, 0xE1, 0xFE, 
-  0x57, 0x1E, 0x00, 0xCD, 0xBE, 0xFE, 0xCD, 0xD6, 0xFE, 0x3E, 0xFF, 0xB8, 0x20, 0x05, 0xB9, 0x20, 
-  0x02, 0x44, 0x4D, 0x7C, 0xCD, 0xBE, 0xFE, 0x7D, 0xCD, 0xBE, 0xFE, 0xCD, 0xE1, 0xFE, 0xCD, 0xBE, 
-  0xFE, 0xFE, 0x01, 0x20, 0x1E, 0xCD, 0xE1, 0xFE, 0xCD, 0xBE, 0xFE, 0x7B, 0xA7, 0x28, 0x66, 0xCD, 
-  0x3E, 0xFF, 0x21, 0xD9, 0xFD, 0xCD, 0xC6, 0xFE, 0x21, 0xC9, 0xFD, 0xCD, 0xC6, 0xFE, 0x01, 0xFF, 
-  0xFF, 0x18, 0x52, 0x7A, 0xA7, 0x28, 0x2C, 0xCD, 0xE1, 0xFE, 0xCD, 0xBE, 0xFE, 0xE5, 0xC5, 0xA7, 
-  0x01, 0xF0, 0xFC, 0xED, 0x42, 0xC1, 0xE1, 0xDA, 0x8E, 0xFE, 0xCD, 0x3E, 0xFF, 0x21, 0xD9, 0xFD, 
-  0xCD, 0xC6, 0xFE, 0x21, 0xE1, 0xFD, 0xCD, 0xC6, 0xFE, 0x01, 0xFF, 0xFF, 0x18, 0x27, 0x77, 0x23, 
-  0x15, 0x18, 0xD0, 0xCD, 0xE1, 0xFE, 0xCD, 0xBE, 0xFE, 0x7B, 0xA7, 0x20, 0xB2, 0xCD, 0x3E, 0xFF, 
-  0xC3, 0x03, 0xFE, 0xCD, 0x3E, 0xFF, 0x21, 0xD9, 0xFD, 0xCD, 0xC6, 0xFE, 0x21, 0xBB, 0xFD, 0xCD, 
-  0xC6, 0xFE, 0x01, 0xFF, 0xFF, 0xCD, 0x3E, 0xFF, 0x60, 0x69, 0xC1, 0xD1, 0xF1, 0xC9, 0xC5, 0x4F, 
-  0x7B, 0x91, 0x5F, 0x79, 0xC1, 0xC9, 0xF5, 0xE5, 0x7E, 0xFE, 0x00, 0x28, 0x06, 0xCD, 0x69, 0xFF, 
-  0x23, 0x18, 0xF5, 0xE1, 0xF1, 0xC9, 0xF5, 0xCD, 0xE1, 0xFE, 0x67, 0xCD, 0xE1, 0xFE, 0x6F, 0xF1, 
-  0xC9, 0xC5, 0xCD, 0xF4, 0xFE, 0xCB, 0x07, 0xCB, 0x07, 0xCB, 0x07, 0xCB, 0x07, 0x47, 0xCD, 0xF4, 
-  0xFE, 0xB0, 0xC1, 0xC9, 0xCD, 0x72, 0xFF, 0xCD, 0x1A, 0xFF, 0xCD, 0x06, 0xFF, 0x30, 0xF5, 0xCD, 
-  0x23, 0xFF, 0xCD, 0x2E, 0xFF, 0xC9, 0xFE, 0x47, 0xD0, 0xFE, 0x30, 0x30, 0x02, 0x3F, 0xC9, 0xFE, 
-  0x3A, 0xD8, 0xFE, 0x41, 0x30, 0x02, 0x3F, 0xC9, 0x37, 0xC9, 0xFE, 0x61, 0xD8, 0xFE, 0x7B, 0xD0, 
-  0xE6, 0x5F, 0xC9, 0xFE, 0x3A, 0x38, 0x02, 0xD6, 0x07, 0xD6, 0x30, 0xE6, 0x0F, 0xC9, 0xF5, 0xE6, 
-  0x0F, 0xC6, 0x30, 0xFE, 0x3A, 0x38, 0x02, 0xC6, 0x07, 0xCD, 0x69, 0xFF, 0xF1, 0xC9, 0xF5, 0x3E, 
-  0x0D, 0xCD, 0x69, 0xFF, 0x3E, 0x0A, 0xCD, 0x69, 0xFF, 0xF1, 0xC9, 0xE5, 0xF5, 0x7C, 0xCD, 0x58, 
-  0xFF, 0x7D, 0xCD, 0x58, 0xFF, 0xF1, 0xE1, 0xC9, 0xF5, 0xC5, 0x47, 0x0F, 0x0F, 0x0F, 0x0F, 0xCD, 
-  0x2E, 0xFF, 0x78, 0xCD, 0x2E, 0xFF, 0xC1, 0xF1, 0xC9, 0xF5, 0x3E, 0x01, 0xD3, 0x01, 0xF1, 0xD3, 
+  0x31, 0x10, 0xFD, 0x21, 0x52, 0xFD, 0xCD, 0xC6, 0xFE, 0xCD, 0x3E, 0xFF, 0xCD, 0xF4, 0xFD, 0x3E,
+  0xFF, 0xBC, 0x20, 0x10, 0xBD, 0x20, 0x0D, 0x21, 0xD9, 0xFD, 0xCD, 0xC6, 0xFE, 0x21, 0x88, 0xFD,
+  0xCD, 0xC6, 0xFE, 0x76, 0xE5, 0x21, 0xD9, 0xFD, 0xCD, 0xC6, 0xFE, 0x21, 0x75, 0xFD, 0xCD, 0xC6,
+  0xFE, 0xE1, 0xCD, 0x4B, 0xFF, 0xCD, 0x3E, 0xFF, 0xCD, 0x3E, 0xFF, 0xDB, 0x01, 0xFE, 0xFF, 0x20,
+  0xFA, 0xE9, 0x69, 0x4C, 0x6F, 0x61, 0x64, 0x20, 0x2D, 0x20, 0x49, 0x6E, 0x74, 0x65, 0x6C, 0x2D,
+  0x48, 0x65, 0x78, 0x20, 0x4C, 0x6F, 0x61, 0x64, 0x65, 0x72, 0x20, 0x2D, 0x20, 0x53, 0x32, 0x30,
+  0x30, 0x37, 0x31, 0x38, 0x00, 0x53, 0x74, 0x61, 0x72, 0x74, 0x69, 0x6E, 0x67, 0x20, 0x41, 0x64,
+  0x64, 0x72, 0x65, 0x73, 0x73, 0x3A, 0x20, 0x00, 0x4C, 0x6F, 0x61, 0x64, 0x20, 0x65, 0x72, 0x72,
+  0x6F, 0x72, 0x20, 0x2D, 0x20, 0x53, 0x79, 0x73, 0x74, 0x65, 0x6D, 0x20, 0x68, 0x61, 0x6C, 0x74,
+  0x65, 0x64, 0x00, 0x57, 0x61, 0x69, 0x74, 0x69, 0x6E, 0x67, 0x20, 0x69, 0x6E, 0x70, 0x75, 0x74,
+  0x20, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6D, 0x2E, 0x2E, 0x2E, 0x00, 0x53, 0x79, 0x6E, 0x74, 0x61,
+  0x78, 0x20, 0x65, 0x72, 0x72, 0x6F, 0x72, 0x21, 0x00, 0x43, 0x68, 0x65, 0x63, 0x6B, 0x73, 0x75,
+  0x6D, 0x20, 0x65, 0x72, 0x72, 0x6F, 0x72, 0x21, 0x00, 0x69, 0x4C, 0x6F, 0x61, 0x64, 0x3A, 0x20,
+  0x00, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x20, 0x76, 0x69, 0x6F, 0x6C, 0x61, 0x74, 0x69,
+  0x6F, 0x6E, 0x21, 0x00, 0xF5, 0xD5, 0xC5, 0x01, 0xFF, 0xFF, 0x21, 0xA3, 0xFD, 0xCD, 0xC6, 0xFE,
+  0xCD, 0x3E, 0xFF, 0xCD, 0x72, 0xFF, 0xFE, 0x0D, 0x28, 0xF9, 0xFE, 0x0A, 0x28, 0xF5, 0xFE, 0x20,
+  0x28, 0xF1, 0xCD, 0x1A, 0xFF, 0xCD, 0x69, 0xFF, 0xFE, 0x3A, 0xC2, 0xA3, 0xFE, 0xCD, 0xE1, 0xFE,
+  0x57, 0x1E, 0x00, 0xCD, 0xBE, 0xFE, 0xCD, 0xD6, 0xFE, 0x3E, 0xFF, 0xB8, 0x20, 0x05, 0xB9, 0x20,
+  0x02, 0x44, 0x4D, 0x7C, 0xCD, 0xBE, 0xFE, 0x7D, 0xCD, 0xBE, 0xFE, 0xCD, 0xE1, 0xFE, 0xCD, 0xBE,
+  0xFE, 0xFE, 0x01, 0x20, 0x1E, 0xCD, 0xE1, 0xFE, 0xCD, 0xBE, 0xFE, 0x7B, 0xA7, 0x28, 0x66, 0xCD,
+  0x3E, 0xFF, 0x21, 0xD9, 0xFD, 0xCD, 0xC6, 0xFE, 0x21, 0xC9, 0xFD, 0xCD, 0xC6, 0xFE, 0x01, 0xFF,
+  0xFF, 0x18, 0x52, 0x7A, 0xA7, 0x28, 0x2C, 0xCD, 0xE1, 0xFE, 0xCD, 0xBE, 0xFE, 0xE5, 0xC5, 0xA7,
+  0x01, 0xF0, 0xFC, 0xED, 0x42, 0xC1, 0xE1, 0xDA, 0x8E, 0xFE, 0xCD, 0x3E, 0xFF, 0x21, 0xD9, 0xFD,
+  0xCD, 0xC6, 0xFE, 0x21, 0xE1, 0xFD, 0xCD, 0xC6, 0xFE, 0x01, 0xFF, 0xFF, 0x18, 0x27, 0x77, 0x23,
+  0x15, 0x18, 0xD0, 0xCD, 0xE1, 0xFE, 0xCD, 0xBE, 0xFE, 0x7B, 0xA7, 0x20, 0xB2, 0xCD, 0x3E, 0xFF,
+  0xC3, 0x03, 0xFE, 0xCD, 0x3E, 0xFF, 0x21, 0xD9, 0xFD, 0xCD, 0xC6, 0xFE, 0x21, 0xBB, 0xFD, 0xCD,
+  0xC6, 0xFE, 0x01, 0xFF, 0xFF, 0xCD, 0x3E, 0xFF, 0x60, 0x69, 0xC1, 0xD1, 0xF1, 0xC9, 0xC5, 0x4F,
+  0x7B, 0x91, 0x5F, 0x79, 0xC1, 0xC9, 0xF5, 0xE5, 0x7E, 0xFE, 0x00, 0x28, 0x06, 0xCD, 0x69, 0xFF,
+  0x23, 0x18, 0xF5, 0xE1, 0xF1, 0xC9, 0xF5, 0xCD, 0xE1, 0xFE, 0x67, 0xCD, 0xE1, 0xFE, 0x6F, 0xF1,
+  0xC9, 0xC5, 0xCD, 0xF4, 0xFE, 0xCB, 0x07, 0xCB, 0x07, 0xCB, 0x07, 0xCB, 0x07, 0x47, 0xCD, 0xF4,
+  0xFE, 0xB0, 0xC1, 0xC9, 0xCD, 0x72, 0xFF, 0xCD, 0x1A, 0xFF, 0xCD, 0x06, 0xFF, 0x30, 0xF5, 0xCD,
+  0x23, 0xFF, 0xCD, 0x2E, 0xFF, 0xC9, 0xFE, 0x47, 0xD0, 0xFE, 0x30, 0x30, 0x02, 0x3F, 0xC9, 0xFE,
+  0x3A, 0xD8, 0xFE, 0x41, 0x30, 0x02, 0x3F, 0xC9, 0x37, 0xC9, 0xFE, 0x61, 0xD8, 0xFE, 0x7B, 0xD0,
+  0xE6, 0x5F, 0xC9, 0xFE, 0x3A, 0x38, 0x02, 0xD6, 0x07, 0xD6, 0x30, 0xE6, 0x0F, 0xC9, 0xF5, 0xE6,
+  0x0F, 0xC6, 0x30, 0xFE, 0x3A, 0x38, 0x02, 0xC6, 0x07, 0xCD, 0x69, 0xFF, 0xF1, 0xC9, 0xF5, 0x3E,
+  0x0D, 0xCD, 0x69, 0xFF, 0x3E, 0x0A, 0xCD, 0x69, 0xFF, 0xF1, 0xC9, 0xE5, 0xF5, 0x7C, 0xCD, 0x58,
+  0xFF, 0x7D, 0xCD, 0x58, 0xFF, 0xF1, 0xE1, 0xC9, 0xF5, 0xC5, 0x47, 0x0F, 0x0F, 0x0F, 0x0F, 0xCD,
+  0x2E, 0xFF, 0x78, 0xCD, 0x2E, 0xFF, 0xC1, 0xF1, 0xC9, 0xF5, 0x3E, 0x01, 0xD3, 0x01, 0xF1, 0xD3,
   0x00, 0xC9, 0xDB, 0x01, 0xFE, 0xFF, 0xCA, 0x72, 0xFF, 0xC9
   };
 
@@ -313,11 +323,11 @@ byte          iCount;                     // Temporary variable (counter)
 byte          clockMode;                  // Z80 clock HI/LO speed selector (0 = 8/10MHz, 1 = 4/5MHz)
 byte          LastRxIsEmpty;              // "Last Rx char was empty" flag. Is set when a serial Rx operation was done
                                           //  when the Rx buffer was empty
-byte          irqStatus      = 0;         // Store the interrupr status byte (every bit is the status of a different 
+byte          irqStatus      = 0;         // Store the interrupr status byte (every bit is the status of a different
                                           //  interrupt. See the SYSIRQ Opcode)
 byte          sysTickTime  = 100;         // Period in milliseconds of the Z80 Systick interrupt (if enabled)
 byte          RxDoneFlag = 1;             // This flag is set (= 1) soon after a Serial Rx operation (used for Rx interrupt control)
-byte          cpmWarmBootFlg = 0;         // This flag enable/disable (1/0) the message "CP/M WARM BOOT" if 
+byte          cpmWarmBootFlg = 0;         // This flag enable/disable (1/0) the message "CP/M WARM BOOT" if
                                           //  the CP/M CBIOS supports this switch (see the SETOPT Opcode)
 
 // DS3231 RTC variables
@@ -340,24 +350,27 @@ char          diskName[11]    = Z80DISK;  // String used for virtual disk file n
 char          OsName[11]      = DS_OSNAME;// String used for file holding the OS name
 word          trackSel;                   // Store the current track number [0..511]
 byte          sectSel;                    // Store the current sector number [0..31]
-byte          diskErr         = 19;       // SELDISK, SELSECT, SELTRACK, WRITESECT, READSECT or SDMOUNT resulting 
+byte          diskErr         = 19;       // SELDISK, SELSECT, SELTRACK, WRITESECT, READSECT or SDMOUNT resulting
                                           //  error code
 byte          numWriBytes;                // Number of written bytes after a writeSD() call
 byte          diskSet;                    // Current "Disk Set"
 
+// I2C SIO module for AUX I/O
+byte          moduleSIO       = 0;        // Set to 1 if found
+
 // ------------------------------------------------------------------------------
 
-void setup() 
+void setup()
 {
-  
+
 // ------------------------------------------------------------------------------
 //
 //  Local variables
 //
 // ------------------------------------------------------------------------------
 
-  byte          data;                       // External RAM data byte
-  word          address;                    // External RAM current address;
+  // byte          data;                       // External RAM data byte
+  // word          address;                    // External RAM current address;
   char          minBootChar   = '1';        // Minimum allowed ASCII value selection (boot selection)
   char          maxSelChar    = '8';        // Maximum allowed ASCII value selection (boot selection)
   byte          maxBootMode   = 4;          // Default maximum allowed value for bootMode [0..4]
@@ -375,7 +388,7 @@ void setup()
   pinMode(WAIT_RES_, OUTPUT);                     // Configure WAIT_RES_ and set it ACTIVE to reset the WAIT FF (U1C/D)
   digitalWrite(WAIT_RES_, LOW);
 
-  // Check USER Key for boot mode changes 
+  // Check USER Key for boot mode changes
   pinMode(USER, INPUT_PULLUP);                    // Read USER Key to enter into the boot mode selection
   if (!digitalRead(USER)) bootSelection = 1;
 
@@ -414,8 +427,8 @@ void setup()
   pinMode(MCU_CTS_, INPUT_PULLUP);                // Parked (not used)
   pinMode(MCU_RTS_, OUTPUT);
   digitalWrite(MCU_RTS_, LOW);                    // Reset the uTerm optional add-on board
-  delay(100); 
-  digitalWrite(MCU_RTS_, HIGH); 
+  delay(100);
+  digitalWrite(MCU_RTS_, HIGH);
   delay(500);
 
   // Read the Z80 CPU speed mode
@@ -428,7 +441,7 @@ void setup()
 
   // Read the stored Disk Set. If not valid set it to 0
   diskSet = EEPROM.read(diskSetAddr);
-  if (diskSet >= maxDiskSet) 
+  if (diskSet >= maxDiskSet)
   {
     EEPROM.update(diskSetAddr, 0);
     diskSet = 0;
@@ -437,7 +450,7 @@ void setup()
   // Initialize the EXP_PORT (I2C) and search for "known" optional modules
   Wire.begin();                                   // Wake up I2C bus
   Wire.beginTransmission(GPIOEXP_ADDR);
-  if (Wire.endTransmission() == 0) 
+  if (Wire.endTransmission() == 0)
   // Found GPE expansion
   {
     moduleGPIO = 1;                               // Set to 1 if GPIO Module is found
@@ -450,13 +463,22 @@ void setup()
     Wire.endTransmission();
   }
 
+  // Initialize the SIO_PORT (I2C) and search for "known" optional modules
+  Wire.begin();                                   // Wake up I2C bus
+  Wire.beginTransmission(SIOEXP_ADDR);
+  if (Wire.endTransmission() == 0)
+  // Found GPE expansion
+  {
+    moduleSIO = 1;                                // Set to 1 if GPIO Module is found
+  }
+
   // Check the serial speed index and set it to the default if needed
   if (EEPROM.read(serBaudAddr) >= maxBaudIndex)
   // Invalid value. Set it to the default 115200 index
   {
     EEPROM.update(serBaudAddr, 9);
   }
-  
+
   // Print some system information
   Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
   Serial.println(F("\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823\r\n"));
@@ -489,7 +511,7 @@ void setup()
   mountSD(&filesysSD); mountSD(&filesysSD);       // Try to muont the SD volume
   bootMode = EEPROM.read(bootModeAddr);           // Read the previous stored boot mode
   if ((bootSelection == 1 ) || (bootMode > maxBootMode))
-  // Enter in the boot selection menu if USER key was pressed at startup 
+  // Enter in the boot selection menu if USER key was pressed at startup
   //   or an invalid bootMode code was read from internal EEPROM
   {
     while (Serial.available() > 0)                // Flush input serial Rx buffer
@@ -507,7 +529,7 @@ void setup()
       Serial.print(bootMode + 1);
       Serial.println(")");
     }
-    Serial.println(F(" 1: Basic"));   
+    Serial.println(F(" 1: Basic"));
     Serial.println(F(" 2: Forth"));
     Serial.print(F(" 3: Load/set OS "));
     printOsName(diskSet);
@@ -521,7 +543,7 @@ void setup()
     if (!autoexecFlag) Serial.print("ON");
     else Serial.print(F("OFF"));
     Serial.println(")");
-    Serial.print(F(" 8: Set serial port speed (")); 
+    Serial.print(F(" 8: Set serial port speed ("));
     Serial.print(indexToBaud(EEPROM.read(serBaudAddr)));
     Serial.println(")");
 
@@ -539,7 +561,7 @@ void setup()
     {
       WaitAndBlink(CHECK);
       inChar = Serial.read();
-    }               
+    }
     while ((inChar < minBootChar) || (inChar > maxSelChar));
     Serial.print(inChar);
     Serial.println(F("  Ok"));
@@ -571,7 +593,7 @@ void setup()
            inChar = '3';                          // Set to boot the current selected OS
         }
       break;
-      
+
       case '6':                                   // Change the clock speed of the Z80 CPU
         clockMode = !clockMode;                   // Toggle Z80 clock speed mode (High/Low)
         EEPROM.update(clockModeAddr, clockMode);  // Save it to the internal EEPROM
@@ -613,7 +635,7 @@ void setup()
         ChangeRTC();                              // Change RTC Date/Time if requested
       break;
     };
-    
+
     // Save selectd boot program if changed
     bootMode = inChar - '1';                      // Calculate bootMode from inChar
     if (bootMode <= maxBootMode) EEPROM.update(bootModeAddr, bootMode); // Save to the internal EEPROM if required
@@ -640,7 +662,7 @@ void setup()
       BootStrAddr = BASSTRADDR;
       Z80IntRx = 1;                               // Enable Z80 Rx INT_ interrupt signal generation (Z80 M1 INT I/O)
     break;
-    
+
     case 1:                                       // Load Forth from SD
       fileNameSD = FORTHFN;
       BootStrAddr = FORSTRADDR;
@@ -682,20 +704,20 @@ void setup()
       break;
       }
     break;
-    
+
     case 3:                                       // Load AUTOBOOT.BIN from SD (load an user executable binary file)
       fileNameSD = AUTOFN;
       BootStrAddr = AUTSTRADDR;
     break;
-    
+
     case 4:                                       // Load iLoad from flash
-      BootImage = (byte *) pgm_read_word (&flahBootTable[0]); 
+      BootImage = (byte *) pgm_read_word (&flahBootTable[0]);
       BootImageSize = sizeof(boot_A_);
       BootStrAddr = boot_A_StrAddr;
     break;
   }
   digitalWrite(WAIT_RES_, HIGH);                  // Set WAIT_RES_ HIGH (Led LED_0 ON)
-  
+
   // Load a JP instruction if the boot program starting addr is > 0x0000
   if (BootStrAddr > 0x0000)                       // Check if the boot program starting addr > 0x0000
   // Inject a "JP <BootStrAddr>" instruction to jump at boot starting address
@@ -704,7 +726,7 @@ void setup()
     loadByteToRAM(JP_nn);                         // Write the JP instruction @ 0x0000;
     loadByteToRAM(lowByte(BootStrAddr));          // Write LSB to jump @ 0x0001
     loadByteToRAM(highByte(BootStrAddr));         // Write MSB to jump @ 0x0002
-    
+
     //
     // DEBUG ----------------------------------
     if (debug)
@@ -714,12 +736,12 @@ void setup()
     }
     // DEBUG END ------------------------------
     //
-    
+
   }
 
   // Execute the load of the selected file on SD or image on flash
   loadHL(BootStrAddr);                            // Set Z80 HL = boot starting address (used as pointer to RAM);
-  
+
   //
   // DEBUG ----------------------------------
   if (debug)
@@ -727,11 +749,11 @@ void setup()
     Serial.print(F("DEBUG: Flash BootImageSize = "));
     Serial.println(BootImageSize);
     Serial.print(F("DEBUG: BootStrAddr = "));
-    Serial.println(BootStrAddr, HEX);    
+    Serial.println(BootStrAddr, HEX);
   }
   // DEBUG END ------------------------------
   //
-  
+
   if (bootMode < maxBootMode)
   // Load from SD
   {
@@ -813,7 +835,7 @@ void setup()
   // ----------------------------------------
   // Z80 BOOT
   // ----------------------------------------
-  
+
   digitalWrite(RESET_, LOW);                      // Activate the RESET_ signal
 
   #if defined(__AVR_ATmega32__)
@@ -841,14 +863,14 @@ void setup()
   #else
     Serial.print(F("IOS: Current MCU is not supported. Aborted!"));
     while (1);
-  #endif  
+  #endif
 
   pinMode(CLK, OUTPUT);                           // Set OC2 as output and start to output the clock
   Serial.println(F("IOS: Z80 is running from now"));
   Serial.println();
 
   // Flush serial Rx buffer
-  while (Serial.available() > 0) 
+  while (Serial.available() > 0)
   {
     Serial.read();
   }
@@ -860,7 +882,7 @@ void setup()
 
 // ------------------------------------------------------------------------------
 
-void loop() 
+void loop()
 {
   if (!digitalRead(WAIT_))
   // I/O operaton requested
@@ -871,7 +893,7 @@ void loop()
     // ----------------------------------------
     // VIRTUAL I/O WRITE OPERATIONS ENGINE
     // ----------------------------------------
-    
+
     {
       ioAddress = digitalRead(AD0);               // Read Z80 address bus line AD0 (PC2)
       ioData = PINA;                              // Read Z80 data bus D0-D7 (PA0-PA7)
@@ -883,7 +905,7 @@ void loop()
       // Store (write) an "I/O operation code" (Opcode) and reset the exchanged bytes counter.
       //
       // NOTE 1: An Opcode can be a write or read Opcode, if the I/O operation is read or write.
-      // NOTE 2: the STORE Opcode operation must always precede an EXECUTE WRITE Opcode or EXECUTE READ Opcode 
+      // NOTE 2: the STORE Opcode operation must always precede an EXECUTE WRITE Opcode or EXECUTE READ Opcode
       //         operation.
       // NOTE 3: For multi-byte read Opcode (as DATETIME) read sequentially all the data bytes without to send
       //         a STORE Opcode operation before each data byte after the first one.
@@ -903,7 +925,7 @@ void loop()
       // Opcode 0x08  GPPUB Write     1
       // Opcode 0x09  SELDISK         1
       // Opcode 0x0A  SELTRACK        2
-      // Opcode 0x0B  SELSECT         1  
+      // Opcode 0x0B  SELSECT         1
       // Opcode 0x0C  WRITESECT       512
       // Opcode 0x0D  SETBANK         1
       // Opcode 0x0E  SETIRQ          1
@@ -911,6 +933,8 @@ void loop()
       // Opcode 0x10  SETOPT          1
       // Opcode 0x11  SETSPP          1
       // Opcode 0x12  WRSPP           1
+      // Opcode 0x13  SIO CTRL        1
+      // Opcode 0x14  SIO TXD         1
       // Opcode 0xFF  No operation    1
       //
       //
@@ -929,11 +953,13 @@ void loop()
       // Opcode 0x88  ATXBUFF         1
       // Opcode 0x89  SYSIRQ          1
       // Opcode 0x8A  GETSPP          1
+      // Opcode 0x8B  SIO STAT        1
+      // Opcode 0x8C  SIO RXD         1
       // Opcode 0xFF  No operation    1
       //
       // See the following lines for the Opcodes details.
-      // 
-      // .........................................................................................................     
+      //
+      // .........................................................................................................
       {
         ioOpcode = ioData;                        // Store the I/O operation code (Opcode)
         ioByteCnt = 0;                            // Reset the exchanged bytes counter
@@ -952,22 +978,22 @@ void loop()
         // Execute the requested I/O WRITE Opcode. The 0xFF value is reserved as "No operation".
         {
           case  0x00:
-            // USER LED:      
+            // USER LED:
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                              x  x  x  x  x  x  x  0    USER Led off
             //                              x  x  x  x  x  x  x  1    USER Led on
-            
-            if (ioData & 0x01) digitalWrite(USER, LOW); 
+
+            if (ioData & 0x01) digitalWrite(USER, LOW);
             else digitalWrite(USER, HIGH);
           break;
 
           case  0x01:
-            // SERIAL TX:     
+            // SERIAL TX:
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                             D7 D6 D5 D4 D3 D2 D1 D0    ASCII char to be sent to serial
-            
+
             Serial.write(ioData);
           break;
 
@@ -977,8 +1003,8 @@ void loop()
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
-            
-            if (moduleGPIO) 
+
+            if (moduleGPIO)
             {
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(GPIOA_REG);              // Select GPIOA
@@ -986,15 +1012,15 @@ void loop()
               Wire.endTransmission();
             }
           break;
-          
+
           case  0x04:
-            // GPIOB Write (GPE Option): 
-            //   
+            // GPIOB Write (GPE Option):
+            //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOB value (see MCP23017 datasheet)
-            
-            if (moduleGPIO) 
+
+            if (moduleGPIO)
             {
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(GPIOB_REG);              // Select GPIOB
@@ -1002,15 +1028,15 @@ void loop()
               Wire.endTransmission();
             }
           break;
-          
+
           case  0x05:
             // IODIRA Write (GPE Option):
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                             D7 D6 D5 D4 D3 D2 D1 D0    IODIRA value (see MCP23017 datasheet)
-            
-            if (moduleGPIO) 
+
+            if (moduleGPIO)
             {
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(IODIRA_REG);             // Select IODIRA
@@ -1018,15 +1044,15 @@ void loop()
               Wire.endTransmission();
             }
           break;
-          
+
           case  0x06:
             // IODIRB Write (GPE Option):
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                             D7 D6 D5 D4 D3 D2 D1 D0    IODIRB value (see MCP23017 datasheet)
-            
-            if (moduleGPIO) 
+
+            if (moduleGPIO)
             {
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(IODIRB_REG);             // Select IODIRB
@@ -1034,15 +1060,15 @@ void loop()
               Wire.endTransmission();
             }
           break;
-          
+
           case  0x07:
             // GPPUA Write (GPE Option):
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                             D7 D6 D5 D4 D3 D2 D1 D0    GPPUA value (see MCP23017 datasheet)
-            
-            if (moduleGPIO) 
+
+            if (moduleGPIO)
             {
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(GPPUA_REG);              // Select GPPUA
@@ -1050,15 +1076,15 @@ void loop()
               Wire.endTransmission();
             }
           break;
-          
+
           case  0x08:
             // GPPUB Write (GPIO Exp. Mod. ):
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                             D7 D6 D5 D4 D3 D2 D1 D0    GPPUB value (see MCP23017 datasheet)
-            
-            if (moduleGPIO) 
+
+            if (moduleGPIO)
             {
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(GPPUB_REG);              // Select GPPUB
@@ -1066,7 +1092,7 @@ void loop()
               Wire.endTransmission();
             }
           break;
-          
+
           case  0x09:
             // DISK EMULATION
             // SELDISK - select the emulated disk number (binary). 100 disks are supported [0..99]:
@@ -1079,7 +1105,7 @@ void loop()
             // Opens the "disk file" correspondig to the selected disk number, doing some checks.
             // A "disk file" is a binary file that emulates a disk using a LBA-like logical sector number.
             // Every "disk file" must have a dimension of 8388608 bytes, corresponding to 16384 LBA-like logical sectors
-            //  (each sector is 512 bytes long), correspinding to 512 tracks of 32 sectors each (see SELTRACK and 
+            //  (each sector is 512 bytes long), correspinding to 512 tracks of 32 sectors each (see SELTRACK and
             //  SELSECT Opcodes).
             // Errors are stored into "errDisk" (see ERRDISK Opcode).
             //
@@ -1094,13 +1120,13 @@ void loop()
             //    "nn" is the "disk number" and must be in the [00..99] range (always two numeric ASCII characters)
             //
             // ...........................................................................................
-            //          
+            //
             //
             // NOTE 1: The maximum disks number may be lower due the limitations of the used OS (e.g. CP/M 2.2 supports
             //         a maximum of 16 disks)
             // NOTE 2: Because SELDISK opens the "disk file" used for disk emulation, before using WRITESECT or READSECT
             //         a SELDISK must be performed at first.
-  
+
             if (ioData <= maxDiskNum)             // Valid disk number
             // Set the name of the file to open as virtual disk, and open it
             {
@@ -1111,7 +1137,7 @@ void loop()
             }
             else diskErr = 16;                    // Illegal disk number
           break;
-  
+
           case  0x0A:
             // DISK EMULATION
             // SELTRACK - select the emulated track number (word splitted in 2 bytes in sequence: DATA 0 and DATA 1):
@@ -1127,16 +1153,16 @@ void loop()
             //
             // Stores the selected track number into "trackSel" for "disk file" access.
             // A "disk file" is a binary file that emulates a disk using a LBA-like logical sector number.
-            // The SELTRACK and SELSECT operations convert the legacy track/sector address into a LBA-like logical 
+            // The SELTRACK and SELSECT operations convert the legacy track/sector address into a LBA-like logical
             //  sector number used to set the logical sector address inside the "disk file".
-            // A control is performed on both current sector and track number for valid values. 
+            // A control is performed on both current sector and track number for valid values.
             // Errors are stored into "diskErr" (see ERRDISK Opcode).
             //
             //
             // NOTE 1: Allowed track numbers are in the range [0..511] (512 tracks)
             // NOTE 2: Before a WRITESECT or READSECT operation at least a SELSECT or a SELTRAK operation
             //         must be performed
-  
+
             if (!ioByteCnt)
             // LSB
             {
@@ -1161,7 +1187,7 @@ void loop()
             }
             ioByteCnt++;
           break;
-  
+
           case  0x0B:
             // DISK EMULATION
             // SELSECT - select the emulated sector number (binary):
@@ -1173,16 +1199,16 @@ void loop()
             //
             // Stores the selected sector number into "sectSel" for "disk file" access.
             // A "disk file" is a binary file that emulates a disk using a LBA-like logical sector number.
-            // The SELTRACK and SELSECT operations convert the legacy track/sector address into a LBA-like logical 
+            // The SELTRACK and SELSECT operations convert the legacy track/sector address into a LBA-like logical
             //  sector number used to set the logical sector address inside the "disk file".
-            // A control is performed on both current sector and track number for valid values. 
+            // A control is performed on both current sector and track number for valid values.
             // Errors are stored into "diskErr" (see ERRDISK Opcode).
             //
             //
             // NOTE 1: Allowed sector numbers are in the range [0..31] (32 sectors)
             // NOTE 2: Before a WRITESECT or READSECT operation at least a SELSECT or a SELTRAK operation
             //         must be performed
-  
+
             sectSel = ioData;
             if ((trackSel < 512) && (sectSel < 32))
             // Sector and track numbers valid
@@ -1196,7 +1222,7 @@ void loop()
               else diskErr = 18;                  // Illegal sector number
             }
           break;
-  
+
           case  0x0C:
             // DISK EMULATION
             // WRITESECT - write 512 data bytes sequentially into the current emulated disk/track/sector:
@@ -1216,19 +1242,19 @@ void loop()
             //                             D7 D6 D5 D4 D3 D2 D1 D0    512th Data byte (Last byte)
             //
             //
-            // Writes the current sector (512 bytes) of the current track/sector, one data byte each call. 
-            // All the 512 calls must be always performed sequentially to have a WRITESECT operation correctly done. 
+            // Writes the current sector (512 bytes) of the current track/sector, one data byte each call.
+            // All the 512 calls must be always performed sequentially to have a WRITESECT operation correctly done.
             // If an error occurs during the WRITESECT operation, all subsequent write data will be ignored and
             //  the write finalization will not be done.
-            // If an error occurs calling any DISK EMULATION Opcode (SDMOUNT excluded) immediately before the WRITESECT 
+            // If an error occurs calling any DISK EMULATION Opcode (SDMOUNT excluded) immediately before the WRITESECT
             //  Opcode call, all the write data will be ignored and the WRITESECT operation will not be performed.
             // Errors are stored into "diskErr" (see ERRDISK Opcode).
             //
             // NOTE 1: Before a WRITESECT operation at least a SELTRACK or a SELSECT must be always performed
             // NOTE 2: Remember to open the right "disk file" at first using the SELDISK Opcode
-            // NOTE 3: The write finalization on SD "disk file" is executed only on the 512th data byte exchange, so be 
+            // NOTE 3: The write finalization on SD "disk file" is executed only on the 512th data byte exchange, so be
             //         sure that exactly 512 data bytes are exchanged.
-  
+
             if (!ioByteCnt)
             // First byte of 512, so set the right file pointer to the current emulated track/sector first
             {
@@ -1236,12 +1262,12 @@ void loop()
               // Sector and track numbers valid and no previous error; set the LBA-like logical sector
               {
               diskErr = seekSD((trackSel << 5) | sectSel);  // Set the starting point inside the "disk file"
-                                                            //  generating a 14 bit "disk file" LBA-like 
+                                                            //  generating a 14 bit "disk file" LBA-like
                                                             //  logical sector address created as TTTTTTTTTSSSSS
               }
             }
-            
-  
+
+
             if (!diskErr)
             // No previous error (e.g. selecting disk, track or sector)
             {
@@ -1262,7 +1288,7 @@ void loop()
             }
             ioByteCnt++;                          // Increment the counter of the exchanged data bytes
           break;
-  
+
           case  0x0D:
             // BANKED RAM
             // SETBANK - select the Os RAM Bank (binary):
@@ -1280,7 +1306,7 @@ void loop()
             //
             // * the "Os Bank" number is the bank number managed (known) by the Os;
             // * the "Logical Bank" number is the bank seen by the Atmega32a (through BANK1 and BANK0 address lines);
-            // * the "Physical Bank" number is the real bank addressed inside the RAM chip (RAM_A16 and RAM_A15 RAM 
+            // * the "Physical Bank" number is the real bank addressed inside the RAM chip (RAM_A16 and RAM_A15 RAM
             //   address lines).
             //
             // The following tables shows the relations:
@@ -1300,18 +1326,18 @@ void loop()
             //      Physical Bank      |    Logical Bank     |   Physical Bank   |   Physical RAM Addresses
             //          number         |       number        |  RAM_A16 RAM_A15  |
             // ------------------------------------------------------------------------------------------------
-            //            0            |         1           |     0       0     |   From 0x00000 to 0x07FFF 
+            //            0            |         1           |     0       0     |   From 0x00000 to 0x07FFF
             //            1            |         0           |     0       1     |   From 0x08000 to 0x0FFFF
             //            2            |         3           |     1       0     |   From 0x01000 to 0x17FFF
             //            3            |         2           |     1       1     |   From 0x18000 to 0x1FFFF
             //
             //
-            // Note that the Logical Bank 0 can't be used as switchable Os Bank bacause it is the common 
+            // Note that the Logical Bank 0 can't be used as switchable Os Bank bacause it is the common
             //  fixed bank mapped in the upper half of the Z80 address space (from 0x8000 to 0xFFFF).
             //
             //
             // NOTE: If the Os Bank number is greater than 2 no selection is done.
-  
+
             switch (ioData)
             {
               case 0:                             // Os bank 0
@@ -1319,21 +1345,21 @@ void loop()
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, LOW);
               break;
-  
+
               case 1:                             // Os bank 1
                 // Set physical bank 2 (logical bank 3)
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, HIGH);
-              break;  
-  
+              break;
+
               case 2:                             // Os bank 2
                 // Set physical bank 3 (logical bank 2)
                 digitalWrite(BANK0, LOW);
                 digitalWrite(BANK1, HIGH);
-              break;  
+              break;
             }
           break;
-  
+
           case  0x0E:
             // SETIRQ - enable/disable the IRQ generation
             //
@@ -1345,7 +1371,7 @@ void loop()
             //                              X  X  X  X  X  X  1  X    Systick IRQ enabled
             //
             //
-            // The INT_ signal is shared among various interrupt requests. This allows to use the simplified 
+            // The INT_ signal is shared among various interrupt requests. This allows to use the simplified
             //  Mode 1 scheme of the Z80 CPU (fixed jump to 0x0038 on INT_ signal active) with multiple interrupt causes.
             //
             // The SETIRQ purpose is to enable/disable the generation of an IRQ (using the INT_ signal)
@@ -1353,57 +1379,57 @@ void loop()
             //
             // When a IRQ is enabled you have to serve it on the Z80 side with a ISR (Interrupt Service Routine).
             //
-            // Inside the ISR code, you have to read the SYSIRQ Opcode to know the exact causes of the interrupt (see the 
-            //  SYSIRQ Opcode) because multiple causes/bits could be active, so your ISR must be written to check and 
+            // Inside the ISR code, you have to read the SYSIRQ Opcode to know the exact causes of the interrupt (see the
+            //  SYSIRQ Opcode) because multiple causes/bits could be active, so your ISR must be written to check and
             //  serve them all.
             //
             // NOTE 1: Only D0 and D1 are currently used.
-            // NOTE 2: At reset time all the IRQ "triggers" (D7-D0) are normally disabled (unless they are enabled 
+            // NOTE 2: At reset time all the IRQ "triggers" (D7-D0) are normally disabled (unless they are enabled
             //         for special boot cases).
-            // 
+            //
             // ...................................................................................
             //
             // Note about the Z80 CPU interrupt signal generation (INT_ signal):
             //
-            // The current version of IOS is designed to use the Interrupt Mode 1 of the Z80 CPU (when enabled). 
+            // The current version of IOS is designed to use the Interrupt Mode 1 of the Z80 CPU (when enabled).
             // Using this mode an occuring interrupt will cause a jump to the fixed address 0x0038.
-            // Therefore to know wich kind of interrupt was triggered you need to use the SYSIRQ Opcode inside the 
-            //  ISR and store the result (the SYSIRQ Opcode resets his IRQ flags after every call) to jump to the 
+            // Therefore to know wich kind of interrupt was triggered you need to use the SYSIRQ Opcode inside the
+            //  ISR and store the result (the SYSIRQ Opcode resets his IRQ flags after every call) to jump to the
             //  needed serving sub-routines.
-            // 
-            // 
-            // Note about the Serial Rx interrupt signal generation (Z80 CPU): 
-            // 
-            // When enabled an interrupt is generated (INT_ signal LOW) when there is at least one character inside 
-            //  the the serial RX buffer. When the Z80 CPU acknoledges the interrupt request an interrupt acknoledge bus 
-            //  cycle is executed on the Z80 bus, and during this cycle the interrupt request signal is 
+            //
+            //
+            // Note about the Serial Rx interrupt signal generation (Z80 CPU):
+            //
+            // When enabled an interrupt is generated (INT_ signal LOW) when there is at least one character inside
+            //  the the serial RX buffer. When the Z80 CPU acknoledges the interrupt request an interrupt acknoledge bus
+            //  cycle is executed on the Z80 bus, and during this cycle the interrupt request signal is
             //  reset (INT_ signal HIGH) by IOS.
-            // At this point no further serial RX interrupt will be activated until a following serial Rx read I/O 
+            // At this point no further serial RX interrupt will be activated until a following serial Rx read I/O
             //  operation is executed by the Z80 CPU.
-            // 
-            // 
+            //
+            //
             // Note about the Systick interrupt signal generation (Z80 CPU):
-            // 
+            //
             // When enabled an interrupt is generated (INT_ signal LOW) every a given amount of time (default is 100ms).
             // To set/change the Systick time the SETTICK Opcode must be used.
-            // When the Systick interrupt is acknoledged by the Z80 CPU with an interrupt acknoledge bus cycle, the 
+            // When the Systick interrupt is acknoledged by the Z80 CPU with an interrupt acknoledge bus cycle, the
             //  interrupt request signal is reset (INT_ signal HIGH) by IOS.
-            // 
-            // 
+            //
+            //
             // Note about the IOS Opcode calling sequence when interrupt signal generation is enabled:
-            // 
-            // When interrupt is enabled care must be taken when calling IOS Opcodes as they must be considered as an 
-            //  atomic action (calling an Opcode requires at least two I/O operations, where the first one is used to 
+            //
+            // When interrupt is enabled care must be taken when calling IOS Opcodes as they must be considered as an
+            //  atomic action (calling an Opcode requires at least two I/O operations, where the first one is used to
             //  set the operation code).
-            // To ensure safe Opcode calls inside the Z80 user code, before every Opcode call the interrupt must be 
+            // To ensure safe Opcode calls inside the Z80 user code, before every Opcode call the interrupt must be
             //  disabled an re-enabled soon after the completion of the Opcode call.
-            // 
+            //
             // ...................................................................................
-  
+
             Z80IntRx = ioData & 1;                // Enable/disable the Systick IRQ generation
             Z80IntSysTick = (ioData & (1 << 1)) >> 1;  // Enable/disable the Serial Rx IRQ generation
           break;
-  
+
           case  0x0F:
             // SETTICK - set the Systick timer time (milliseconds)
             //
@@ -1416,7 +1442,7 @@ void loop()
             // See SETIRQ and SYSIRQ Opcodes for more info.
             //
             // NOTE: If the time is 0 milliseconds the set operation is ignored.
-  
+
             if (ioData >0) sysTickTime = ioData;
           break;
 
@@ -1437,17 +1463,17 @@ void loop()
 
             cpmWarmBootFlg = ioData & 0x01;
           break;
-  
+
           case  0x11:
             // SPP EMULATION
-            // SETSPP - set the GPIO port into SPP mode:     
+            // SETSPP - set the GPIO port into SPP mode:
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                              x  x  x  x  x  x  x  0    AUTOFD disabled
             //                              x  x  x  x  x  x  x  1    AUTOFD enabled
             //
-            // The SETSPP Opcode is used when an SPP Adapter board is connected to the GPIO port to work as 
+            // The SETSPP Opcode is used when an SPP Adapter board is connected to the GPIO port to work as
             //  a Standard Parallel Port.
             //
             // The following actions are performed:
@@ -1478,36 +1504,36 @@ void loop()
             //                         GPB6    |  D6                    | Out
             //                         GPB7    |  D7                    | Out
             //
-            // NOTE 1: When the GPIO is set to operate as an SPP port all the GPIO write Opcodes (GPIOA Write, GPIOB Write, IODIRA Write, 
+            // NOTE 1: When the GPIO is set to operate as an SPP port all the GPIO write Opcodes (GPIOA Write, GPIOB Write, IODIRA Write,
             //         IODIRB Write, GPPUA Write, GPPUB Write) are ignored/disabled.
             // NOTE 2: If the GPIO expansion module (GPE) is not found this Opcode is ignored.
             // NOTE 3: When the SPP mode is activated cannot be disabled anymore (the only way is reset the board).
-        
+
             if (moduleGPIO)                       // Only if GPE was found
             {
               SPPmode = 1;                        // Set the SPP mode flag
               SPPautofd = (!ioData) & 0x01;       // Store the value of the AUTOFD Control Line (active Low))
-              
+
               // Set STROBE and INIT at 1, and AUTOFD = !D0
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(GPIOA_REG);              // Select GPIOA
               Wire.write(0b00000101 | (byte) (SPPautofd << 1)); // Write value
               Wire.endTransmission();
-              
+
               // Set the GPIO port to work as an SPP port (direction and pullup)
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(IODIRA_REG);             // Select IODIRA
               Wire.write(0b11111000);             // Write value (1 = input, 0 = ouput)
               Wire.endTransmission();
               Wire.beginTransmission(GPIOEXP_ADDR);
-              Wire.write(IODIRB_REG);             // Select IODIRB 
+              Wire.write(IODIRB_REG);             // Select IODIRB
               Wire.write(0b00000000);             // Write value (1 = input, 0 = ouput)
               Wire.endTransmission();
               Wire.beginTransmission(GPIOEXP_ADDR);
               Wire.write(GPPUA_REG);              // Select GPPUA
               Wire.write(0b11111111);             // Write value (1 = pullup enabled, 0 = pullup disabled)
               Wire.endTransmission();
-              
+
               // Initialize the printer using a pulse on INIT
               // NOTE: The I2C protocol introduces delays greater than needed by the SPP, so no further delay is used here to generate the pulse
               tempByte = 0b00000001 | (byte) (SPPautofd << 1);  // Change INIT bit to active (Low)
@@ -1521,22 +1547,22 @@ void loop()
               Wire.write(tempByte);               // Set INIT bit to not active (High)
               Wire.endTransmission();
             }
-          break;  
-  
+          break;
+
           case  0x12:
             // SPP EMULATION
-            // WRSPP - send a byte to the printer attached to the SPP port:     
+            // WRSPP - send a byte to the printer attached to the SPP port:
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            ---------------------------------------------------------
             //                             D7 D6 D5 D4 D3 D2 D1 D0    byte to be sent to SPP
             //
-            // If the SPP mode is enabled send a byte to the SPP. No check is done here to know if the printer is 
+            // If the SPP mode is enabled send a byte to the SPP. No check is done here to know if the printer is
             //  ready or not, so you have to use the GETSPP Opcode before for that.
             // If the SPP mode is disabled (or the GPE is not installed) this Opcode is ignored.
             //
             // NOTE: to use WRSPP the SETSPP Opcode should be called first to activate the SPP mode of the GPIO port.
-            
+
             if (SPPmode)                          // Only if SPP mode is active
             {
               // NOTE: The I2C protocol introduces delays greater than needed by the SPP, so no further delay is used here to generate the pulse
@@ -1556,25 +1582,55 @@ void loop()
               Wire.endTransmission();
             }
           break;
+
+          case  0x13:
+            // SIO CTRL Write:
+            //
+            //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+            //                            ---------------------------------------------------------
+
+            if (moduleSIO)
+            {
+              Wire.beginTransmission(SIOEXP_ADDR);
+              Wire.write(SIO_STAT_CTRL);          // Select GPIOA
+              Wire.write(ioData);                 // Write value
+              Wire.endTransmission();
+            }
+          break;
+
+          case  0x14:
+            // SIO TXD Write:
+            //
+            //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+            //                            ---------------------------------------------------------
+
+            if (moduleSIO)
+            {
+              Wire.beginTransmission(SIOEXP_ADDR);
+              Wire.write(SIO_RXD_TXD);            // Select TX
+              Wire.write(ioData);                 // Write value
+              Wire.endTransmission();
+            }
+          break;
         }
-        if ((ioOpcode != 0x0A) && (ioOpcode != 0x0C)) ioOpcode = 0xFF;  // All done for the single byte Opcodes. 
+        if ((ioOpcode != 0x0A) && (ioOpcode != 0x0C)) ioOpcode = 0xFF;  // All done for the single byte Opcodes.
                                                                         //  Set ioOpcode = "No operation"
       }
-      
+
       // Control bus sequence to exit from a wait state (M I/O write cycle)
       digitalWrite(BUSREQ_, LOW);                 // Request for a DMA
       digitalWrite(WAIT_RES_, LOW);               // Reset WAIT FF exiting from WAIT state
       digitalWrite(WAIT_RES_, HIGH);              // Now Z80 is in DMA, so it's safe set WAIT_RES_ HIGH again
       digitalWrite(BUSREQ_, HIGH);                // Resume Z80 from DMA
     }
-    else 
+    else
       if (!digitalRead(RD_))
       // I/O READ operation requested
 
       // ----------------------------------------
       // VIRTUAL I/O READ OPERATIONS ENGINE
       // ----------------------------------------
-      
+
       {
         ioAddress = digitalRead(AD0);             // Read Z80 address bus line AD0 (PC2)
         ioData = 0;                               // Clear input data buffer
@@ -1588,7 +1644,7 @@ void loop()
         //
         {
           //
-          // SERIAL RX:     
+          // SERIAL RX:
           //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
           //                            ---------------------------------------------------------
           //                             D7 D6 D5 D4 D3 D2 D1 D0    ASCII char read from serial
@@ -1596,9 +1652,9 @@ void loop()
           // NOTE 1: If there is no input char, a value 0xFF is forced as input char.
           // NOTE 2: The INT_ signal is always reset (set to HIGH) after this I/O operation.
           // NOTE 3: This is the only I/O that do not require any previous STORE Opcode operation (for fast polling).
-          // NOTE 4: A "RX buffer empty" flag and a "Last Rx char was empty" flag are available in the SYSFLAG Opcode 
+          // NOTE 4: A "RX buffer empty" flag and a "Last Rx char was empty" flag are available in the SYSFLAG Opcode
           //         to allow 8 bit I/O.
-          
+
           //
           // DEBUG ----------------------------------
           if (debug > 1)
@@ -1610,7 +1666,7 @@ void loop()
           }
           // DEBUG END ------------------------------
           //
-        
+
           ioData = 0xFF;
           if (Serial.available() > 0)
           {
@@ -1619,7 +1675,7 @@ void loop()
           }
           else LastRxIsEmpty = 1;                 // Set the "Last Rx char was empty" flag
           digitalWrite(INT_, HIGH);               // Reset the INT_ signal (if used)
-          irqStatus = irqStatus & B11111110;      // Reset the serial Rx IRQ status bit (see SYSIRQ Opcode) 
+          irqStatus = irqStatus & B11111110;      // Reset the serial Rx IRQ status bit (see SYSIRQ Opcode)
           RxDoneFlag = 1;
         }
         else
@@ -1639,16 +1695,16 @@ void loop()
           // Execute the requested I/O READ Opcode. The 0xFF value is reserved as "No operation".
           {
             case  0x80:
-              // USER KEY:      
+              // USER KEY:
               //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
               //                            ---------------------------------------------------------
               //                              0  0  0  0  0  0  0  0    USER Key not pressed
               //                              0  0  0  0  0  0  0  1    USER Key pressed
-              
+
               tempByte = digitalRead(USER);       // Save USER led status
               pinMode(USER, INPUT_PULLUP);        // Read USER Key
               ioData = !digitalRead(USER);
-              pinMode(USER, OUTPUT); 
+              pinMode(USER, OUTPUT);
               digitalWrite(USER, tempByte);       // Restore USER led status
             break;
 
@@ -1660,8 +1716,8 @@ void loop()
               //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
               //
               // NOTE: a value 0x00 is forced if the GPE Option is not present
-              
-              if (moduleGPIO) 
+
+              if (moduleGPIO)
               {
                 // Set MCP23017 pointer to GPIOA
                 Wire.beginTransmission(GPIOEXP_ADDR);
@@ -1682,8 +1738,8 @@ void loop()
               //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOB value (see MCP23017 datasheet)
               //
               // NOTE: a value 0x00 is forced if the GPE Option is not present
-              
-              if (moduleGPIO) 
+
+              if (moduleGPIO)
               {
                 // Set MCP23017 pointer to GPIOB
                 Wire.beginTransmission(GPIOEXP_ADDR);
@@ -1709,17 +1765,17 @@ void loop()
               //                              X  X  X  X  0  X  X  X    Previous RX char valid
               //                              X  X  X  X  1  X  X  X    Previous RX char was a "buffer empty" flag
               //                              X  X  X  0  X  X  X  X    CP/M warm boot message disabled
-              //                              X  X  X  1  X  X  X  X    CP/M warm boot message enabled              
+              //                              X  X  X  1  X  X  X  X    CP/M warm boot message enabled
               //
               // NOTE 1: Currently only D0-D4 are used
               // NOTE 2: The D4 flag is set/reset using the D0 bit of the SETOPT Opcode (see SETOPT for more info)
-  
-              ioData = autoexecFlag | (foundRTC << 1) | ((Serial.available() > 0) << 2) | ((LastRxIsEmpty > 0) << 3) 
+
+              ioData = autoexecFlag | (foundRTC << 1) | ((Serial.available() > 0) << 2) | ((LastRxIsEmpty > 0) << 3)
                        | (cpmWarmBootFlg << 4);
             break;
 
             case  0x84:
-              // DATETIME (Read date/time and temperature from the RTC. Binary values): 
+              // DATETIME (Read date/time and temperature from the RTC. Binary values):
               //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
               //                            ---------------------------------------------------------
               //                I/O DATA 0   D7 D6 D5 D4 D3 D2 D1 D0    seconds [0..59]     (1st data byte)
@@ -1733,7 +1789,7 @@ void loop()
               // NOTE 1: If RTC is not found all read values wil be = 0
               // NOTE 2: Overread data (more then 7 bytes read) will be = 0
               // NOTE 3: The temperature (Celsius) is a byte with two complement binary format [-128..127]
-  
+
               if (foundRTC)
               {
                  if (ioByteCnt == 0) readRTC(&seconds, &minutes, &hours, &day, &month, &year, &tempC); // Read from RTC
@@ -1759,7 +1815,7 @@ void loop()
 
             case  0x85:
               // DISK EMULATION
-              // ERRDISK - read the error code after a SELDISK, SELSECT, SELTRACK, WRITESECT, READSECT 
+              // ERRDISK - read the error code after a SELDISK, SELSECT, SELTRACK, WRITESECT, READSECT
               //           or SDMOUNT operation
               //
               //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1772,9 +1828,9 @@ void loop()
               //    error code    | description
               // ---------------------------------------------------------------------------------------------------
               //        0         |  No error
-              //        1         |  DISK_ERR: the function failed due to a hard error in the disk function, 
+              //        1         |  DISK_ERR: the function failed due to a hard error in the disk function,
               //                  |   a wrong FAT structure or an internal error
-              //        2         |  NOT_READY: the storage device could not be initialized due to a hard error or 
+              //        2         |  NOT_READY: the storage device could not be initialized due to a hard error or
               //                  |   no medium
               //        3         |  NO_FILE: could not find the file
               //        4         |  NOT_OPENED: the file has not been opened
@@ -1791,9 +1847,9 @@ void loop()
               // NOTE 1: ERRDISK code is referred to the previous SELDISK, SELSECT, SELTRACK, WRITESECT or READSECT
               //         operation
               // NOTE 2: Error codes from 0 to 6 come from the PetitFS library implementation
-              // NOTE 3: ERRDISK must not be used to read the resulting error code after a SDMOUNT operation 
+              // NOTE 3: ERRDISK must not be used to read the resulting error code after a SDMOUNT operation
               //         (see the SDMOUNT Opcode)
-               
+
               ioData = diskErr;
             break;
 
@@ -1815,16 +1871,16 @@ void loop()
               //                             D7 D6 D5 D4 D3 D2 D1 D0    512th Data byte (Last byte)
               //
               //
-              // Reads the current sector (512 bytes) of the current track/sector, one data byte each call. 
-              // All the 512 calls must be always performed sequentially to have a READSECT operation correctly done. 
+              // Reads the current sector (512 bytes) of the current track/sector, one data byte each call.
+              // All the 512 calls must be always performed sequentially to have a READSECT operation correctly done.
               // If an error occurs during the READSECT operation, all subsequent read data will be = 0.
-              // If an error occurs calling any DISK EMULATION Opcode (SDMOUNT excluded) immediately before the READSECT 
+              // If an error occurs calling any DISK EMULATION Opcode (SDMOUNT excluded) immediately before the READSECT
               //  Opcode call, all the read data will be will be = 0 and the READSECT operation will not be performed.
               // Errors are stored into "diskErr" (see ERRDISK Opcode).
               //
               // NOTE 1: Before a READSECT operation at least a SELTRACK or a SELSECT must be always performed
               // NOTE 2: Remember to open the right "disk file" at first using the SELDISK Opcode
-  
+
               if (!ioByteCnt)
               // First byte of 512, so set the right file pointer to the current emulated track/sector first
               {
@@ -1832,7 +1888,7 @@ void loop()
                 // Sector and track numbers valid and no previous error; set the LBA-like logical sector
                 {
                 diskErr = seekSD((trackSel << 5) | sectSel);  // Set the starting point inside the "disk file"
-                                                              //  generating a 14 bit "disk file" LBA-like 
+                                                              //  generating a 14 bit "disk file" LBA-like
                                                               //  logical sector address created as TTTTTTTTTSSSSS
                 }
               }
@@ -1843,12 +1899,12 @@ void loop()
                 if (!tempByte)
                 // Read 32 bytes of the current sector on SD in the buffer (every 32 calls, starting with the first)
                 {
-                  diskErr = readSD(bufferSD, &numReadBytes); 
+                  diskErr = readSD(bufferSD, &numReadBytes);
                   if (numReadBytes < 32) diskErr = 19;    // Reached an unexpected EOF
                 }
                 if (!diskErr) ioData = bufferSD[tempByte];// If no errors, exchange current data byte with the CPU
               }
-              if (ioByteCnt >= 511) 
+              if (ioByteCnt >= 511)
               {
                 ioOpcode = 0xFF;                  // All done. Set ioOpcode = "No operation"
               }
@@ -1868,9 +1924,9 @@ void loop()
               // NOTE 1: This Opcode is "normally" not used. Only needed if using a virtual disk from a custom program
               //         loaded with iLoad or with the Autoboot mode (e.g. ViDiT). Can be used to handle SD hot-swapping
               // NOTE 2: For error codes explanation see ERRDISK Opcode
-              // NOTE 3: Only for this disk Opcode, the resulting error is read as a data byte without using the 
+              // NOTE 3: Only for this disk Opcode, the resulting error is read as a data byte without using the
               //         ERRDISK Opcode
-  
+
               ioData = mountSD(&filesysSD);
             break;
 
@@ -1883,7 +1939,7 @@ void loop()
               //
               // NOTE: This Opcode is intended to avoid delays in serial Tx operations, as the IOS holds the Z80
               //       in a wait status if the TX buffer is full. This is no good in multitasking enviroments.
-              
+
               ioData = Serial.availableForWrite() ;
             break;
 
@@ -1898,23 +1954,23 @@ void loop()
               //                              X  X  X  X  X  X  1  X    Systick IRQ set
               //
               //
-              // The INT_ signal is shared among various interrupt requests. This allows to use the simplified 
-              //  Mode 1 scheme of the Z80 CPU (fixed jump to 0x0038 on INT_ signal active) with multiple interrupt 
+              // The INT_ signal is shared among various interrupt requests. This allows to use the simplified
+              //  Mode 1 scheme of the Z80 CPU (fixed jump to 0x0038 on INT_ signal active) with multiple interrupt
               //  causes.
-              // The SYSIRQ purpose is to allow the Z80 CPU to know the exact causes of the occurred interrupts 
-              //  reading the "interrupt status byte" that contains up to eight "interrupt status bits". 
-              // So the ISR (Interrupt Service Routine) should be structured to read at first the 
-              //  "interrupt status byte" using the SYSIRQ Opcode, and than execute the needed actions before 
+              // The SYSIRQ purpose is to allow the Z80 CPU to know the exact causes of the occurred interrupts
+              //  reading the "interrupt status byte" that contains up to eight "interrupt status bits".
+              // So the ISR (Interrupt Service Routine) should be structured to read at first the
+              //  "interrupt status byte" using the SYSIRQ Opcode, and than execute the needed actions before
               //  return to the normal execution.
               // Note that multiple causes/bits could be active.
-              // 
+              //
               //
               //
               // NOTE 1: Only D0 and D1 "interrupt status bit" are currently used.
               // NOTE 2: After the SYSIRQ call all the "interrupt status bits" are cleared.
-              // NOTE 3: If more than one IRQ trigger is enabled, you have to call SYSIRQ always from inside the 
+              // NOTE 3: If more than one IRQ trigger is enabled, you have to call SYSIRQ always from inside the
               //         ISR (on the Z80 side) to know the triggered IRQs.
-              
+
               ioData = irqStatus;
               irqStatus = 0;                      // Reset all the "interrupt status bits"
 
@@ -1929,7 +1985,7 @@ void loop()
               }
               // DEBUG END ------------------------------
               //
-        
+
             break;
 
             case  0x8A:
@@ -1941,9 +1997,9 @@ void loop()
               //                              0  0  0  0  0  0  0  0    SPP emulation disabled
               //                             D7 D6 D5 D4 D3  0  0  1    SPP emulation enabled
               //
-              //                  bit  | SPP Status line 
+              //                  bit  | SPP Status line
               //                  ----------------------------------
-              //                   D0  | 1 (SPP emulation enabled) 
+              //                   D0  | 1 (SPP emulation enabled)
               //                   D1  | 0 (not used)
               //                   D2  | 0 (not used)
               //                   D3  | ACK (active Low)
@@ -1956,14 +2012,14 @@ void loop()
               // If the SPP mode is disabled (or the GPE is not installed) a byte of all 0s will be retrivied.
               //
               // NOTE: to use GETSPP the SETSPP Opcode should be called first to activate the SPP mode of the GPIO port.
-             
+
               if (SPPmode)
               {
                 // Set MCP23017 pointer to GPIOA
                 Wire.beginTransmission(GPIOEXP_ADDR);
                 Wire.write(GPIOA_REG);
                 Wire.endTransmission();
-                
+
                 // Read GPIOA (SPP Status Lines)
                 Wire.beginTransmission(GPIOEXP_ADDR);
                 Wire.requestFrom(GPIOEXP_ADDR, 1);
@@ -1971,8 +2027,53 @@ void loop()
                 ioData = (ioData & 0b11111000) | 0b00000001;      // Set D0 = 1, D1 = D2 = 0
               }
             break;
+
+            case  0x8B:
+              // SIO Status Read:
+              //
+              //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+              //                            ---------------------------------------------------------
+              //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
+              //
+              // NOTE: a value 0x00 is forced if the GPE Option is not present
+
+              if (moduleSIO)
+              {
+                // Set MCP23017 pointer to GPIOA
+                Wire.beginTransmission(SIOEXP_ADDR);
+                Wire.write(SIO_STAT_CTRL);
+                Wire.endTransmission();
+                // Read GPIOA
+                Wire.beginTransmission(SIOEXP_ADDR);
+                Wire.requestFrom(SIOEXP_ADDR, 1);
+                ioData = Wire.read();
+              }
+            break;
+
+            case  0x8C:
+              // SIO RXD Read:
+              //
+              //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+              //                            ---------------------------------------------------------
+              //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
+              //
+              // NOTE: a value 0x00 is forced if the GPE Option is not present
+
+              if (moduleSIO)
+              {
+                // Set MCP23017 pointer to GPIOA
+                Wire.beginTransmission(SIOEXP_ADDR);
+                Wire.write(SIO_RXD_TXD);
+                Wire.endTransmission();
+                // Read GPIOA
+                Wire.beginTransmission(SIOEXP_ADDR);
+                Wire.requestFrom(SIOEXP_ADDR, 1);
+                ioData = Wire.read();
+              }
+            break;
+
           }
-          if ((ioOpcode != 0x84) && (ioOpcode != 0x86)) ioOpcode = 0xFF;  // All done for the single byte Opcodes. 
+          if ((ioOpcode != 0x84) && (ioOpcode != 0x86)) ioOpcode = 0xFF;  // All done for the single byte Opcodes.
                                                                           //  Set ioOpcode = "No operation"
         }
         DDRA = 0xFF;                              // Configure Z80 data bus D0-D7 (PA0-PA7) as output
@@ -2008,7 +2109,7 @@ void loop()
         }
         // DEBUG END ------------------------------
         //
-        
+
         // Control bus sequence to exit from a wait state (M interrupt cycle)
         digitalWrite(BUSREQ_, LOW);               // Request for a DMA
         digitalWrite(WAIT_RES_, LOW);             // Reset WAIT FF exiting from WAIT state
@@ -2071,9 +2172,9 @@ void serialEvent()
 
 void WaitAndBlink(baudRecCheck baudRecSwitch)
 // Wait for a char from the serial port while IOS led blinks and do the Baud Recovery if requested.
-// If <baudRecSwitch> = CHECK the User key is checked if it remains pressed at least 3 seconds ("long User key pressed" 
+// If <baudRecSwitch> = CHECK the User key is checked if it remains pressed at least 3 seconds ("long User key pressed"
 // event).
-// In this happens the Baud Recovery procedure is done if the current serial speed is different from the default 
+// In this happens the Baud Recovery procedure is done if the current serial speed is different from the default
 // value (115200).
 // When the Baud Recovery procedure is executed the serial port speed is set at the default value (115200) and both
 // the USER and IOS leds blink quickly. The default serial port speed will be effective after the next reset.
@@ -2081,7 +2182,7 @@ void WaitAndBlink(baudRecCheck baudRecSwitch)
   byte                  UserKeyLongPressed = 1;   // Flag for the "User key long pressed" event
   static unsigned long  timeStamp1;               // Timestamps
   unsigned long         timeStamp2;
-  
+
   timeStamp2 = millis();
   while (!Serial.available())
   {
@@ -2102,7 +2203,7 @@ void WaitAndBlink(baudRecCheck baudRecSwitch)
     if (((millis() - timeStamp2) > 3000) && (UserKeyLongPressed) && (baudRecSwitch = CHECK) && (EEPROM.read(serBaudAddr) != 9))
     // Do the Baud Recovery procedure.
     // The User key was pressed for at least 3s and the serial port speed is different from default value (115200),
-    // so set the default baud rate (115200) for the serial port and wait for a reboot while both IOS and USER leds 
+    // so set the default baud rate (115200) for the serial port and wait for a reboot while both IOS and USER leds
     // blink quickly.
     {
       digitalWrite(LED_IOS,LOW);
@@ -2193,6 +2294,9 @@ void readRTC(byte *second, byte *minute, byte *hour, byte *day, byte *month, byt
 void writeRTC(byte second, byte minute, byte hour, byte day, byte month, byte year)
 // Write given date/time binary values to the DS3231 RTC
 {
+  (void)second;
+  (void)minute;
+  (void)hour;
   Wire.beginTransmission(DS3231_RTC);
   Wire.write(DS3231_SECRG);                       // Set the DS3231 Seconds Register
   Wire.write(decToBcd(seconds));
@@ -2208,7 +2312,7 @@ void writeRTC(byte second, byte minute, byte hour, byte day, byte month, byte ye
 // ------------------------------------------------------------------------------
 
 byte autoSetRTC()
-// Check if the DS3231 RTC is present and set the date/time at compile date/time if 
+// Check if the DS3231 RTC is present and set the date/time at compile date/time if
 // the RTC "Oscillator Stop Flag" is set (= date/time failure).
 // Return value: 0 if RTC not present, 1 if found.
 {
@@ -2224,7 +2328,7 @@ byte autoSetRTC()
   Serial.print(F("IOS: RTC DS3231 temperature sensor: "));
   Serial.print((int8_t)tempC);
   Serial.println("C");
-  
+
   // Read the "Oscillator Stop Flag"
   Wire.beginTransmission(DS3231_RTC);
   Wire.write(DS3231_STATRG);                      // Set the DS3231 Status Register
@@ -2240,7 +2344,7 @@ byte autoSetRTC()
     minutes = compTimeStr.substring(3,5).toInt();
     hours = compTimeStr.substring(0,2).toInt();
     day = compDateStr.substring(4,6).toInt();
-    switch (compDateStr[0]) 
+    switch (compDateStr[0])
       {
         case 'J': month = compDateStr[1] == 'a' ? 1 : month = compDateStr[2] == 'n' ? 6 : 7; break;
         case 'F': month = 2; break;
@@ -2265,7 +2369,7 @@ byte autoSetRTC()
     }
     while ((inChar != 'y') && (inChar != 'Y') && (inChar != 'n') &&(inChar != 'N'));
     Serial.println(inChar);
- 
+
     // Set the RTC at the compile date/time and print a message
     if ((inChar == 'y') || (inChar == 'Y'))
     {
@@ -2275,7 +2379,7 @@ byte autoSetRTC()
       Serial.println();
     }
 
-    // Reset the "Oscillator Stop Flag" 
+    // Reset the "Oscillator Stop Flag"
     Wire.beginTransmission(DS3231_RTC);
     Wire.write(DS3231_STATRG);                    // Set the DS3231 Status Register
     Wire.write(0x08);                             // Reset the "Oscillator Stop Flag" (32KHz output left enabled)
@@ -2332,7 +2436,7 @@ byte isLeapYear(byte yearXX)
 void ChangeRTC()
 // Change manually the RTC Date/Time from keyboard
 {
-  byte    leapYear;   //  Set to 1 if the selected year is bissextile, 0 otherwise [0..1]
+  // byte    leapYear;   //  Set to 1 if the selected year is bissextile, 0 otherwise [0..1]
 
   // Read RTC
   readRTC(&seconds, &minutes, &hours, &day,  &month,  &year, &tempC);
@@ -2352,7 +2456,7 @@ void ChangeRTC()
           Serial.print(F("Year -> "));
           print2digit(year);
         break;
-        
+
         case 1:
           Serial.print(F("Month -> "));
           print2digit(month);
@@ -2387,7 +2491,7 @@ void ChangeRTC()
         inChar = Serial.read();
       }
       while ((inChar != 'u') && (inChar != 'U') && (inChar != 't') && (inChar != 'T') && (inChar != 13));
-      
+
       if ((inChar == 'u') || (inChar == 'U'))
       // Change units
         switch (tempByte)
@@ -2435,7 +2539,7 @@ void ChangeRTC()
         {
           case 0:
             year = year + 10;
-            if (year > 99) year = year - (year / 10) * 10; 
+            if (year > 99) year = year - (year / 10) * 10;
           break;
 
           case 1:
@@ -2469,7 +2573,7 @@ void ChangeRTC()
     while (inChar != 13);
     tempByte++;
   }
-  while (tempByte < 6);  
+  while (tempByte < 6);
 
   // Write new date/time into the RTC
   writeRTC(seconds, minutes, hours, day, month, year);
@@ -2506,12 +2610,12 @@ void pulseClock(byte numPulse)
 void loadByteToRAM(byte value)
 // Load a given byte to RAM using a sequence of two Z80 instructions forced on the data bus.
 // The RAM_CE2 signal is used to force the RAM in HiZ, so the Atmega can write the needed instruction/data
-//  on the data bus. Controlling the clock signal and knowing exactly how many clocks pulse are required it 
+//  on the data bus. Controlling the clock signal and knowing exactly how many clocks pulse are required it
 //  is possible control the whole loading process.
 // In the following "T" are the T-cycles of the Z80 (See the Z80 datashet).
 // The two instruction are "LD (HL), n" and "INC (HL)".
 {
-  
+
   // Execute the LD(HL),n instruction (T = 4+3+3). See the Z80 datasheet and manual.
   // After the execution of this instruction the <value> byte is loaded in the memory address pointed by HL.
   pulseClock(1);                      // Execute the T1 cycle of M1 (Instruction Fetch machine cycle)
@@ -2519,14 +2623,14 @@ void loadByteToRAM(byte value)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = LD_HL;                      // Write "LD (HL), n" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
-  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input... 
+  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
-  pulseClock(2);                      // Complete the execution of M1 and execute the T1 cycle of the following 
+  pulseClock(2);                      // Complete the execution of M1 and execute the T1 cycle of the following
                                       // Memory Read machine cycle
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = value;                      // Write the byte to load in RAM on data bus
   pulseClock(2);                      // Execute the T2 and T3 cycles of the Memory Read machine cycle
-  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input... 
+  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
   digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
   pulseClock(3);                      // Execute all the following Memory Write machine cycle
@@ -2538,7 +2642,7 @@ void loadByteToRAM(byte value)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = INC_HL;                     // Write "INC(HL)" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
-  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input... 
+  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
   digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
   pulseClock(3);                      // Execute all the remaining T cycles
@@ -2557,17 +2661,17 @@ void loadHL(word value)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = LD_HLnn;                    // Write "LD HL, n" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
-  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input... 
+  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
-  pulseClock(2);                      // Complete the execution of M1 and execute the T1 cycle of the following 
+  pulseClock(2);                      // Complete the execution of M1 and execute the T1 cycle of the following
                                       // Memory Read machine cycle
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = lowByte(value);             // Write first byte of "value" to load in HL
   pulseClock(3);                      // Execute the T2 and T3 cycles of the first Memory Read machine cycle
                                       // and T1, of the second Memory Read machine cycle
   PORTA = highByte(value);            // Write second byte of "value" to load in HL
-  pulseClock(2);                      // Execute the T2 and T3 cycles of the second Memory Read machine cycle                                    
-  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input... 
+  pulseClock(2);                      // Execute the T2 and T3 cycles of the second Memory Read machine cycle
+  DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
   digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
 }
@@ -2593,7 +2697,7 @@ void singlePulsesResetZ80()
 
 
 byte mountSD(FATFS* fatFs)
-// Mount a volume on SD: 
+// Mount a volume on SD:
 // *  "fatFs" is a pointer to a FATFS object (PetitFS library)
 // The returned value is the resulting status (0 = ok, otherwise see printErrSD())
 {
@@ -2622,7 +2726,7 @@ byte readSD(void* buffSD, byte* numReadBytes)
 // NOTE1: Each SD sector (512 bytes) is divided into 16 segments (32 bytes each); to read a sector you need to
 //        to call readSD() 16 times consecutively
 //
-// NOTE2: Past current sector boundary, the next sector will be pointed. So to read a whole file it is sufficient 
+// NOTE2: Past current sector boundary, the next sector will be pointed. So to read a whole file it is sufficient
 //        call readSD() consecutively until EOF is reached
 {
   UINT  numBytes;
@@ -2644,7 +2748,7 @@ byte writeSD(void* buffSD, byte* numWrittenBytes)
 // NOTE1: Each SD sector (512 bytes) is divided into 16 segments (32 bytes each); to write a sector you need to
 //        to call writeSD() 16 times consecutively
 //
-// NOTE2: Past current sector boundary, the next sector will be pointed. So to write a whole file it is sufficient 
+// NOTE2: Past current sector boundary, the next sector will be pointed. So to write a whole file it is sufficient
 //        call writeSD() consecutively until EOF is reached
 //
 // NOTE3: To finalize the current write operation a writeSD(NULL, &numWrittenBytes) must be called as last action
@@ -2674,7 +2778,7 @@ byte seekSD(word sectNum)
 //       16383 = (512 * 32) - 1, where 512 is the number of emulated tracks, 32 is the number of emulated sectors
 //
 {
-  byte i;
+  // byte i;
   return pf_lseek(((unsigned long) sectNum) << 9);
 }
 
@@ -2720,7 +2824,7 @@ void printErrSD(byte opType, byte errCode, const char* fileName)
 //     The file has not been opened.
 // NOT_ENABLED
 //     The volume has not been mounted.
-// 
+//
 // ------------------
 // seekSD():
 // ------------------
@@ -2745,7 +2849,7 @@ void printErrSD(byte opType, byte errCode, const char* fileName)
       case 4: Serial.print(F("NOT_OPENED")); break;
       case 5: Serial.print(F("NOT_ENABLED")); break;
       case 6: Serial.print(F("NO_FILESYSTEM")); break;
-      default: Serial.print(F("UNKNOWN")); 
+      default: Serial.print(F("UNKNOWN"));
     }
     Serial.print(F(" on "));
     switch (opType)

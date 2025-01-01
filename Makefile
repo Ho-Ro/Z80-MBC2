@@ -48,7 +48,8 @@ compile: $(HEX_BL_CLK)
 
 $(HEX_BL_CLK): $(INO) Makefile
 	arduino-cli compile --export-binaries --warnings all --fqbn $(FQBN_BO) $(INO)
-	ln $(HEX_BL) $(HEX_BL_CLK)
+	-rm $(HEX_BL_CLK)
+	-ln $(HEX_BL) $(HEX_BL_CLK)
 
 
 .PHONY: burn-bootloader
