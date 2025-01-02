@@ -1,0 +1,88 @@
+	title 'bank & move module for CP/M3 linked BIOS'
+	.z80
+;	Converted to Z80 mnemonics via XIZ by Tony Nicholson
+;	Assemble using Microsoft M80 or Hector Peraza's ZSM4
+;
+;******************************************************************************
+;
+; MOVE.ASM - S290918
+; CP/M 3.0 BANK & MOVE BIOS MODULE FOR THE Z80-MBC2 (HW ref. A040618)
+;
+; Required IOS S220718-R190918 (or newer revisions until otherwise stated)
+;
+; NOTE: Use the RMAC.COM relocatable assembler
+;
+;
+;******************************************************************************
+	
+				; DEFINE LOGICAL VALUES
+true	equ	-1
+false	equ	not true
+
+				; DETERMINE IF FOR BANK SELECT OR NOT
+banked	equ	true		; <------ BANKED/NON-BANKED SWITCH
+
+				; LOCATE CODE IN THE COMMON SEGMENT:
+				; --------------------------
+	cseg
+				; --------------------------
+
+				; DEFINE PUBLIC LABELS
+	public ?move,?xmove,?bank
+	
+				; EXTERNALLY DEFINED ENTRY POINTS AND LABELS
+	extrn @cbnk
+
+; -----------------------------------------------------------------------------
+;
+; Z80-MBC2 IOS equates
+;
+; -----------------------------------------------------------------------------
+
+exc$wr$opcd equ	000h		; Address of the EXECUTE WRITE OPCODE write port
+exc$rd$opcd equ	000h		; Address of the EXECUTE READ OPCODE read port
+sto$opcd equ	001h		; Address of the STORE OPCODE write port
+serial$rx equ	001h		; Address of the SERIAL RX read port
+sertx$opc equ	001h		; SERIAL TX opcode
+seldisk$opc equ	009h		; SELDISK opcode
+seltrck$opc equ	00ah		; SELTRACK opcode
+selsect$opc equ	00bh		; SELSECT opcode
+wrtsect$opc equ	00ch		; WRITESECT opcode
+setbank$opc equ	00dh		; SETBANK opcode
+sysflag$opc equ	083h		; SYSFLAG opcode
+datetim$opc equ	084h		; DATETIME opcode
+errdsk$opc equ	085h		; ERRDISK opcode
+rdsect$opc equ	086h		; READSECT opcode
+sdmount$opc equ	087h		; SDMOUNT opcode
+
+
+				; ROUTINE SETS UP AN INTER-BANK MOVE OF 128 BYTES ON THE NEXT CALL
+				;  TO ?MOVE
+?xmove:				; Interbank moves not implemented
+	ret
+
+	
+				; ROUTINE PERFORMS INTRA-BANK MOVES IF ?XMOVE WAS NOT CALLED PRIOR TO
+				;  THIS CALL TO ?MOVE ELSE A 128 BYTE TRANSFER IS CONDUCTED BETWEEN
+				;  DIFFERENT BANKS
+?move:
+	ex	de,hl		; we are passed source in DE and dest in HL
+	ldir			; use Z80 block move instruction
+	ex	de,hl		; need next addresses in same regs
+	ret
+
+	
+				; ROUTINE SWITCHES IN PHYSICAL BANK.
+				; ?BANK is called with the bank address in register A. This bank address ha
+				; stored in @CBNK for future reference. All registers except A must be main
+?bank:
+	 if	banked
+	push	af		; Save requested bank
+	ld	a, setbank$opc	; Select the SETBANK opcode
+	out	(sto$opcd),a
+	pop	af		; A = bank number [0..2]
+	out	(exc$wr$opcd),a	; Select it
+	 endif
+	ret
+
+	end

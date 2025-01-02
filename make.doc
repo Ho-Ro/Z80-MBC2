@@ -1,0 +1,109 @@
+     MAKE.COM  -- Tom Morris, Morris Code Works, 8/5/85
+               Adapted from MAKE.C86 for CP/M+ with time stamping.
+
+
+     Thió ió  calleä 'Make§ anä ió á mucè simplifieä versioî oæ 
+     thå makå utilitù oî UNIØ (á trademarë oò somethinç oæ AT&T© 
+     writteî  usinç thå Azteã Ã compiler® Thió versioî ió adapteä 
+     froí thå versioî writteî iî Latticå Ã compileò foò thå  IBÍ 
+     Personaì Computer®  Thå Latticå packagå ió availablå froí 
+     Lifeboaô Assoc® 165± Thirä Avenuå Ne÷ York¬ NÙ 1012¸ .
+
+     'Make§ takeó á filå oæ  dependencieó (á  'makefile'© anä 
+     decideó whaô commandó havå tï bå executeä tï brinç thå  
+     fileó uğ tï date®  Theså commandó arå  eitheò  executeä  
+     directlù froí 'Make§  oò writteî tï thå standarä outpuô 
+     withouô executinç them.
+
+     'Makefile' format:
+     - Therå  musô bå  á 'makefile'» yoõ can'ô  takå inpuô froí  
+       the standard input.
+
+     - Thå defaulô namå oæ thå 'makefile§ ió  'MAKEFILE§  oî thå 
+       defaulô  disk®  Differenô 'makefiles§ caî bå specifieä 
+       usinç thå '-f§ optioî  oî thå  commanä  line®  Iæ thå '-f§ 
+       optioî ió used¬ thå defaulô 'makefile§ ió  noô processed.
+
+     - Any blank lines in the 'makefile(s)'  are ignored.
+
+     - Á linå iî á 'makefile§ thaô startó witè á taâ  characteò 
+       ió á 'howto§ linå  anä consistó oæ  á commanä namå 
+       followeä bù arguments®  Thå  commanä  namå musô bå á filå 
+       name¬ e.g® 'cc'® 'Howto§  lineó applù tï thå mosô recentlù 
+       precedinç 'dependency§  line®  Iô ió aî  erroò foò á 
+       'howto§ linå  tï precedå thå firsô 'dependency§ line.
+
+     - Anù otheò non-blanë linå ió á  'dependency§ line®  
+       'Dependency§ lineó consisô oæ á filenamå followeä bù  á 
+       (possiblù empty© lisô oæ dependenô filenames.
+
+Operation:
+     Syntax:
+          make [-l] [-f makefilename] [-n] [filename]
+
+     -l means list the makefile showing dependencies and 'howto'
+        lines that are encountered.
+
+     -î meanó don'ô  executå  thå commands¬ jusô writå  thå oneó 
+        thaô shoulä bå executeä tï  thå standarä output®  Thió ió 
+        usefuì foò creatinç batcè files¬ foò  example.
+
+     -æ specifieó thaô thå followinç  argumenô ió thå  namå oæ  á 
+        makefilå tï bå  useä insteaä oæ  thå defaulô (MAKEFILE).
+
+     Alì argumentó maù bå repeateä anä relativå positioî oæ  thå 
+     argumentó ió noô important®  Iæ  multiplå definitionó oæ  á Š     filå  arå found¬ onlù  thå firsô onå ió significant.
+
+     First¬  'Make§ readó alì  oæ thå  makefiles® Iô theî 
+     proceedó througè alì oæ  thå filenamå arguments¬  'making§  
+     eacè onå iî turn® Á filå ió remadå iæ iô  ió ouô  oæ datå  
+     witè respecô tï  thå fileó iô dependó oî oò ió non-existent®  
+     Dependencieó arå processeä iî á  'tree§ fashion¬ sï thaô  
+     thå lowest-ordeò fileó  arå remadå first.
+
+     'Make§ createó á submiô filå whicè ió automaticallù ruî aô 
+     thå enä oæ thå 'make§ requesô unlesó thå -î optioî ió used.
+
+     Alì definitionó anä howto'ó arå storeä iî dynamicallù 
+     allocateä struct's®
+
+     'Make'  REQUIRES  CP/M 3.0 (or higher?).
+
+     The default makefile name is MAKEFILE.
+
+     An example follows:     <TAB> = ASCII 09
+          make.com make.o
+          <TAB>ln -t -o make.com make.o -l0/a:c
+          <TAB>sidsym make.sym make.sym
+          make.o make.c stdio.h
+          <TAB>cz -i0/a: make
+          <TAB>as -zap make
+
+     Aî explanationº make.coí ió á dependenô file® Ió ió 
+     dependenô oî make.o® make.ï ió dependenô oî make.ã anä 
+     stdio.h® Iæ thå followinç commanä ió issued:MAKÅ make.coí 
+     theî makå wilì checë tï seå iæ eitheò make.ã oò stdio.è haó 
+     á neweò date&timå thaî make.o® Iæ sï theî thå ² compilå 
+     instructionó arå issued, theî thå linë instructioî wilì bå 
+     issued® Iæ onlù make.ï ió neweò thaî make.coí theî onlù thå 
+     linë steğ woulä bå executed.
+
+
+     Hintsº
+          Dependencieó caî bå iî anù order® Makå wilì resolvå 
+          theí correctly.
+
+          How to lines must begin with a <TAB> not just 7 spaces.
+
+
+          Thå commanä linå neeä noô specifù whaô filå yoõ wisè tï 
+          make® Iæ noô specifieä theî thå firsô definitioî 
+          encounterä wilì bå thå filå thaô ió 'made'® Morå thaî 
+          oî filå maù bå specifieä oî thå commanä linå iæ 
+          desired.Yoõ maù havå morå thaî onå seô oæ filå 
+          definitionó iî á makefile® Iæ yoõ dï  yoõ maù ruî ouô 
+          oæ memory® É haven'ô ruî intï thió yeô buô É supposå iô 
+          ió possible.
+
+          Sincå 'make§ buildó á submiô filå therå ió nï waù tï 
+          kno÷ iæ aî erroò haó beeî encounterä durinç thå make.Š
