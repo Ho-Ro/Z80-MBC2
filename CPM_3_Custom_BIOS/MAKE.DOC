@@ -1,0 +1,8 @@
+Usage: make [-f makefile] [-nprst] [macro=val ...] [target(s) ...]
+        -f makefile name
+        -i don't ignore exit status
+        -n Pretend to make
+        -p Print all macros & targets
+        -r Do not use inbuilt rules
+        -s Make silently
+        -t Touch files instead of making them

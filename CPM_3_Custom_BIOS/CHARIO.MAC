@@ -50,10 +50,10 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 	public  ?cnstflg	; CONST mode flag (Z80-MBC2) ***
 
 				; DEFINE EXTERNAL LABELS AND ENTRY POINTS:
-	 if	banked
+  if	banked
 	extrn @cbnk
 	extrn ?bnksl
-	 endif
+  endif
 	extrn ?pmsg
 
 	include modebaud.lib	; EQUATES FOR MODE BYTE BIT FIELDS
@@ -86,7 +86,7 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 				; --------------------------
 
 
-	 if	banked
+  if	banked
 				; WE PROVIDE ALTERNATE DEFINITIONS OF THE ROUTINE ENTRY POINTS IF
 				;  WE ARE RUNNING A BANKED SYSTEM VERSUS A NON-BANKED SYSTEM:
 
@@ -138,7 +138,7 @@ bioret:
 	pop	af		; GET BACK RESULT CODE TO [A]
 	ld	sp,(spsave)	; RESTORE PREVIOUS STACK
 	ret			; AND RETURN...
-	 endif
+  endif
 
 
 				; ;;;;
@@ -148,19 +148,19 @@ bioret:
 
 				; ;;;; ?CINIT (BCINIT FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE INITIALIZATION:
-	 if	banked
+  if	banked
 				; --------------------------
 	dseg			; CAN PUT IN BANKED SEGMENT IF BANKED
 				; --------------------------
 bcinit:
-	 else
+  else
 ?cinit:
-	 endif
+  endif
 	ld	b,c		; ON ENTRY DEVICE # IS IN [C] BUT WE NEED
 				; IT IN [B]
 	call	dev$dispatch	; GO TO CORRECT INIT ROUTINE
 	defw	cinit0		; INIT FOR DEVICE 0
-	defw	null$init	; INIT FOR DEVICE 1
+	defw	cinit1		; INIT FOR DEVICE 1
 	defw	null$init	; INIT FOR DEVICE 2
 	defw	null$init	; INIT FOR DEVICE 3
 	defw	null$init	; INIT FOR DEVICE 4
@@ -179,14 +179,14 @@ bcinit:
 
 				; ;;;; ?CI (BCI FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE INPUT:
-	 if	banked
+  if	banked
 bci:
-	 else
+  else
 ?ci:
-	 endif
+  endif
 	call	dev$dispatch
 	defw	ci0		; DEVICE 0 INPUT
-	defw	null$ci		; DEVICE 1 INPUT
+	defw	ci1		; DEVICE 1 INPUT
 	defw	null$ci		; DEVICE 2 INPUT
 	defw	null$ci		; DEVICE 3 INPUT
 	defw	null$ci		; DEVICE 4 INPUT
@@ -205,14 +205,14 @@ bci:
 
 				; ;;;; ?CO (BCO FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE OUTPUT:
-	 if	banked
+  if	banked
 bco:
-	 else
+  else
 ?co:
-	 endif
+  endif
 	call	dev$dispatch	; GO TO CORRECT DEVICE OUTPUT HANDLER
 	defw	co0		; DEVICE 0 OUTPUT
-	defw	null$co		; DEVICE 1 OUTPUT
+	defw	co1		; DEVICE 1 OUTPUT
 	defw	null$co		; DEVICE 2 OUTPUT
 	defw	null$co		; DEVICE 3 OUTPUT
 	defw	null$co		; DEVICE 4 OUTPUT
@@ -231,14 +231,14 @@ bco:
 
 				; ;;;; ?CIST (BCIST FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE INPUT STATUS:
-	 if	banked
+  if	banked
 bcist:
-	 else
+  else
 ?cist:
-	 endif
+  endif
 	call	dev$dispatch
 	defw	cist0		; DEVICE 0 INPUT STATUS
-	defw	null$cist	; DEVICE 1 INPUT STATUS
+	defw	cist1		; DEVICE 1 INPUT STATUS
 	defw	null$cist	; DEVICE 2 INPUT STATUS
 	defw	null$cist	; DEVICE 3 INPUT STATUS
 	defw	null$cist	; DEVICE 4 INPUT STATUS
@@ -257,14 +257,14 @@ bcist:
 
 				; ;;;; ?COST (BCOST FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE OUTPUT STATUS:
-	 if	banked
+  if	banked
 bcost:
-	 else
+  else
 ?cost:
-	 endif
+  endif
 	call	dev$dispatch	; GO TO CONSOLE OUTPUT STATUS HANDLER
 	defw	cost0		; DEVICE 0 OUTPUT STATUS
-	defw	null$cost	; DEVICE 1 OUTPUT STATUS
+	defw	cost1		; DEVICE 1 OUTPUT STATUS
 	defw	null$cost	; DEVICE 2 OUTPUT STATUS
 	defw	null$cost	; DEVICE 3 OUTPUT STATUS
 	defw	null$cost	; DEVICE 4 OUTPUT STATUS
@@ -310,6 +310,7 @@ dev$dispatch:
 
 
 cinit0:				; DEVICE 0 INITIALIZATION (Z80-MBC2) 
+cinit1:				; DEVICE 1 INITIALIZATION (Z80-MBC2) 
 	ret			; Nothing to do
 
 ; 
@@ -376,7 +377,7 @@ ci0:				; DEVICE 0 INPUT
 getchr:
 	in	a,(serial$rx)	; Read a char from UART
 	cp	0ffh		; Is = $FF ($FF from UART = no char)?
-	ret	nz		; No, retun with it in A
+	ret	nz		; No, return with it in A
 				; Yes, check if ffH is a valid char
 
 chkff:				; Check if ffH is a valid char
@@ -400,6 +401,35 @@ co0:				; DEVICE 0 OUTPUT
 	out	(exc$wr$opcd),a	; Send A to serial Tx
 	ret
 
+; 
+;<<<<<<<<<<<<<<<<<<< RDR/PUN STATUS ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;
+
+
+cist1:				; DEVICE 1 INPUT STATUS
+	xor	a		; Return CP/M no char ready flag ($00)
+	ret
+
+cost1:				; DEVICE 1 OUTPUT STATUS (Z80-MBC2) 
+	ld	a,0ffh		; Always ready to PUN
+	ret
+
+
+;
+;<<<<<<<<<<<<<<<<<<<< RDR INPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;
+
+ci1:				; DEVICE 1 INPUT
+	ld	a,1ah		; a:^Z (EOF)
+	ret
+
+;
+;<<<<<<<<<<<<<<<<<<<< PUN OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;
+
+co1:				; DEVICE 1 OUTPUT
+	ret
+
 ;
 ; -------------------------------------------------------------------------
 ;
@@ -417,8 +447,8 @@ null$ret:
 	ret			; HARMLESS RETURN
 
 
-				; STORAGE FOR DEVICE CODE -- CAN RESIDE IN SAME SEGMENT AS THE BULK
-				;  OF CHARACTER I/O ROUTINES:
+				; STORAGE FOR DEVICE CODE -- CAN RESIDE IN SAME SEGMENT AS THE
+				;  BULK OF CHARACTER I/O ROUTINES:
 dev$code:
 	defs	1
 
@@ -445,3 +475,4 @@ spsave:	defs	2
   endif
 
 	end
+

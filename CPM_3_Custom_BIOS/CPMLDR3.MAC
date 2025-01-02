@@ -28,6 +28,9 @@
 ;					image.  TEST -> A:TEST.SYS
 ;					Also increased the stack space.
 ;
+;	22-Dec-2024	Ho-Ro		Check the AUTOEXEC bit and load
+;					CPM3.SYS (=0) or CPMX.SYS (=1)
+;					to have a fall-back version
 
 	aseg	; Absolute address
 
@@ -42,6 +45,13 @@ lf	equ	0ah
 fcb	equ	abase+005ch	; Default FCB address
 buff	equ	abase+0080h	; Default buffer address
 
+;
+;	BIOS equates
+;
+EXC$WR$OPCD EQU	000H		; Address of the EXECUTE WRITE OPCODE write port
+EXC$RD$OPCD EQU	000H		; Address of the EXECUTE READ OPCODE read port
+STO$OPCD    EQU	001H		; Address of the STORE OPCODE write port
+SYSFLAG$OPC EQU	083H		; SYSFLAG opcode
 ;
 ;	System Equates
 ;
@@ -68,11 +78,22 @@ rbase::	ld	sp,stackbot	; Stack can overwrite sign-on
 	ld	c,resetsys	; Initialize the System
 	call	bdos
 
-	ld	c,printbuf	; Print the sign on message
+
+  				; Read the IOS AUTOEXEC flag
+  	ld	a,SYSFLAG$OPC	; Select SYSFLAG opcode
+  	out     (STO$OPCD),a
+  	in	a,(EXC$RD$OPCD)	; A = SYSFLAG
+  	and	01h		; Isolate the AUTOEXEC flag bit
+  	jr	z,rbase1	; load default CPM3.SYS
+  	ld 	a,'x'		; Signon:
+	ld	(signum),a	; change CP/M 3.0 -> CP/M 3.x
+	ld	a,'X'		; CP/M system file:
+	ld	(cpmfcb+4),a	; change CPM3.SYS -> CPMX.SYS
+
+rbase1:	ld	c,printbuf	; Print the sign on message
 	ld	de,signon
 	call	bdos
-
-	ld	c,open$func	; Open the CPM3.SYS file
+	ld	c,open$func	; Open the CPM?.SYS file
 	ld	de,cpmfcb
 	call	bdos
 	cp	0ffh
@@ -235,7 +256,8 @@ readerr::
 	defb	lf
 signon::
 	defb	cr,lf
-	defb	'CPMLDR3 - CP/M V3.0 Loader',cr,lf
+	defb	'CPMLDR3 - CP/M V3.'
+signum:	defb	'0 Loader',cr,lf
 	defb	'Copyright (C) 1982, Digital Research'
 	defb	cr,lf,'$'
 
@@ -2083,3 +2105,5 @@ move$out equ	movef
 move$tpa equ	movef
 
 	end
+
+

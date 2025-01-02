@@ -390,8 +390,15 @@ signon$msg:
   if	DBG			;AGN - debugging version
 	defb	' (DEBUG)'
   endif
-	defb	cr,lf,'Z80-MBC2 BIOS Modules: S200918, S210918-R170319, '
-	defb	'S220918-R180319, S290918,', cr,lf,' S170319'
-	defb	cr,lf,lf,0
-
+				; BIOSKRNL	S170319
+				; BOOT		S220918-R180319
+				; CHARIO	S210918-R170319
+				; MOVE		S290918
+				; SCB		-
+				; VDISK		S200918
+	defb	cr,lf
+	defb	'Z80-MBC2 X BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf
+	defb	'CHARIO S210918-R170319, MOVE S290918, SCB -, VDISK S200918'
+	defb	cr,lf,0
 	end
+                                                                                   
