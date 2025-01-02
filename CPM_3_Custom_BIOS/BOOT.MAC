@@ -92,7 +92,16 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 	ld	hl,8000h	; SIGNIFIES DEVICE 0
 	ld	(@civec),hl	; CONSOLE INPUT VECTOR
 	ld	(@covec),hl	; CONSOLE OUTPUT VECTOR
-	
+
+				; Assign the List output device to LPT: (SPP Adapter - Z80-MBC2)
+				; (See cap. 3.4.2 CP/M 3 System Guide)
+	ld	hl,4000H	; SIGNIFIES DEVICE 1 (LPT:)
+	ld    	(@lovec),hl	; LIST OUTPUT VECTOR
+				; ASSIGN AUX INPUT AND OUTPUT TO AUX:
+	ld	hl,2000h	; SIGNIFIES DEVICE 2
+	ld	(@aivec),hl	; AUX INPUT VECTOR
+	ld	(@aovec),hl	; AUX OUTPUT VECTOR
+									
 				; PRINT THE SIGN-ON MESSAGE:
 	ld	hl,signon$msg	; POINT TO IT
 	jp	?pmsg		; AND PRINT IT
@@ -392,13 +401,13 @@ signon$msg:
   endif
 				; BIOSKRNL	S170319
 				; BOOT		S220918-R180319
-				; CHARIO	S210918-R170319
+				; CHARIO	S210918-R210923
 				; MOVE		S290918
 				; SCB		-
 				; VDISK		S200918
 	defb	cr,lf
 	defb	'Z80-MBC2 X BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf
-	defb	'CHARIO S210918-R170319, MOVE S290918, SCB -, VDISK S200918'
+	defb	'CHARIO S210918-R210923, MOVE S290918, SCB -, VDISK S200918'
 	defb	cr,lf,0
 	end
-                                                                                   
+

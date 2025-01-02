@@ -9,17 +9,18 @@
 ;
 ;******************************************************************************
 ;
-; CHARIO.ASM - S210918-R170319
+; CHARIO.ASM - S210918-R210923
 ; CP/M 3.0 CHARACTER I/O BIOS MODULE FOR THE Z80-MBC2 (HW ref. A040618)
 ;
-; Required IOS S220718-R260119 (or following revisions until otherwise stated)
+; Required IOS S220718-R290823 (or following revisions until otherwise stated)
 ;
 ; CHANGELOG:
 ;
 ; S210918           First release
 ; S210918-R090319   Changed CIST0: and CI0: to allow full 8 bit data I/O
-; S210918-R170319   Added the selection of the mode of CIST0: (7 or 8 bit mode,
-;
+; S210918-R170319   Added the selection of the mode of CIST0: (7 or 8 bit mode, for XMODEM)
+; S210918-R210923   Added support for the SPP Adapter board (parallel printer) as Device 1
+; S210918-Rxxxx25   DEVEL: Added dummy support for I2C SIO device AUX as Device 2
 ;
 ;******************************************************************************
 
@@ -50,10 +51,10 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 	public  ?cnstflg	; CONST mode flag (Z80-MBC2) ***
 
 				; DEFINE EXTERNAL LABELS AND ENTRY POINTS:
-  if	banked
+	 if	banked
 	extrn @cbnk
 	extrn ?bnksl
-  endif
+	 endif
 	extrn ?pmsg
 
 	include modebaud.lib	; EQUATES FOR MODE BYTE BIT FIELDS
@@ -73,11 +74,15 @@ seldisk$opc equ	009h		; SELDISK opcode
 seltrck$opc equ	00ah		; SELTRACK opcode
 selsect$opc equ	00bh		; SELSECT opcode
 wrtsect$opc equ	00ch		; WRITESECT opcode
+SETSPP$OPC  EQU	011H		; SETSPP opcode
+WRSPP$OPC   EQU	012H		; WRSPP opcoce
 sysflag$opc equ	083h		; SYSFLAG opcode
 datetim$opc equ	084h		; DATETIME opcode
 errdsk$opc equ	085h		; ERRDISK opcode
 rdsect$opc equ	086h		; READSECT opcode
 sdmount$opc equ	087h		; SDMOUNT opcode
+GETSPP$OPC EQU	08AH		; GETSPP opcode
+SPPRDY     EQU	0C9H		; SPP status printer ready pattern (11001001)
 
 
 				; WILL START OFF IN COMMON MEMORY FOR BANKED OR NON-BANKED SYSTEMS:
@@ -86,7 +91,7 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 				; --------------------------
 
 
-  if	banked
+	 if	banked
 				; WE PROVIDE ALTERNATE DEFINITIONS OF THE ROUTINE ENTRY POINTS IF
 				;  WE ARE RUNNING A BANKED SYSTEM VERSUS A NON-BANKED SYSTEM:
 
@@ -138,7 +143,7 @@ bioret:
 	pop	af		; GET BACK RESULT CODE TO [A]
 	ld	sp,(spsave)	; RESTORE PREVIOUS STACK
 	ret			; AND RETURN...
-  endif
+	 endif
 
 
 				; ;;;;
@@ -148,19 +153,19 @@ bioret:
 
 				; ;;;; ?CINIT (BCINIT FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE INITIALIZATION:
-  if	banked
+	 if	banked
 				; --------------------------
 	dseg			; CAN PUT IN BANKED SEGMENT IF BANKED
 				; --------------------------
 bcinit:
-  else
+	 else
 ?cinit:
-  endif
+	 endif
 	ld	b,c		; ON ENTRY DEVICE # IS IN [C] BUT WE NEED
 				; IT IN [B]
 	call	dev$dispatch	; GO TO CORRECT INIT ROUTINE
 	defw	cinit0		; INIT FOR DEVICE 0
-	defw	cinit1		; INIT FOR DEVICE 1
+	defw	null$init	; INIT FOR DEVICE 1
 	defw	null$init	; INIT FOR DEVICE 2
 	defw	null$init	; INIT FOR DEVICE 3
 	defw	null$init	; INIT FOR DEVICE 4
@@ -179,15 +184,15 @@ bcinit:
 
 				; ;;;; ?CI (BCI FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE INPUT:
-  if	banked
+	 if	banked
 bci:
-  else
+	 else
 ?ci:
-  endif
+	 endif
 	call	dev$dispatch
 	defw	ci0		; DEVICE 0 INPUT
-	defw	ci1		; DEVICE 1 INPUT
-	defw	null$ci		; DEVICE 2 INPUT
+	defw	null$ci		; DEVICE 1 INPUT: can't read from printer (SPP Adapter)
+	defw	ci2		; DEVICE 2 INPUT
 	defw	null$ci		; DEVICE 3 INPUT
 	defw	null$ci		; DEVICE 4 INPUT
 	defw	null$ci		; DEVICE 5 INPUT
@@ -205,15 +210,15 @@ bci:
 
 				; ;;;; ?CO (BCO FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE OUTPUT:
-  if	banked
+	 if	banked
 bco:
-  else
+	 else
 ?co:
-  endif
+	 endif
 	call	dev$dispatch	; GO TO CORRECT DEVICE OUTPUT HANDLER
 	defw	co0		; DEVICE 0 OUTPUT
 	defw	co1		; DEVICE 1 OUTPUT
-	defw	null$co		; DEVICE 2 OUTPUT
+	defw	co2		; DEVICE 2 OUTPUT
 	defw	null$co		; DEVICE 3 OUTPUT
 	defw	null$co		; DEVICE 4 OUTPUT
 	defw	null$co		; DEVICE 5 OUTPUT
@@ -231,15 +236,15 @@ bco:
 
 				; ;;;; ?CIST (BCIST FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE INPUT STATUS:
-  if	banked
+	 if	banked
 bcist:
-  else
+	 else
 ?cist:
-  endif
+	 endif
 	call	dev$dispatch
 	defw	cist0		; DEVICE 0 INPUT STATUS
-	defw	cist1		; DEVICE 1 INPUT STATUS
-	defw	null$cist	; DEVICE 2 INPUT STATUS
+	defw	null$cist	; DEVICE 1 INPUT STATUS: can't read from printer (SPP Adapter)
+	defw	cist2		; DEVICE 2 INPUT STATUS
 	defw	null$cist	; DEVICE 3 INPUT STATUS
 	defw	null$cist	; DEVICE 4 INPUT STATUS
 	defw	null$cist	; DEVICE 5 INPUT STATUS
@@ -257,15 +262,15 @@ bcist:
 
 				; ;;;; ?COST (BCOST FOR BANKED)
 				; PHYSICAL CODE FOR DEVICE OUTPUT STATUS:
-  if	banked
+	 if	banked
 bcost:
-  else
+	 else
 ?cost:
-  endif
+	 endif
 	call	dev$dispatch	; GO TO CONSOLE OUTPUT STATUS HANDLER
 	defw	cost0		; DEVICE 0 OUTPUT STATUS
 	defw	cost1		; DEVICE 1 OUTPUT STATUS
-	defw	null$cost	; DEVICE 2 OUTPUT STATUS
+	defw	cost2		; DEVICE 2 OUTPUT STATUS
 	defw	null$cost	; DEVICE 3 OUTPUT STATUS
 	defw	null$cost	; DEVICE 4 OUTPUT STATUS
 	defw	null$cost	; DEVICE 5 OUTPUT STATUS
@@ -310,11 +315,10 @@ dev$dispatch:
 
 
 cinit0:				; DEVICE 0 INITIALIZATION (Z80-MBC2) 
-cinit1:				; DEVICE 1 INITIALIZATION (Z80-MBC2) 
 	ret			; Nothing to do
 
 ; 
-;<<<<<<<<<<<<<<<<<<< MAIN CONSOLE STATUS ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOLE/DEVICE 0 STATUS ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
 ;
 
 
@@ -361,7 +365,7 @@ cost0:				; DEVICE 0 OUTPUT STATUS (Z80-MBC2)
 	ret
 
 ;
-;<<<<<<<<<<<<<<<<<<<< MAIN CONSOLE INPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<<<<<<<< MAIN CONSOLE/DEVICE 0 INPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
 ;
 
 ci0:				; DEVICE 0 INPUT
@@ -377,7 +381,7 @@ ci0:				; DEVICE 0 INPUT
 getchr:
 	in	a,(serial$rx)	; Read a char from UART
 	cp	0ffh		; Is = $FF ($FF from UART = no char)?
-	ret	nz		; No, return with it in A
+	ret	nz		; No, retun with it in A
 				; Yes, check if ffH is a valid char
 
 chkff:				; Check if ffH is a valid char
@@ -391,7 +395,7 @@ chkff:				; Check if ffH is a valid char
 
 	
 ;
-;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOLE OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOLE/DEVICE 0 OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>
 ;
 
 co0:				; DEVICE 0 OUTPUT
@@ -401,34 +405,67 @@ co0:				; DEVICE 0 OUTPUT
 	out	(exc$wr$opcd),a	; Send A to serial Tx
 	ret
 
-; 
-;<<<<<<<<<<<<<<<<<<< RDR/PUN STATUS ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;
+;<<<<<<<<<<<<<<<<<<< PRINTER/DEVICE 1 STATUS HANDLER ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>>>>
+;
+; NOTE: If the SPP adapter is not enabled it will perform as an always
+;       ready null device
 ;
 
-
-cist1:				; DEVICE 1 INPUT STATUS
-	xor	a		; Return CP/M no char ready flag ($00)
+COST1:
+	ld      a,GETSPP$OPC	; Select GETSPP$OPC opcode (IOS)
+	out     (STO$OPCD),a
+	in      a,(EXC$RD$OPCD)	; Read it
+	and     a		; Is SPP enabled?
+	jr	z,COST1RDY	; No, jump
+	cp	SPPRDY		; Yes, is SPP printer ready?
+	jr	z,COST1RDY	; Yes, jump
+	xor	a		; No, A = not ready flag
 	ret
 
-cost1:				; DEVICE 1 OUTPUT STATUS (Z80-MBC2) 
-	ld	a,0ffh		; Always ready to PUN
-	ret
-
-
-;
-;<<<<<<<<<<<<<<<<<<<< RDR INPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
-;
-
-ci1:				; DEVICE 1 INPUT
-	ld	a,1ah		; a:^Z (EOF)
+COST1RDY:
+	ld      a,0ffH		; A = 0xFF (ready flag)
 	ret
 
 ;
-;<<<<<<<<<<<<<<<<<<<< PUN OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<<<<<<< PRINTER/DEVICE 1 OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>>>>
+;
+; NOTE: If the SPP adapter is not enabled it will perform as an always
+;       ready null device
 ;
 
-co1:				; DEVICE 1 OUTPUT
+CO1:
+	ld	a,GETSPP$OPC	; Select GETSPP$OPC opcode (IOS)
+	out	(STO$OPCD),a
+	in	a,(EXC$RD$OPCD)	; Read it
+	and	a		; Is SPP enabled?
+	jr	z,listRet	; No, nothing to do so jump
+	cp	SPPRDY		; Yes, is SPP printer ready?
+	jr	nz,CO1		; No, jump and wait
+	ld	a, WRSPP$OPC	; Yes, select WRSPP$OPC opcode (IOS)...
+	out	(STO$OPCD),a
+	ld	a,c		; ... and send the current char to the SPP printer
+	out	(EXC$WR$OPCD),a
+listRet:
 	ret
+
+;
+;<<<<<<<<<<<<<< AUX/DEVICE 2 INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
+;
+
+cist2:				; DEVICE 2 INPUT STATUS (Z80-MBC2) 
+	ld	a,0ffh		; Char available
+	ret
+
+cost2:				; DEVICE 2 OUTPUT STATUS (Z80-MBC2) 
+	ld	a,0ffh		; Always ready to TX
+	ret
+
+ci2:
+	ld	a,1ah		; ^Z (EOF)
+co2:
+	ret
+
 
 ;
 ; -------------------------------------------------------------------------
@@ -447,8 +484,9 @@ null$ret:
 	ret			; HARMLESS RETURN
 
 
-				; STORAGE FOR DEVICE CODE -- CAN RESIDE IN SAME SEGMENT AS THE
-				;  BULK OF CHARACTER I/O ROUTINES:
+				; STORAGE FOR DEVICE CODE
+				; CAN RESIDE IN SAME SEGMENT AS THE BULK
+				; OF CHARACTER I/O ROUTINES:
 dev$code:
 	defs	1
 
@@ -462,6 +500,13 @@ dev$code:
 	defb	'CRT   '	; CONSOLE (DEVICE 0)
 	defb	mb$in$out
 	defb	baud$none
+	defb 	'LPT   '	; SPP Adapter board/parallel printer (DEVICE 1)
+	defb	MB$OUTPUT
+	defb	BAUD$NONE
+	defb	'AUX   '	; I2C serial I/O via AVR
+	defb	mb$in$out
+	defb	baud$1200
+
 
 max$devices equ	($-@ctbl)/8	; # DEVICES IN TABLE
 	defb	0		; TABLE TERMINATOR
@@ -475,4 +520,5 @@ spsave:	defs	2
   endif
 
 	end
-
+
+
