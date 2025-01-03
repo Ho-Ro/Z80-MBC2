@@ -2031,19 +2031,26 @@ void loop()
             case  0x8B:
               // SIO Status Read:
               //
-              //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
-              //                            ---------------------------------------------------------
-              //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
+              //   I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+              //                -----------------------------------------
+              //                 |  |  |  |  |  |  |  +-- RxD Reg Full
+              //                 |  |  |  |  |  |  +----- TxD Reg Empty
+              //                 |  |  |  |  |  +-------- /DCD
+              //                 |  |  |  |  +----------- /CTS
+              //                 |  |  |  +-------------- nc
+              //                 |  |  +----------------- nc
+              //                 |  +-------------------- nc
+              //                 +----------------------- nc
               //
               // NOTE: a value 0x00 is forced if the GPE Option is not present
 
               if (moduleSIO)
               {
-                // Set MCP23017 pointer to GPIOA
+                // Set status/control register address
                 Wire.beginTransmission(SIOEXP_ADDR);
                 Wire.write(SIO_STAT_CTRL);
                 Wire.endTransmission();
-                // Read GPIOA
+                // Read status register
                 Wire.beginTransmission(SIOEXP_ADDR);
                 Wire.requestFrom(SIOEXP_ADDR, 1);
                 ioData = Wire.read();
