@@ -1,0 +1,59 @@
+--- boards.txt.orig	2024-05-23 21:24:40.000000000 +0200
++++ boards.txt	2024-11-28 15:50:37.592227340 +0100
+@@ -16,6 +16,7 @@
+ menu.pinout=Pinout
+ menu.bootloader=Bootloader
+ menu.baudrate=Baud rate
++menu.SerialBuf=Serial Port Buffers (RX/TX)
+ 
+ ######################
+ #### ATmega1284/P ####
+@@ -1004,6 +1005,28 @@
+ 32.menu.baudrate.4800=4800
+ 32.menu.baudrate.4800.upload.speed=4800
+ 
++32.menu.SerialBuf.disabled=Default
++32.menu.SerialBuf.disabled.compilerSB.c.extra_flags=
++32.menu.SerialBuf.disabled.compilerSB.cpp.extra_flags=
++32.menu.SerialBuf.SB64_64=64/64
++32.menu.SerialBuf.SB64_64.compilerSB.c.extra_flags=-DSERIAL_RX_BUFFER_SIZE=64 -DSERIAL_TX_BUFFER_SIZE=64
++32.menu.SerialBuf.SB64_64.compilerSB.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=64 -DSERIAL_TX_BUFFER_SIZE=64
++32.menu.SerialBuf.SB128_64=128/64
++32.menu.SerialBuf.SB128_64.compilerSB.c.extra_flags=-DSERIAL_RX_BUFFER_SIZE=128 -DSERIAL_TX_BUFFER_SIZE=64
++32.menu.SerialBuf.SB128_64.compilerSB.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=128 -DSERIAL_TX_BUFFER_SIZE=64
++32.menu.SerialBuf.SB128_128=128/128
++32.menu.SerialBuf.SB128_128.compilerSB.c.extra_flags=-DSERIAL_RX_BUFFER_SIZE=128 -DSERIAL_TX_BUFFER_SIZE=128
++32.menu.SerialBuf.SB128_128.compilerSB.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=128 -DSERIAL_TX_BUFFER_SIZE=128
++32.menu.SerialBuf.SB256_64=256/64
++32.menu.SerialBuf.SB256_64.compilerSB.c.extra_flags=-DSERIAL_RX_BUFFER_SIZE=256 -DSERIAL_TX_BUFFER_SIZE=64
++32.menu.SerialBuf.SB256_64.compilerSB.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=256 -DSERIAL_TX_BUFFER_SIZE=64
++32.menu.SerialBuf.SB256_128=256/128
++32.menu.SerialBuf.SB256_128.compilerSB.c.extra_flags=-DSERIAL_RX_BUFFER_SIZE=256 -DSERIAL_TX_BUFFER_SIZE=128
++32.menu.SerialBuf.SB256_128.compilerSB.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=256 -DSERIAL_TX_BUFFER_SIZE=128
++32.menu.SerialBuf.SB256_256=256/256
++32.menu.SerialBuf.SB256_256.compilerSB.c.extra_flags=-DSERIAL_RX_BUFFER_SIZE=256 -DSERIAL_TX_BUFFER_SIZE=256
++32.menu.SerialBuf.SB256_256.compilerSB.cpp.extra_flags=-DSERIAL_RX_BUFFER_SIZE=256 -DSERIAL_TX_BUFFER_SIZE=256
++
+ # Pinouts
+ 32.menu.pinout.standard=Standard pinout
+ 32.menu.pinout.standard.build.variant=standard
+@@ -1025,15 +1048,15 @@
+ 
+ # Compiler link time optimization
+ 32.menu.LTO.Os_flto=LTO enabled
+-32.menu.LTO.Os_flto.compiler.c.extra_flags=-Wextra -flto -g
++32.menu.LTO.Os_flto.compiler.c.extra_flags={compilerSB.c.extra_flags} -Wextra -flto -g
+ 32.menu.LTO.Os_flto.compiler.c.elf.extra_flags=-w -flto -g
+-32.menu.LTO.Os_flto.compiler.cpp.extra_flags=-Wextra -flto -g
++32.menu.LTO.Os_flto.compiler.cpp.extra_flags={compilerSB.c.extra_flags} -Wextra -flto -g
+ 32.menu.LTO.Os_flto.ltoarcmd=avr-gcc-ar
+ 
+ 32.menu.LTO.Os=LTO disabled
+-32.menu.LTO.Os.compiler.c.extra_flags=
++32.menu.LTO.Os.compiler.c.extra_flags={compilerSB.c.extra_flags}
+ 32.menu.LTO.Os.compiler.c.elf.extra_flags=
+-32.menu.LTO.Os.compiler.cpp.extra_flags=
++32.menu.LTO.Os.compiler.cpp.extra_flags={compilerSB.c.extra_flags}
+ 32.menu.LTO.Os.ltoarcmd=avr-ar
+ 
+ # Clock frequencies - This is the second part of the low fuse bit concatenation

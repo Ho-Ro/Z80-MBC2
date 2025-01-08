@@ -1586,21 +1586,13 @@ void loop()
           case  0x13:
             // SIO CTRL Write:
             //
-            //   I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
-            //               ------------------------------------------
-            //                 |  |  |  |  |  |  |  +--
-            //                 |  |  |  |  |  |  +-----
-            //                 |  |  |  |  |  +--------
-            //                 |  |  |  |  +-----------
-            //                 |  |  |  +--------------
-            //                 |  |  +-----------------
-            //                 |  +--------------------
-            //                 +-----------------------
+            //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+            //                            ---------------------------------------------------------
 
             if (moduleSIO)
             {
               Wire.beginTransmission(SIOEXP_ADDR);
-              Wire.write(SIO_STAT_CTRL);          // Select CTRL register address
+              Wire.write(SIO_STAT_CTRL);          // Select GPIOA
               Wire.write(ioData);                 // Write value
               Wire.endTransmission();
             }
@@ -1609,13 +1601,13 @@ void loop()
           case  0x14:
             // SIO TXD Write:
             //
-            //   I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
-            //               -------------------------
+            //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+            //                            ---------------------------------------------------------
 
             if (moduleSIO)
             {
               Wire.beginTransmission(SIOEXP_ADDR);
-              Wire.write(SIO_RXD_TXD);            // Select TXD
+              Wire.write(SIO_RXD_TXD);            // Select TX
               Wire.write(ioData);                 // Write value
               Wire.endTransmission();
             }
@@ -2039,26 +2031,19 @@ void loop()
             case  0x8B:
               // SIO Status Read:
               //
-              //   I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
-              //                -----------------------------------------
-              //                 |  |  |  |  |  |  |  +-- RxD Reg Full
-              //                 |  |  |  |  |  |  +----- TxD Reg Empty
-              //                 |  |  |  |  |  +-------- /DCD
-              //                 |  |  |  |  +----------- /CTS
-              //                 |  |  |  +-------------- nc
-              //                 |  |  +----------------- nc
-              //                 |  +-------------------- nc
-              //                 +----------------------- nc
+              //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+              //                            ---------------------------------------------------------
+              //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
               //
               // NOTE: a value 0x00 is forced if the GPE Option is not present
 
               if (moduleSIO)
               {
-                // Set status/control register address
+                // Set MCP23017 pointer to GPIOA
                 Wire.beginTransmission(SIOEXP_ADDR);
                 Wire.write(SIO_STAT_CTRL);
                 Wire.endTransmission();
-                // Read status register
+                // Read GPIOA
                 Wire.beginTransmission(SIOEXP_ADDR);
                 Wire.requestFrom(SIOEXP_ADDR, 1);
                 ioData = Wire.read();
@@ -2070,17 +2055,17 @@ void loop()
               //
               //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
               //                            ---------------------------------------------------------
-              //                             D7 D6 D5 D4 D3 D2 D1 D0    SIO value
+              //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
               //
-              // NOTE: a value 0x00 is forced if the SIO Option is not present
+              // NOTE: a value 0x00 is forced if the GPE Option is not present
 
               if (moduleSIO)
               {
-                // Set RXD register address
+                // Set MCP23017 pointer to GPIOA
                 Wire.beginTransmission(SIOEXP_ADDR);
                 Wire.write(SIO_RXD_TXD);
                 Wire.endTransmission();
-                // Read RXD register
+                // Read GPIOA
                 Wire.beginTransmission(SIOEXP_ADDR);
                 Wire.requestFrom(SIOEXP_ADDR, 1);
                 ioData = Wire.read();
