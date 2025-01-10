@@ -11,7 +11,7 @@
 #define SPI_FCPU_DIV_2 1
 //------------------------------------------------------------------------------
 #define	FORWARD(d)	xmit(d)				/* Data forwarding function (console out) */
-static void xmit(char d) {}  // Dummy write console
+static void xmit(char) {}  // Dummy write console
 //------------------------------------------------------------------------------
 static void spi_set_divisor(BYTE cardType) {
   if (!cardType) {

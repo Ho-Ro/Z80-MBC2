@@ -37,6 +37,8 @@ BUILD = $(PRJ)/build/$(subst :,.,$(FQBN))
 
 # source code for the Arduino project
 INO = $(PRJ)/$(PRJ).ino
+HEADER = $(PRJ)/*.h
+SOURCE = $(PRJ)/*.cpp
 
 # target in intel hex format
 HEX = $(BUILD)/$(PRJ).ino.hex
@@ -46,7 +48,7 @@ HEX_BL_CLK = $(PRJ)/$(PRJ).ino.with_bootloader_$(CLK)MHz.hex
 .PHONY: compile
 compile: $(HEX_BL_CLK)
 
-$(HEX_BL_CLK): $(INO) Makefile
+$(HEX_BL_CLK): $(INO) $(SOURCE) $(HEADER) Makefile
 	arduino-cli compile --export-binaries --warnings all --fqbn $(FQBN_BO) $(INO)
 	-rm $(HEX_BL_CLK)
 	-ln $(HEX_BL) $(HEX_BL_CLK)

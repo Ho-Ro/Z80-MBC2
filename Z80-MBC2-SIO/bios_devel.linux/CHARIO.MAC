@@ -20,7 +20,7 @@
 ; S210918-R090319   Changed CIST0: and CI0: to allow full 8 bit data I/O
 ; S210918-R170319   Added the selection of the mode of CIST0: (7 or 8 bit mode, for XMODEM)
 ; S210918-R210923   Added support for the SPP Adapter board (parallel printer) as Device 1
-; S210918-Rxxxx25   DEVEL: Added dummy support for I2C SIOA and SIOB devices as Device 2/3
+; S210918-DEV0125   DEVEL: Add dummy support for I2C SIOA and SIOB devices as Device 2/3
 ;
 ;******************************************************************************
 
@@ -47,16 +47,16 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 	include	config.lib	; AGN - for debugging
 
 				; DEFINE PUBLIC LABELS:
-	public ?cinit,?ci,?co,?cist,?cost
-	public @ctbl
-	public  ?cnstflg	; CONST mode flag (Z80-MBC2) ***
+	public	?cinit,?ci,?co,?cist,?cost
+	public	@ctbl
+	public 	?cnstflg	; CONST mode flag (Z80-MBC2) ***
 
 				; DEFINE EXTERNAL LABELS AND ENTRY POINTS:
     if	banked
-	extrn @cbnk
-	extrn ?bnksl
+	extrn	@cbnk
+	extrn	?bnksl
     endif
-	extrn ?pmsg
+	extrn	?pmsg
 
 cr	equ	0dh
 lf	equ	0ah
@@ -87,6 +87,14 @@ rdsect$opc equ	086h		; READSECT opcode
 sdmount$opc equ	087h		; SDMOUNT opcode
 GETSPP$OPC EQU	08AH		; GETSPP opcode
 SPPRDY     EQU	0C9H		; SPP status printer ready pattern (11001001)
+sioa$ctrl equ   020h		; SIOA set baudrate
+sioa$txd  equ	021h		; SIOA TxD
+siob$ctrl equ   022h		; SIOB set baudrate
+siob$txd  equ	023h		; SIOB TxD
+sioa$stat equ   0a0h		; SIOA get status
+sioa$rxd  equ   0a1h		; SIOA RxD
+siob$stat equ   0a2h		; SIOB get status
+siob$rxd  equ   0a3h		; SIOB RxD
 
 
 				; WILL START OFF IN COMMON MEMORY FOR BANKED OR NON-BANKED SYSTEMS:
@@ -454,7 +462,7 @@ listRet:
 	ret
 
 ;
-;<<<<<<<<<<<<<< SIO1 / DEVICE 2 INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<< SIOA / DEVICE 2 INIT/INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
 ;
 
 cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
@@ -467,7 +475,11 @@ cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
 	call	?pmsg
 	pop	hl
     endif
-	ret			; Nothing to do
+	ld 	a,sioa$ctrl	; select sioa ctrl reg
+	out	(sto$opcd),a
+	ld	a,(ctbl2$bd)	; baud rate request
+	out	(exc$wr$opcd),a	; set baud rate
+	ret			;
 
 cist2:				; DEVICE 2 INPUT STATUS (Z80-MBC2)
 	ld	a,0ffh		; Char available
@@ -484,12 +496,12 @@ co2:
 
 
 ;
-;<<<<<<<<<<<<<< SIO2 / DEVICE 3 INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<< SIO2 / DEVICE 3 INIT/INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
 ;
 
 cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
-    if	DBG
 	push	af
+    if	DBG
 	push	hl
 	ld	a,(ctbl3$bd)
 	add	a,'@'
@@ -497,9 +509,13 @@ cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
 	ld	hl,cinit3$msg
 	call	?pmsg
 	pop	hl
-	pop	af
     endif
-	ret			; Nothing to do
+	ld 	a,siob$ctrl	; select siob ctrl reg
+	out	(sto$opcd),a
+	ld	a,(ctbl3$bd)	; baud rate request
+	out	(exc$wr$opcd),a	; set baud rate
+	pop	af
+	ret
 
 cist3:				; DEVICE 3 INPUT STATUS (Z80-MBC2)
 	ld	a,0ffh		; Char available

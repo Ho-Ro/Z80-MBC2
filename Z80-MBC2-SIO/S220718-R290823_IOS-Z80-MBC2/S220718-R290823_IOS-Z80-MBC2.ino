@@ -96,7 +96,7 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
                    the SPP adapter is used and a printer is connected, selected online and powered on before
                    the Z80-MBC2, possible "strange" printer behaviors are avoided. This makes the STROBE and
                    INIT lines of the parallel port not active after a power on/reset.
-S220718-R010125   Added support for I2C SIO module:
+S220718-DEV0125   DEVEL for I2C 2 x SIO module SC16IS752
 --------------------------------------------------------------------------------- */
 
 // ------------------------------------------------------------------------------
@@ -144,7 +144,7 @@ S220718-R010125   Added support for I2C SIO module:
 //
 // ------------------------------------------------------------------------------
 
-#define   GPIOEXP_ADDR  0x20  // I2C module address (see datasheet)
+#define   GPIOEXP_ADDR  0x20  // I2C module 7 bit address (see datasheet)
 #define   IODIRA_REG    0x00  // MCP23017 internal register IODIRA  (see datasheet)
 #define   IODIRB_REG    0x01  // MCP23017 internal register IODIRB  (see datasheet)
 #define   GPPUA_REG     0x0C  // MCP23017 internal register GPPUA  (see datasheet)
@@ -158,19 +158,9 @@ S220718-R010125   Added support for I2C SIO module:
 //
 // ------------------------------------------------------------------------------
 
-#define   DS3231_RTC    0x68  // DS3231 I2C address
+#define   DS3231_RTC    0x68  // DS3231 I2C 7 bit address
 #define   DS3231_SECRG  0x00  // DS3231 Seconds Register
 #define   DS3231_STATRG 0x0F  // DS3231 Status Register
-
-// ------------------------------------------------------------------------------
-//
-// Hardware definitions for A040618 GPE Option (Optional GPIO Expander)
-//
-// ------------------------------------------------------------------------------
-
-#define   SIOEXP_ADDR   0x50  // I2C module address (see datasheet)
-#define   SIO_STAT_CTRL 0x80  // Status (RD) / Control (WR)
-#define   SIO_RXD_TXD   0x81  // RxD (RD) / TxD (WR)
 
 // ------------------------------------------------------------------------------
 //
@@ -224,6 +214,7 @@ S220718-R010125   Added support for I2C SIO module:
 #include "Wire.h"                         // Needed for I2C bus
 #include <EEPROM.h>                       // Needed for internal EEPROM R/W
 #include "PetitFS.h"                      // Light handler for FAT16 and FAT32 filesystems on SD
+#include "sc16is752.h"                    // I2C double SIO interface
 
 // ------------------------------------------------------------------------------
 //
@@ -358,6 +349,15 @@ byte          diskSet;                    // Current "Disk Set"
 // I2C SIO module for AUX I/O
 byte          moduleSIO       = 0;        // Set to 1 if found
 
+// CP/M3 baud rate values (See cap. 3.2 CP/M 3 System Guide)
+uint16_t      cpmBaudRate[] = { 0, 50, 75, 110,
+                                134, 150, 300, 600,
+                                1200, 1800, 2400, 3600,
+                                4800, 7200, 9600, 19200
+                              };
+
+byte          verbosity       = 0;        // Temporary debugging support
+
 // ------------------------------------------------------------------------------
 
 void setup()
@@ -449,6 +449,7 @@ void setup()
 
   // Initialize the EXP_PORT (I2C) and search for "known" optional modules
   Wire.begin();                                   // Wake up I2C bus
+  // Search for GPIO
   Wire.beginTransmission(GPIOEXP_ADDR);
   if (Wire.endTransmission() == 0)
   // Found GPE expansion
@@ -462,14 +463,15 @@ void setup()
     Wire.write(0b00000101);                       // Write value (1 = pullup enabled, 0 = pullup disabled)
     Wire.endTransmission();
   }
-
-  // Initialize the SIO_PORT (I2C) and search for "known" optional modules
-  Wire.begin();                                   // Wake up I2C bus
-  Wire.beginTransmission(SIOEXP_ADDR);
+  // Search for SIO
+  Wire.beginTransmission(SC16IS752_ADDRESS);
   if (Wire.endTransmission() == 0)
-  // Found GPE expansion
+  // Found I2C SIO expansion
   {
-    moduleSIO = 1;                                // Set to 1 if GPIO Module is found
+    if ( SC16IS752_Ping() ) {
+      moduleSIO = 1;                                // Set to 1 if SIO Module is found
+      SC16IS752_Init( SC16IS752_DEFAULT_SPEED, SC16IS752_DEFAULT_SPEED ); // Init SIOA and SIOB
+    }
   }
 
   // Check the serial speed index and set it to the default if needed
@@ -481,7 +483,7 @@ void setup()
 
   // Print some system information
   Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
-  Serial.println(F("\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823\r\n"));
+  Serial.println(F("\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823 - DEV0125\r\n"));
 
   // Print if the input serial buffer is 128 bytes wide (this is needed for xmodem protocol support)
   if (SERIAL_RX_BUFFER_SIZE >= 128) Serial.println(F("IOS: Found extended serial Rx buffer"));
@@ -495,6 +497,7 @@ void setup()
   // Print RTC and GPIO informations if found
   foundRTC = autoSetRTC();                        // Check if RTC is present and initialize it as needed
   if (moduleGPIO) Serial.println(F("IOS: Found GPE Option"));
+  if (moduleSIO) Serial.println(F("IOS: Found SIO Option"));
 
   // Print CP/M Autoexec on cold boot status
   Serial.print(F("IOS: CP/M Autoexec is "));
@@ -508,7 +511,7 @@ void setup()
   // ----------------------------------------
 
   // Boot selection and system parameters menu if requested
-  mountSD(&filesysSD); mountSD(&filesysSD);       // Try to muont the SD volume
+  mountSD(&filesysSD); mountSD(&filesysSD);       // Try to mount the SD volume
   bootMode = EEPROM.read(bootModeAddr);           // Read the previous stored boot mode
   if ((bootSelection == 1 ) || (bootMode > maxBootMode))
   // Enter in the boot selection menu if USER key was pressed at startup
@@ -556,15 +559,24 @@ void setup()
 
     // Ask a choice
     Serial.println();
-    Serial.print(F("Enter your choice >"));
+    Serial.print(F("Enter your choice > "));
     do
     {
       WaitAndBlink(CHECK);
       inChar = Serial.read();
+      // debugging support
+      if (inChar == '?')
+        ++verbosity;
+      else if (inChar == ' ')
+        verbosity = 0;
     }
     while ((inChar < minBootChar) || (inChar > maxSelChar));
     Serial.print(inChar);
     Serial.println(F("  Ok"));
+    if ( verbosity ) {
+      Serial.print(F("?Verbosity level "));
+      Serial.println(verbosity,DEC);
+    }
 
     // Make the selected action for the system parameters choice
     switch (inChar)
@@ -933,8 +945,14 @@ void loop()
       // Opcode 0x10  SETOPT          1
       // Opcode 0x11  SETSPP          1
       // Opcode 0x12  WRSPP           1
-      // Opcode 0x13  SIO CTRL        1
-      // Opcode 0x14  SIO TXD         1
+      // Opcode 0x20  SIOA CTRL       1
+      // Opcode 0x21  SIOA TXD        1
+      // Opcode 0x22  SIOB CTRL       1
+      // Opcode 0x23  SIOB TXD        1
+#define OPC_SIOA_CTRL 0x20
+#define OPC_SIOA_TXD  0x21
+#define OPC_SIOB_CTRL 0x22
+#define OPC_SIOB_TXD  0x23
       // Opcode 0xFF  No operation    1
       //
       //
@@ -953,8 +971,14 @@ void loop()
       // Opcode 0x88  ATXBUFF         1
       // Opcode 0x89  SYSIRQ          1
       // Opcode 0x8A  GETSPP          1
-      // Opcode 0x8B  SIO STAT        1
-      // Opcode 0x8C  SIO RXD         1
+      // Opcode 0xA0  SIOA STAT       1
+      // Opcode 0xA1  SIOA RXD        1
+      // Opcode 0xA0  SIOB STAT       1
+      // Opcode 0xA1  SIOB RXD        1
+#define OPC_SIOA_STAT 0xA0
+#define OPC_SIOA_RXD  0xA1
+#define OPC_SIOB_STAT 0xA2
+#define OPC_SIOB_RXD  0xA3
       // Opcode 0xFF  No operation    1
       //
       // See the following lines for the Opcodes details.
@@ -1583,33 +1607,33 @@ void loop()
             }
           break;
 
-          case  0x13:
+          case  OPC_SIOA_CTRL:
+          case  OPC_SIOB_CTRL:
             // SIO CTRL Write:
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
-            //                            ---------------------------------------------------------
-
+            //                            -------------------------
+            //                             0  0  0  0 | BaudIndex |
+            if ( verbosity ) {
+              Serial.print( ioOpcode == OPC_SIOA_CTRL ? F("?SIOA") : F("?SIOB") );
+              Serial.print(F(" set baudrate: "));
+              Serial.println( cpmBaudRate[ ioData & 0x0F ], DEC );
+            }
             if (moduleSIO)
             {
-              Wire.beginTransmission(SIOEXP_ADDR);
-              Wire.write(SIO_STAT_CTRL);          // Select GPIOA
-              Wire.write(ioData);                 // Write value
-              Wire.endTransmission();
+              uint16_t baudRate = cpmBaudRate[ ioData & 0x0F ];
+              if ( baudRate ) {
+                SC16IS752_SetBaudrate( ioOpcode == OPC_SIOA_CTRL ? 0 : 1, baudRate );
+              }
             }
           break;
 
-          case  0x14:
+          case  OPC_SIOA_TXD:
+          case  OPC_SIOB_TXD:
             // SIO TXD Write:
-            //
-            //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
-            //                            ---------------------------------------------------------
-
             if (moduleSIO)
             {
-              Wire.beginTransmission(SIOEXP_ADDR);
-              Wire.write(SIO_RXD_TXD);            // Select TX
-              Wire.write(ioData);                 // Write value
-              Wire.endTransmission();
+              SC16IS752_WriteByte( ioOpcode == OPC_SIOA_TXD ? 0 : 1, ioData );
             }
           break;
         }
@@ -2028,50 +2052,36 @@ void loop()
               }
             break;
 
-            case  0x8B:
-              // SIO Status Read:
+            case  OPC_SIOA_STAT:
+            case  OPC_SIOB_STAT:
+              // SIOA Status Read:
               //
               //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
-              //                            ---------------------------------------------------------
-              //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
+              //                            -------------------------
+              //                             D7 D6 D5 D4 D3 D2 D1 D0
               //
-              // NOTE: a value 0x00 is forced if the GPE Option is not present
-
+              // NOTE: a value 0x03 is forced if the SIO Option is not present
+              ioData = 0x03;  // RxD available, TxD ready
               if (moduleSIO)
               {
-                // Set MCP23017 pointer to GPIOA
-                Wire.beginTransmission(SIOEXP_ADDR);
-                Wire.write(SIO_STAT_CTRL);
-                Wire.endTransmission();
-                // Read GPIOA
-                Wire.beginTransmission(SIOEXP_ADDR);
-                Wire.requestFrom(SIOEXP_ADDR, 1);
-                ioData = Wire.read();
+                ioData = 0;
+                if ( SC16IS752_FIFOAvailableData( ioOpcode == OPC_SIOA_STAT ? 0 : 1 ) )
+                  ioData |= 0x01; // -> 6850 RDRF
+                if ( SC16IS752_FIFOAvailableSpace( ioOpcode == OPC_SIOA_STAT ? 0 : 1 ) )
+                  ioData |= 0x02; // -> 6850 TDRE
               }
             break;
 
-            case  0x8C:
-              // SIO RXD Read:
-              //
-              //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
-              //                            ---------------------------------------------------------
-              //                             D7 D6 D5 D4 D3 D2 D1 D0    GPIOA value (see MCP23017 datasheet)
-              //
-              // NOTE: a value 0x00 is forced if the GPE Option is not present
-
+            case  OPC_SIOA_RXD:
+            case  OPC_SIOB_RXD:
+              // SIOA RXD Read:
+              // NOTE: a value 0x1A is forced if the SIO Option is not present
+              ioData = 0x1A;  // ^Z (EOF)
               if (moduleSIO)
               {
-                // Set MCP23017 pointer to GPIOA
-                Wire.beginTransmission(SIOEXP_ADDR);
-                Wire.write(SIO_RXD_TXD);
-                Wire.endTransmission();
-                // Read GPIOA
-                Wire.beginTransmission(SIOEXP_ADDR);
-                Wire.requestFrom(SIOEXP_ADDR, 1);
-                ioData = Wire.read();
+                ioData = SC16IS752_ReadByte( ioOpcode == OPC_SIOA_RXD ? 0 : 1 );
               }
             break;
-
           }
           if ((ioOpcode != 0x84) && (ioOpcode != 0x86)) ioOpcode = 0xFF;  // All done for the single byte Opcodes.
                                                                           //  Set ioOpcode = "No operation"
@@ -2346,7 +2356,7 @@ byte autoSetRTC()
     day = compDateStr.substring(4,6).toInt();
     switch (compDateStr[0])
       {
-        case 'J': month = compDateStr[1] == 'a' ? 1 : month = compDateStr[2] == 'n' ? 6 : 7; break;
+        case 'J': month = compDateStr[1] == 'a' ? 1 : compDateStr[2] == 'n' ? 6 : 7; break;
         case 'F': month = 2; break;
         case 'A': month = compDateStr[2] == 'r' ? 4 : 8; break;
         case 'M': month = compDateStr[2] == 'r' ? 3 : 5; break;
@@ -2583,6 +2593,253 @@ void ChangeRTC()
   Serial.println(")");
 }
 
+#if 0
+// ------------------------------------------------------------------------------
+
+// SC16IS752 I2C SIO routines
+
+// ------------------------------------------------------------------------------
+
+
+void SC16IS752_Init(uint32_t baud_A, uint32_t baud_B) {
+  SC16IS752_ResetDevice();
+  SC16IS752_FIFOEnable(SC16IS752_CHANNEL_A, 1);
+  SC16IS752_FIFOEnable(SC16IS752_CHANNEL_B, 1);
+  SC16IS752_SetBaudrate(SC16IS752_CHANNEL_A, baud_A);
+  SC16IS752_SetBaudrate(SC16IS752_CHANNEL_B, baud_B);
+  SC16IS752_SetLine(SC16IS752_CHANNEL_A, 8, 0, 1);
+  SC16IS752_SetLine(SC16IS752_CHANNEL_B, 8, 0, 1);
+}
+
+
+uint8_t SC16IS752_ReadRegister(uint8_t channel, uint8_t reg_addr) {
+  uint8_t result;
+  Wire.beginTransmission(SC16IS752_ADDRESS);
+  Wire.write((reg_addr<<3 | channel<<1));
+  Wire.endTransmission(0);
+  Wire.requestFrom(SC16IS752_ADDRESS, 1);
+  result = Wire.read();
+
+#ifdef  SC16IS752_DEBUG_PRINT
+  Serial.print("ReadRegister channel=");
+  Serial.print(channel,HEX);
+  Serial.print(" reg_addr=");
+  Serial.print((reg_addr<<3 | channel<<1),HEX);
+  Serial.print(" result=");
+  Serial.println(result,HEX);
+#endif
+  return result;
+}
+
+
+void SC16IS752_WriteRegister(uint8_t channel, uint8_t reg_addr, uint8_t val) {
+#ifdef  SC16IS752_DEBUG_PRINT
+  Serial.print("WriteRegister channel=");
+  Serial.print(channel,HEX);
+  Serial.print(" reg_addr=");
+  Serial.print((reg_addr<<3 | channel<<1),HEX);
+  Serial.print(" val=");
+  Serial.println(val,HEX);
+#endif
+
+  Wire.beginTransmission(SC16IS752_ADDRESS);
+  Wire.write((reg_addr<<3 | channel<<1));
+  Wire.write(val);
+  Wire.endTransmission(1);
+  return ;
+}
+
+
+int16_t SC16IS752_SetBaudrate(uint8_t channel, uint16_t baudrate) { // return baudrate
+  uint16_t divisor;
+  uint8_t prescaler;
+  uint16_t actual_baudrate;
+  uint8_t temp_lcr;
+  if ( (SC16IS752_ReadRegister(channel, SC16IS752_REG_MCR)&0x80) == 0) // prescaler==1
+    prescaler = 1;
+  else
+    prescaler = 4;
+
+  divisor = SC16IS752_CRYSTAL_FREQ / 16 / prescaler / baudrate;
+  temp_lcr = SC16IS752_ReadRegister(channel, SC16IS752_REG_LCR);
+  temp_lcr |= 0x80;
+  SC16IS752_WriteRegister(channel, SC16IS752_REG_LCR, temp_lcr);
+  //write to DLL
+  SC16IS752_WriteRegister(channel, SC16IS752_REG_DLL, (uint8_t)divisor);
+  //write to DLH
+  SC16IS752_WriteRegister(channel, SC16IS752_REG_DLH, (uint8_t)(divisor>>8));
+  temp_lcr &= 0x7F;
+  SC16IS752_WriteRegister(channel, SC16IS752_REG_LCR, temp_lcr);
+
+  actual_baudrate = SC16IS752_CRYSTAL_FREQ / prescaler / 16 / divisor;
+#ifdef  SC16IS752_DEBUG_PRINT
+  Serial.print("Desired baudrate: ");
+  Serial.println(baudrate,DEC);
+  Serial.print("Calculated divisor: ");
+  Serial.println(divisor,DEC);
+  Serial.print("Actual baudrate: ");
+  Serial.println(actual_baudrate,DEC);
+#endif
+  return actual_baudrate;
+}
+
+
+void SC16IS752_SetLine(uint8_t channel, uint8_t data_length, uint8_t parity_select, uint8_t stop_length ) {
+  uint8_t temp_lcr;
+  temp_lcr = SC16IS752_ReadRegister(channel, SC16IS752_REG_LCR);
+  temp_lcr &= 0xC0; //Clear the lower six bit of LCR (LCR[0] to LCR[5]
+#ifdef  SC16IS752_DEBUG_PRINT
+  Serial.print("LCR Register:0x");
+  Serial.println(temp_lcr,DEC);
+#endif
+  switch (data_length) {  //data length settings
+  case 5:
+    break;
+  case 6:
+    temp_lcr |= 0x01;
+    break;
+  case 7:
+    temp_lcr |= 0x02;
+    break;
+  case 8:
+    temp_lcr |= 0x03;
+    break;
+  default:
+    temp_lcr |= 0x03;
+    break;
+  }
+
+  if ( stop_length == 2 ) {
+    temp_lcr |= 0x04;
+  }
+
+  //parity selection length settings
+  switch (parity_select) {
+  case 0: //no parity
+    break;
+  case 1: //odd parity
+    temp_lcr |= 0x08;
+    break;
+  case 2: //even parity
+    temp_lcr |= 0x18;
+    break;
+  case 3: //force '1' parity
+    temp_lcr |= 0x03;
+    break;
+  case 4: //force '0' parity
+    break;
+  default:
+    break;
+  }
+
+  SC16IS752_WriteRegister(channel, SC16IS752_REG_LCR,temp_lcr);
+}
+
+
+void SC16IS752_FIFOEnable(uint8_t channel, uint8_t fifo_enable) {
+  uint8_t temp_fcr = SC16IS752_ReadRegister(channel, SC16IS752_REG_FCR);
+
+  if (fifo_enable == 0){
+    temp_fcr &= 0xFE;
+  } else {
+    temp_fcr |= 0x01;
+  }
+  SC16IS752_WriteRegister(channel, SC16IS752_REG_FCR, temp_fcr);
+  return;
+}
+
+
+uint8_t SC16IS752_FIFOAvailableData(uint8_t channel) {
+#ifdef  SC16IS752_DEBUG_PRINT
+  Serial.print("=====Available data:");
+  Serial.println(SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL), DEC);
+#endif
+  return SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL);
+//  return SC16IS752_ReadRegister(channel, SC16IS752_REG_LSR) & 0x01;
+}
+
+
+uint8_t SC16IS752_FIFOAvailableSpace(uint8_t channel) {
+  return SC16IS752_ReadRegister(channel, SC16IS752_REG_TXLVL);
+}
+
+
+void SC16IS752_WriteByte(uint8_t channel, uint8_t val) {
+  uint8_t tmp_lsr;
+
+/*
+  while ( SC16IS752_FIFOAvailableSpace(channel) == 0 ){
+#ifdef  SC16IS752_DEBUG_PRINT
+    Serial.println("No available space");
+#endif
+  };
+
+#ifdef  SC16IS752_DEBUG_PRINT
+  Serial.println("++++++++++++Data sent");
+#endif
+  SC16IS752_WriteRegister(SC16IS752_REG_THR,val);
+*/
+
+  do {
+    tmp_lsr = SC16IS752_ReadRegister(channel, SC16IS752_REG_LSR);
+  } while ((tmp_lsr&0x20) == 0);
+
+  SC16IS752_WriteRegister(channel, SC16IS752_REG_THR, val);
+}
+
+
+int SC16IS752_ReadByte(uint8_t channel) {
+  volatile uint8_t val;
+  if (SC16IS752_FIFOAvailableData(channel) == 0) {
+#ifdef  SC16IS752_DEBUG_PRINT
+    Serial.println("No data available");
+#endif
+    return -1;
+  }
+
+#ifdef  SC16IS752_DEBUG_PRINT
+  Serial.println("***********Data available***********");
+#endif
+  val = SC16IS752_ReadRegister(channel, SC16IS752_REG_RHR);
+  return val;
+}
+
+
+void SC16IS752_ResetDevice() {
+  uint8_t reg;
+
+  reg = SC16IS752_ReadRegister(SC16IS752_CHANNEL_BOTH, SC16IS752_REG_IOCONTROL);
+  reg |= 0x08;
+  SC16IS752_WriteRegister(SC16IS752_CHANNEL_BOTH, SC16IS752_REG_IOCONTROL, reg);
+
+  return;
+}
+
+
+uint8_t SC16IS752_Ping() {
+  SC16IS752_WriteRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR,0x55);
+  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR) !=0x55) {
+    return 0;
+  }
+
+  SC16IS752_WriteRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR,0xAA);
+  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR) !=0xAA) {
+    return 0;
+  }
+
+  SC16IS752_WriteRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR,0x55);
+  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR) !=0x55) {
+    return 0;
+  }
+
+  SC16IS752_WriteRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR,0xAA);
+  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR) !=0xAA) {
+    return 0;
+  }
+
+  return 1;
+}
+#endif
 
 // ------------------------------------------------------------------------------
 

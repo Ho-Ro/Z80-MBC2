@@ -103,17 +103,6 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 	ld	(@aivec),hl	; AUX INPUT VECTOR
 	ld	(@aovec),hl	; AUX OUTPUT VECTOR
 
-				; Call all phys. device init routines
-	xor	a		; Start with phys. device 0
-inilp:	ld	c,a
-	push	af
-	call	?cinit		; Init according ctbl
-	pop	af
-	inc	a
-	cp	16		; Init up to device #15
-	jr	c,inilp		; Exit loop at #16
-
-				; PRINT THE SIGN-ON MESSAGE:
 	ld	hl,signon$msg	; POINT TO IT
 	jp	?pmsg		; AND PRINT IT
 				; Note: "RET" here is not needed because we use the that one at the end of 
@@ -412,13 +401,13 @@ signon$msg:
   endif
 				; BIOSKRNL	S170319
 				; BOOT		S220918-R180319
-				; CHARIO	S210918-RXXXX25
+				; CHARIO	S210918-R210923
 				; MOVE		S290918
 				; SCB		-
 				; VDISK		S200918
 	defb	cr,lf
-	defb	'Z80-MBC2 X BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf
-	defb	'CHARIO S210918-RXXXX25, MOVE S290918, SCB -, VDISK S200918'
+	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf
+	defb	'CHARIO S210918-R210923-DEV0125, MOVE S290918, SCB -, VDISK S200918'
 	defb	cr,lf,0
 	end
 
