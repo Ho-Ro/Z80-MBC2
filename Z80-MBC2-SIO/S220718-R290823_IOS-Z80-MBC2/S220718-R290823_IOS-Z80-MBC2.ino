@@ -953,6 +953,7 @@ void loop()
 #define OPC_SIOA_TXD  0x21
 #define OPC_SIOB_CTRL 0x22
 #define OPC_SIOB_TXD  0x23
+      // Opcode 0x7E  SAVEBYTE        1
       // Opcode 0xFF  No operation    1
       //
       //
@@ -979,6 +980,7 @@ void loop()
 #define OPC_SIOA_RXD  0xA1
 #define OPC_SIOB_STAT 0xA2
 #define OPC_SIOB_RXD  0xA3
+      // Opcode 0xFE  READBYTE        1
       // Opcode 0xFF  No operation    1
       //
       // See the following lines for the Opcodes details.
@@ -1636,6 +1638,10 @@ void loop()
               SC16IS752_WriteByte( ioOpcode == OPC_SIOA_TXD ? 0 : 1, ioData );
             }
           break;
+          case 0x7E:
+            // save one I/O byte, used for NMOS/CMOS CPU test
+            tempByte = ioData;
+          break;
         }
         if ((ioOpcode != 0x0A) && (ioOpcode != 0x0C)) ioOpcode = 0xFF;  // All done for the single byte Opcodes.
                                                                         //  Set ioOpcode = "No operation"
@@ -2081,6 +2087,10 @@ void loop()
               {
                 ioData = SC16IS752_ReadByte( ioOpcode == OPC_SIOA_RXD ? 0 : 1 );
               }
+            break;
+            case 0xFE:
+              // read back one I/O byte, used for NMOS/CMOS CPU test
+              ioData = tempByte;
             break;
           }
           if ((ioOpcode != 0x84) && (ioOpcode != 0x86)) ioOpcode = 0xFF;  // All done for the single byte Opcodes.
