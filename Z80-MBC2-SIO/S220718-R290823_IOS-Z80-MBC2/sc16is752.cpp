@@ -6,7 +6,7 @@ SC16IS752 driver for Arduino
 //#define SC16IS752_DEBUG_PRINT
 #include "sc16is752.h"
 
-extern byte verbosity;
+extern uint8_t verbosity;
 
 // ------------------------------------------------------------------------------
 
@@ -21,24 +21,31 @@ void SC16IS752_Init(uint32_t baud_A, uint32_t baud_B) {
   SC16IS752_FIFOEnable(SC16IS752_CHANNEL_B, 1);
   SC16IS752_SetBaudrate(SC16IS752_CHANNEL_A, baud_A);
   SC16IS752_SetBaudrate(SC16IS752_CHANNEL_B, baud_B);
-  SC16IS752_SetLine(SC16IS752_CHANNEL_A, 8, 0, 1);
-  SC16IS752_SetLine(SC16IS752_CHANNEL_B, 8, 0, 1);
+  SC16IS752_SetLine(SC16IS752_CHANNEL_A, 8, 0, 1);                  // 8N1
+  SC16IS752_SetLine(SC16IS752_CHANNEL_B, 8, 0, 1);                  // 8N1
+  SC16IS752_FIFOReset(SC16IS752_CHANNEL_A);                         // reset RxD FIFO SIOA
+  SC16IS752_FIFOReset(SC16IS752_CHANNEL_B);                         // reset RxD FIFO SIOB
+  SC16IS752_ReadRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_RHR );  // clear RxD SIOA
+  SC16IS752_ReadRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_RHR );  // clear RxD SIOB
 }
 
 
 void SC16IS752_WriteByte(uint8_t channel, uint8_t val) {
-  uint8_t tmp_lsr;
-/*
+
   while ( SC16IS752_FIFOAvailableSpace(channel) == 0 ){
-    if ( verbosity ) {
-    Serial.println(F("?SIO: No available space"));
+    if ( verbosity > 2 ) {
+    Serial.println(F("???SIO: No space"));
     }
   };
-*/
+/*
+  uint8_t tmp_lsr;
   do {
     tmp_lsr = SC16IS752_ReadRegister(channel, SC16IS752_REG_LSR);
   } while ((tmp_lsr&0x20) == 0);  // THR not empty
-
+*/
+  if ( verbosity > 2 ) {
+    Serial.println(F("???SIO: Space available"));
+  }
   SC16IS752_WriteRegister(channel, SC16IS752_REG_THR, val);
 }
 
@@ -46,21 +53,21 @@ void SC16IS752_WriteByte(uint8_t channel, uint8_t val) {
 int SC16IS752_ReadByte(uint8_t channel) {
   volatile uint8_t val;
   if (SC16IS752_FIFOAvailableData(channel) == 0) {
-    if ( verbosity ) {
-      Serial.println(F("?SIO: No data available"));
+    if ( verbosity > 2 ) {
+      Serial.println(F("???SIO: No data"));
     }
     return -1;
   }
 
-  if ( verbosity ) {
-    Serial.println(F("?SIO: ***********Data available***********"));
+  if ( verbosity > 2 ) {
+    Serial.println(F("???SIO: Data available"));
   }
   val = SC16IS752_ReadRegister(channel, SC16IS752_REG_RHR);
   return val;
 }
 
 
-int16_t SC16IS752_SetBaudrate(uint8_t channel, uint16_t baudrate) { // return baudrate
+int16_t SC16IS752_SetBaudrate(uint8_t channel, uint32_t baudrate) { // return baudrate
   uint16_t divisor;
   uint8_t prescaler;
   uint16_t actual_baudrate;
@@ -81,13 +88,13 @@ int16_t SC16IS752_SetBaudrate(uint8_t channel, uint16_t baudrate) { // return ba
   temp_lcr &= 0x7F;
   SC16IS752_WriteRegister(channel, SC16IS752_REG_LCR, temp_lcr);
 
-  actual_baudrate = SC16IS752_CRYSTAL_FREQ / prescaler / 16 / divisor;
-  if ( verbosity ) {
-    Serial.print(F("?SIO: Desired baudrate: "));
+  actual_baudrate = SC16IS752_CRYSTAL_FREQ / 16 / prescaler / divisor;
+  if ( verbosity > 1 ) {
+    Serial.print(F("??SIO: Desired baudrate: "));
     Serial.println(baudrate,DEC);
-    Serial.print(F("?SIO: Calculated divisor: "));
+    Serial.print(F("??SIO: Calculated divisor: "));
     Serial.println(divisor,DEC);
-    Serial.print(F("?SIO: Actual baudrate: "));
+    Serial.print(F("??SIO: Actual baudrate: "));
     Serial.println(actual_baudrate,DEC);
   }
   return actual_baudrate;
@@ -162,17 +169,23 @@ void SC16IS752_FIFOEnable(uint8_t channel, uint8_t fifo_enable) {
 
 
 uint8_t SC16IS752_FIFOAvailableData(uint8_t channel) {
-  if ( verbosity ) {
-    Serial.print(F("?SIO: =====Available data:"));
-    Serial.println(SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL), DEC);
+  uint8_t avDat = SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL);
+  if ( verbosity > 2 ) {
+    Serial.print(F("???SIO: FIFOAvailableData: "));
+    Serial.println(avDat, DEC);
   }
-  return SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL);
+  return avDat;
 //  return SC16IS752_ReadRegister(channel, SC16IS752_REG_LSR) & 0x01;
 }
 
 
 uint8_t SC16IS752_FIFOAvailableSpace(uint8_t channel) {
-  return SC16IS752_ReadRegister(channel, SC16IS752_REG_TXLVL);
+  uint8_t avSpc = SC16IS752_ReadRegister(channel, SC16IS752_REG_TXLVL);
+  if ( verbosity > 2 ) {
+    Serial.print(F("???SIO: FIFOAvailableSpace: "));
+    Serial.println(avSpc, DEC);
+  }
+  return avSpc;
 }
 
 
@@ -182,6 +195,21 @@ void SC16IS752_ResetDevice() {
   reg = SC16IS752_ReadRegister(SC16IS752_CHANNEL_BOTH, SC16IS752_REG_IOCONTROL);
   reg |= 0x08;
   SC16IS752_WriteRegister(SC16IS752_CHANNEL_BOTH, SC16IS752_REG_IOCONTROL, reg);
+
+  return;
+}
+
+
+void SC16IS752_FIFOReset(uint8_t channel, uint8_t rx_fifo) {
+  uint8_t temp_fcr;
+
+  temp_fcr = SC16IS752_ReadRegister(channel, SC16IS752_REG_FCR);
+
+  if (rx_fifo)
+    temp_fcr |= 0x02;
+  else
+    temp_fcr |= 0x04;
+  SC16IS752_WriteRegister(channel, SC16IS752_REG_FCR,temp_fcr);
 
   return;
 }
@@ -220,12 +248,12 @@ uint8_t SC16IS752_ReadRegister(uint8_t channel, uint8_t reg_addr) {
   Wire.requestFrom(SC16IS752_ADDRESS, 1);
   result = Wire.read();
 
-  if ( verbosity ) {
-    Serial.print(F("?SIO: ReadRegister channel="));
+  if ( verbosity > 3 ) {
+    Serial.print(F("????SIO: ReadRegister ch"));
     Serial.print(channel,HEX);
-    Serial.print(F(" reg_addr="));
-    Serial.print((reg_addr<<3 | channel<<1),HEX);
-    Serial.print(F(" result="));
+    Serial.print(F(" addr="));
+    Serial.print(reg_addr,HEX);
+    Serial.print(F(" res="));
     Serial.println(result,HEX);
   }
   return result;
@@ -233,11 +261,11 @@ uint8_t SC16IS752_ReadRegister(uint8_t channel, uint8_t reg_addr) {
 
 
 void SC16IS752_WriteRegister(uint8_t channel, uint8_t reg_addr, uint8_t val) {
-  if ( verbosity ) {
-    Serial.print(F("?SIO: WriteRegister channel="));
+  if ( verbosity > 3 ) {
+    Serial.print(F("????SIO: WriteRegister ch"));
     Serial.print(channel,HEX);
-    Serial.print(F(" reg_addr="));
-    Serial.print((reg_addr<<3 | channel<<1),HEX);
+    Serial.print(F(" addr="));
+    Serial.print(reg_addr,HEX);
     Serial.print(F(" val="));
     Serial.println(val,HEX);
   }

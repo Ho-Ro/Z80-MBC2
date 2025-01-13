@@ -356,7 +356,16 @@ uint16_t      cpmBaudRate[] = { 0, 50, 75, 110,
                                 4800, 7200, 9600, 19200
                               };
 
-byte          verbosity       = 0;        // Temporary debugging support
+// IOS debugging support
+// Can be set in boot menu by typing one ore more '?'
+// Can be set / read from CP/M by IOS CMDs:
+//  Opcode 0x7E  SAVEBYTE
+//  Opcode 0xFE  READBYTE
+// Also used temporarily for CP/M program Z80TYPE
+//  to detect CMOS/NMOS using OUT (C),0 (ED 71)
+
+byte          verbosity       = 0;
+
 
 // ------------------------------------------------------------------------------
 
@@ -953,7 +962,7 @@ void loop()
 #define OPC_SIOA_TXD  0x21
 #define OPC_SIOB_CTRL 0x22
 #define OPC_SIOB_TXD  0x23
-      // Opcode 0x7E  SAVEBYTE        1
+      // Opcode 0x7E  SET VERBOSITY   1
       // Opcode 0xFF  No operation    1
       //
       //
@@ -980,7 +989,7 @@ void loop()
 #define OPC_SIOA_RXD  0xA1
 #define OPC_SIOB_STAT 0xA2
 #define OPC_SIOB_RXD  0xA3
-      // Opcode 0xFE  READBYTE        1
+      // Opcode 0xFE  GET VERBOSITY   1
       // Opcode 0xFF  No operation    1
       //
       // See the following lines for the Opcodes details.
@@ -1616,8 +1625,8 @@ void loop()
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            -------------------------
             //                             0  0  0  0 | BaudIndex |
-            if ( verbosity ) {
-              Serial.print( ioOpcode == OPC_SIOA_CTRL ? F("?SIOA") : F("?SIOB") );
+            if ( verbosity > 1 ) {
+              Serial.print( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA") : F("??SIOB") );
               Serial.print(F(" set baudrate: "));
               Serial.println( cpmBaudRate[ ioData & 0x0F ], DEC );
             }
@@ -1625,7 +1634,7 @@ void loop()
             {
               uint16_t baudRate = cpmBaudRate[ ioData & 0x0F ];
               if ( baudRate ) {
-                SC16IS752_SetBaudrate( ioOpcode == OPC_SIOA_CTRL ? 0 : 1, baudRate );
+                baudRate = SC16IS752_SetBaudrate( ioOpcode == OPC_SIOA_CTRL ? 0 : 1, baudRate );
               }
             }
           break;
@@ -1639,8 +1648,12 @@ void loop()
             }
           break;
           case 0x7E:
-            // save one I/O byte, used for NMOS/CMOS CPU test
-            tempByte = ioData;
+            // set verbosity byte, also used for NMOS/CMOS CPU test
+            if ( verbosity ) {
+              Serial.print(F("?Set verbosity: "));
+              Serial.println( ioData );
+            }
+            verbosity = ioData;
           break;
         }
         if ((ioOpcode != 0x0A) && (ioOpcode != 0x0C)) ioOpcode = 0xFF;  // All done for the single byte Opcodes.
@@ -2071,9 +2084,10 @@ void loop()
               if (moduleSIO)
               {
                 ioData = 0;
-                if ( SC16IS752_FIFOAvailableData( ioOpcode == OPC_SIOA_STAT ? 0 : 1 ) )
+                uint8_t channel = ioOpcode == OPC_SIOA_STAT ? 0 : 1;
+                if ( SC16IS752_FIFOAvailableData( channel ) )
                   ioData |= 0x01; // -> 6850 RDRF
-                if ( SC16IS752_FIFOAvailableSpace( ioOpcode == OPC_SIOA_STAT ? 0 : 1 ) )
+                if ( SC16IS752_FIFOAvailableSpace( channel ) )
                   ioData |= 0x02; // -> 6850 TDRE
               }
             break;
@@ -2089,8 +2103,12 @@ void loop()
               }
             break;
             case 0xFE:
-              // read back one I/O byte, used for NMOS/CMOS CPU test
-              ioData = tempByte;
+              // read back verbosity byte, also used for NMOS/CMOS CPU test
+              ioData = verbosity;
+              if ( verbosity ) {
+                Serial.print(F("?Get verbosity: "));
+                Serial.println( ioData );
+              }
             break;
           }
           if ((ioOpcode != 0x84) && (ioOpcode != 0x86)) ioOpcode = 0xFF;  // All done for the single byte Opcodes.

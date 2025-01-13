@@ -72,9 +72,14 @@ VDISK.REL:	VDISK.MAC
 		$(TNYLPO) CPM.COM/ZSM4 VDISK,VDISK.LIS=VDISK
 
 
+Z80TYPE.COM:	Z80TYPE.ASM
+		$(TNYLPO) CPM.COM/MAC Z80TYPE
+		$(TNYLPO) CPM.COM/LOAD Z80TYPE
+
+
 .PHONY:	clean
 clean:
-		rm -f *~ *.LIS *.REL *.SYM
+		rm -f *~ *.LIS *.REL *.SYM *.HEX *.PRN
 
 .PHONY:	distclean
 distclean:	clean

@@ -464,35 +464,56 @@ listRet:
 ;
 ;<<<<<<<<<<<<<< SIOA / DEVICE 2 INIT/INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
 ;
+; SIO status bits
+RDRF	equ	01h		; Receive Data Register Full
+TDRE	equ	02h		; Transmit Data Register Empty
 
 cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
     if	DBG
 	push	hl
-	ld	a,(ctbl2$bd)	; Baud rate request
-	add	a,'@'		; Convert 1..15 to 'A'..'O'
-	ld	(cinit2$bd),a
-	ld	hl,cinit2$msg
+	ld	a,(ctbl2$bd)	; baud rate request
+	add	a,'@'		; convert 1..15 to 'A'..'O'
+	ld	(cinit2$bd),a	; build debug string
+	ld	hl,cinit2$msg	; show short debug message
 	call	?pmsg
 	pop	hl
     endif
 	ld 	a,sioa$ctrl	; select sioa ctrl reg
-	out	(sto$opcd),a
+	out	(sto$opcd),a	; transfer to IOS
 	ld	a,(ctbl2$bd)	; baud rate request
-	out	(exc$wr$opcd),a	; set baud rate
-	ret			;
+	out	(exc$wr$opcd),a	; send request to IOS
+	ret			; done
 
 cist2:				; DEVICE 2 INPUT STATUS (Z80-MBC2)
-	ld	a,0ffh		; Char available
-	ret
+	ld	a,sioa$stat	; get sioa status cmd
+	out	(sto$opcd),a	; transfer to IOS
+	in	a,(exc$rd$opcd)	; read status
+	and	RDRF		; RxD available?
+	ret	z		; no, ret A=0
+	ld	a,0ffh		; signal char available
+	ret			; done
 
-cost2:				; DEVICE 2 OUTPUT STATUS (Z80-MBC2) 
-	ld	a,0ffh		; Always ready to TX
-	ret
+cost2:				; DEVICE 2 OUTPUT STATUS (Z80-MBC2)
+	ld	a,sioa$stat	; get sioa status cmd
+	out	(sto$opcd),a	; transfer to IOS
+	in	a,(exc$rd$opcd)	; read status
+	and	TDRE		; TxD empty ?
+	ret	z		; no, ret A=0
+	ld	a,0ffh		; signal ready
+	ret			; done
 
-ci2:
-	ld	a,1ah		; ^Z (EOF)
-co2:
-	ret
+ci2:				; DEVICE 2 INPUT (Z80-MBC2)
+	ld	a,sioa$rxd	; get data from SIO cmd
+	out	(sto$opcd),a	; transfer to IOS
+	in	a,(exc$rd$opcd)	; read data from sioa
+	ret			; done
+
+co2:				; DEVICE 2 OUTPUT (Z80-MBC2)
+	ld	a,sioa$txd	; send data to SIO cmd
+	out	(sto$opcd),a	; transfer to IOS
+	ld	a,c		; get char
+	out	(exc$wr$opcd),a	; send char to sioa
+	ret			; done
 
 
 ;
@@ -500,35 +521,51 @@ co2:
 ;
 
 cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
-	push	af
     if	DBG
 	push	hl
-	ld	a,(ctbl3$bd)
-	add	a,'@'
-	ld	(cinit3$bd),a
-	ld	hl,cinit3$msg
+	ld	a,(ctbl3$bd)	; baud rate request
+	add	a,'@'		; convert 1..15 to 'A'..'O'
+	ld	(cinit3$bd),a	; build debug string
+	ld	hl,cinit3$msg	; show short debug message
 	call	?pmsg
 	pop	hl
     endif
 	ld 	a,siob$ctrl	; select siob ctrl reg
-	out	(sto$opcd),a
+	out	(sto$opcd),a	; transfer to IOS
 	ld	a,(ctbl3$bd)	; baud rate request
-	out	(exc$wr$opcd),a	; set baud rate
-	pop	af
-	ret
+	out	(exc$wr$opcd),a	; send request to IOS
+	ret			; done
 
 cist3:				; DEVICE 3 INPUT STATUS (Z80-MBC2)
-	ld	a,0ffh		; Char available
-	ret
+	ld	a,siob$stat	; get siob status cmd
+	out	(sto$opcd),a	; transfer to IOS
+	in	a,(exc$rd$opcd)	; read status
+	and	RDRF		; RxD available?
+	ret	z		; no, ret A=0
+	ld	a,0ffh		; signal char available
+	ret			; done
 
-cost3:				; DEVICE 3 OUTPUT STATUS (Z80-MBC2) 
-	ld	a,0ffh		; Always ready to TX
-	ret
+cost3:				; DEVICE 3 OUTPUT STATUS (Z80-MBC2)
+	ld	a,siob$stat	; get siob status cmd
+	out	(sto$opcd),a	; transfer to IOS
+	in	a,(exc$rd$opcd)	; read status
+	and	TDRE		; TxD empty ?
+	ret	z		; no, ret A=0
+	ld	a,0ffh		; signal ready
+	ret			; done
 
-ci3:
-	ld	a,1ah		; ^Z (EOF)
-co3:
-	ret
+ci3:				; DEVICE 3 INPUT (Z80-MBC2)
+	ld	a,siob$rxd	; get data from siob cmd
+	out	(sto$opcd),a	; transfer to IOS
+	in	a,(exc$rd$opcd)	; read data from siob
+	ret			; done
+
+co3:				; DEVICE 3 OUTPUT (Z80-MBC2)
+	ld	a,siob$txd	; send data to siob cmd
+	out	(sto$opcd),a	; transfer to IOS
+	ld	a,c		; get char
+	out	(exc$wr$opcd),a	; send char to siob
+	ret			; done
 
 
 ;
@@ -565,13 +602,16 @@ dev$code:
 	defb	'CRT   '	; CONSOLE (DEVICE 0)
 	defb	mb$in$out
 	defb	baud$none
+;
 	defb 	'LPT   '	; SPP Adapter board/parallel printer (DEVICE 1)
 	defb	mb$output
 	defb	baud$none
+;
 	defb	'SIOA  '	; I2C serial I/O via AVR (DEVICE 2)
 	defb	mb$in$out + mb$serial + mb$soft$baud
 ctbl2$bd:
 	defb	baud$300
+;
 	defb	'SIOB  '	; I2C serial I/O via AVR (DEVICE 3)
 	defb	mb$in$out + mb$serial + mb$soft$baud
 ctbl3$bd:

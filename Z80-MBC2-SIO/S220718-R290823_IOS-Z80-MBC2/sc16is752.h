@@ -103,7 +103,7 @@ void SC16IS752_WriteByte(uint8_t channel, uint8_t val);
 
 int SC16IS752_ReadByte(uint8_t channel);
 
-int16_t SC16IS752_SetBaudrate(uint8_t channel, uint16_t baudrate); // return baudrate
+int16_t SC16IS752_SetBaudrate(uint8_t channel, uint32_t baudrate); // return baudrate
 
 void SC16IS752_SetLine(uint8_t channel, uint8_t data_length, uint8_t parity_select, uint8_t stop_length );
 
@@ -112,6 +112,8 @@ void SC16IS752_FIFOEnable(uint8_t channel, uint8_t fifo_enable);
 uint8_t SC16IS752_FIFOAvailableData(uint8_t channel);
 
 uint8_t SC16IS752_FIFOAvailableSpace(uint8_t channel);
+
+void SC16IS752_FIFOReset(uint8_t channel, uint8_t rx_fifo=1);
 
 void SC16IS752_ResetDevice();
 
