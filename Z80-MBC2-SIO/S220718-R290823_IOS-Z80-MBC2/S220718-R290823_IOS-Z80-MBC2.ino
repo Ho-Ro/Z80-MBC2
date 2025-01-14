@@ -1627,7 +1627,9 @@ void loop()
             //                             0  0  0  0 | BaudIndex |
             if ( verbosity > 1 ) {
               Serial.print( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA") : F("??SIOB") );
-              Serial.print(F(" set baudrate: "));
+              Serial.print(F(" set control: 0x"));
+              Serial.print( ioData, HEX );
+              Serial.print(F(" - baudrate: "));
               Serial.println( cpmBaudRate[ ioData & 0x0F ], DEC );
             }
             if (moduleSIO)
