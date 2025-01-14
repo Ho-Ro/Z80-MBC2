@@ -8,6 +8,21 @@ SC16IS752 driver for Arduino
 
 extern uint8_t verbosity;
 
+const char regRdNames[16][4] = {
+    "RHR", "IER", "IIR", "LCR",
+    "MCR", "LSR", "MSR", "SPR",
+    "TXL", "RXL", "IOD", "IOS",
+    "IOI", "res", "IOC", "EFC"
+};
+
+const char regWrNames[16][4] = {
+    "THR", "IER", "FCR", "LCR",
+    "MCR", "---", "TCR", "SPR",
+    "---", "---", "IOD", "IOS",
+    "IOI", "res", "IOC", "EFC"
+};
+
+
 // ------------------------------------------------------------------------------
 
 // SC16IS752 I2C SIO routines
@@ -31,46 +46,33 @@ void SC16IS752_Init(uint32_t baud_A, uint32_t baud_B) {
 
 
 void SC16IS752_WriteByte(uint8_t channel, uint8_t val) {
-
-  while ( SC16IS752_FIFOAvailableSpace(channel) == 0 ){
-    if ( verbosity > 2 ) {
-    Serial.println(F("???SIO: No space"));
-    }
-  };
-/*
-  uint8_t tmp_lsr;
-  do {
-    tmp_lsr = SC16IS752_ReadRegister(channel, SC16IS752_REG_LSR);
-  } while ((tmp_lsr&0x20) == 0);  // THR not empty
-*/
-  if ( verbosity > 2 ) {
-    Serial.println(F("???SIO: Space available"));
+  while ( SC16IS752_TxSpaceAvailable(channel) == 0 )
+    ;  // idle
+  if ( verbosity > 1 ) {
+    Serial.print(F("??SIO: WriteByte 0x"));
+    Serial.println( val, HEX );
   }
   SC16IS752_WriteRegister(channel, SC16IS752_REG_THR, val);
 }
 
 
 int SC16IS752_ReadByte(uint8_t channel) {
-  volatile uint8_t val;
-  if (SC16IS752_FIFOAvailableData(channel) == 0) {
-    if ( verbosity > 2 ) {
-      Serial.println(F("???SIO: No data"));
-    }
-    return -1;
-  }
-
-  if ( verbosity > 2 ) {
-    Serial.println(F("???SIO: Data available"));
-  }
+  uint8_t val;
+  while ( SC16IS752_RxDataAvailable( channel ) == 0 )
+    ;  // idle
   val = SC16IS752_ReadRegister(channel, SC16IS752_REG_RHR);
+  if ( verbosity > 1 ) {
+    Serial.print(F("???SIO: ReadByte 0x"));
+    Serial.println( val, HEX );
+  }
   return val;
 }
 
 
-int16_t SC16IS752_SetBaudrate(uint8_t channel, uint32_t baudrate) { // return baudrate
+int32_t SC16IS752_SetBaudrate(uint8_t channel, uint32_t baudrate) { // return baudrate
   uint16_t divisor;
   uint8_t prescaler;
-  uint16_t actual_baudrate;
+  uint32_t actual_baudrate;
   uint8_t temp_lcr;
   if ( (SC16IS752_ReadRegister(channel, SC16IS752_REG_MCR)&0x80) == 0) // prescaler==1
     prescaler = 1;
@@ -168,21 +170,23 @@ void SC16IS752_FIFOEnable(uint8_t channel, uint8_t fifo_enable) {
 }
 
 
-uint8_t SC16IS752_FIFOAvailableData(uint8_t channel) {
-  uint8_t avDat = SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL);
+uint8_t SC16IS752_RxDataAvailable(uint8_t channel) {
+  uint8_t lsr = SC16IS752_ReadRegister(channel, SC16IS752_REG_LSR);
   if ( verbosity > 2 ) {
-    Serial.print(F("???SIO: FIFOAvailableData: "));
+    Serial.print(F("???SIO: Line Status Register: 0x"));
+    uint8_t avDat = SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL);
+    Serial.println(lsr, HEX);
+    Serial.print(F("???SIO: Receiver FIFO Level: "));
     Serial.println(avDat, DEC);
   }
-  return avDat;
-//  return SC16IS752_ReadRegister(channel, SC16IS752_REG_LSR) & 0x01;
+  return lsr & 0x01; // Data in receiver
 }
 
 
-uint8_t SC16IS752_FIFOAvailableSpace(uint8_t channel) {
+uint8_t SC16IS752_TxSpaceAvailable(uint8_t channel) {
   uint8_t avSpc = SC16IS752_ReadRegister(channel, SC16IS752_REG_TXLVL);
   if ( verbosity > 2 ) {
-    Serial.print(F("???SIO: FIFOAvailableSpace: "));
+    Serial.print(F("???SIO: TxSpaceAvailable: "));
     Serial.println(avSpc, DEC);
   }
   return avSpc;
@@ -250,10 +254,12 @@ uint8_t SC16IS752_ReadRegister(uint8_t channel, uint8_t reg_addr) {
 
   if ( verbosity > 3 ) {
     Serial.print(F("????SIO: ReadRegister ch"));
-    Serial.print(channel,HEX);
-    Serial.print(F(" addr="));
+    Serial.print(channel,DEC);
+    Serial.print(F(" addr=0x"));
     Serial.print(reg_addr,HEX);
-    Serial.print(F(" res="));
+    Serial.print(F(" ("));
+    Serial.print(regRdNames[ reg_addr ]);
+    Serial.print(F(") res=0x"));
     Serial.println(result,HEX);
   }
   return result;
@@ -263,10 +269,12 @@ uint8_t SC16IS752_ReadRegister(uint8_t channel, uint8_t reg_addr) {
 void SC16IS752_WriteRegister(uint8_t channel, uint8_t reg_addr, uint8_t val) {
   if ( verbosity > 3 ) {
     Serial.print(F("????SIO: WriteRegister ch"));
-    Serial.print(channel,HEX);
-    Serial.print(F(" addr="));
+    Serial.print(channel,DEC);
+    Serial.print(F(" addr=0x"));
     Serial.print(reg_addr,HEX);
-    Serial.print(F(" val="));
+    Serial.print(F(" ("));
+    Serial.print(regWrNames[ reg_addr ]);
+    Serial.print(F(") val=0x"));
     Serial.println(val,HEX);
   }
 

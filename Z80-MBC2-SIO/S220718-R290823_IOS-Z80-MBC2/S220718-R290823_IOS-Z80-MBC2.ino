@@ -1649,10 +1649,6 @@ void loop()
           break;
           case 0x7E:
             // set verbosity byte, also used for NMOS/CMOS CPU test
-            if ( verbosity ) {
-              Serial.print(F("?Set verbosity: "));
-              Serial.println( ioData );
-            }
             verbosity = ioData;
           break;
         }
@@ -2085,9 +2081,9 @@ void loop()
               {
                 ioData = 0;
                 uint8_t channel = ioOpcode == OPC_SIOA_STAT ? 0 : 1;
-                if ( SC16IS752_FIFOAvailableData( channel ) )
+                if ( SC16IS752_RxDataAvailable( channel ) )
                   ioData |= 0x01; // -> 6850 RDRF
-                if ( SC16IS752_FIFOAvailableSpace( channel ) )
+                if ( SC16IS752_TxSpaceAvailable( channel ) )
                   ioData |= 0x02; // -> 6850 TDRE
               }
             break;
@@ -2105,10 +2101,6 @@ void loop()
             case 0xFE:
               // read back verbosity byte, also used for NMOS/CMOS CPU test
               ioData = verbosity;
-              if ( verbosity ) {
-                Serial.print(F("?Get verbosity: "));
-                Serial.println( ioData );
-              }
             break;
           }
           if ((ioOpcode != 0x84) && (ioOpcode != 0x86)) ioOpcode = 0xFF;  // All done for the single byte Opcodes.
