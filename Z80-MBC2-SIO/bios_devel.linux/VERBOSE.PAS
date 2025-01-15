@@ -9,10 +9,12 @@ const
     EXECUTE_ReadOpcode_Port = 0;
 
 var
-    verbosity, new: integer;
+    verbosity, new: byte;
+    par : string[1];
+    ch : char;
 
 
-function  getVerbosity: integer;
+function  getVerbosity: byte;
 {Return the verbosity level}
 begin
     port[STORE_Opcode_Port] := VERBOSE_ReadOpcode;
@@ -20,7 +22,7 @@ begin
 end;
 
 
-procedure setVerbosity(v: integer);
+procedure setVerbosity(v: byte);
 {Set verbosity level}
 begin
     port[STORE_Opcode_Port]:= VERBOSE_WriteOpcode;
@@ -29,21 +31,23 @@ end;
 
 
 begin
+    new := $FF;
+    if paramcount > 0 then
+    begin
+        par := paramstr(1);
+        new := ord(par[1]) - $30; { char to digit }
+    end;
 
     {Get current verbosity value}
     verbosity := getVerbosity;
-    writeln('Current verbosity: ', verbosity );
 
-    write( 'Set new verbosity: ' );
-    readln( new );
-
-    if new <> verbosity then
+    if (new <> $FF) and (new <> verbosity) then
     begin
         setVerbosity( new );
-    end;
-
-    {Get new verbose value}
-    verbosity := getVerbosity;
-    writeln( 'new verbosity: ', verbosity );
+        new := getVerbosity;
+        writeln( 'verbosity: ', verbosity, ' -> ', new );
+    end
+    else
+        writeln( 'verbosity: ', verbosity );
 end.
-
+
