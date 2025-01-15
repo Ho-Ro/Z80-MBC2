@@ -5,6 +5,8 @@
 #  open a xterm 100x30
 #   translate the VT100 cursor keys to CP/M cursor keys
 #    UP -> ^E; DOWN -> ^X; LEFT -> ^S; RIGHT -> ^D
+#    Screen Up -> ^R; Screen Down -> ^C
+#    Pos1 -> ^QS; End -> ^QD
 #   translate DEL key to BS (^H)
 #   execute picocom in this terminal
 #    open /dev/ttyUSB0
@@ -16,12 +18,14 @@ xterm \
     -title "Z80-MBC2" \
     -xrm \
         'xterm*VT100.translations: #override \
-        <Key>Up: string(0x05) \n\
-        <Key>Down: string(0x18) \n\
+        None <Key>Up: string(0x05) \n\
+        None <Key>Down: string(0x18) \n\
         None <Key>Right: string(0x04) \n\
         None <Key>Left: string(0x13) \n\
         None <Key>Prior: string(0x12) \n\
         None <Key>Next: string(0x03) \n\
+        None <Key>Home: string(0x11) string("S") \n\
+        None <Key>End: string(0x11) string("D") \n\
         None <Key>Delete: string(0x07)' \
     -e  "picocom --send-cmd 'sx -b'  --receive-cmd 'rx -b' -b 115200 /dev/ttyUSB0" \
         2>/dev/null
