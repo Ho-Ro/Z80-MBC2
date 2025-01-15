@@ -472,7 +472,7 @@ cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
     if	DBG
 	push	hl
 	ld	a,(ctbl2$bd)	; baud rate request
-	add	a,'@'		; convert 1..15 to 'A'..'O'
+	add	a,'@'		; convert 1..20 to 'A'..'T'
 	ld	(cinit2$bd),a	; build debug string
 	ld	hl,cinit2$msg	; show short debug message
 	call	?pmsg
@@ -524,7 +524,7 @@ cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
     if	DBG
 	push	hl
 	ld	a,(ctbl3$bd)	; baud rate request
-	add	a,'@'		; convert 1..15 to 'A'..'O'
+	add	a,'@'		; convert 1..20 to 'A'..'T'
 	ld	(cinit3$bd),a	; build debug string
 	ld	hl,cinit3$msg	; show short debug message
 	call	?pmsg

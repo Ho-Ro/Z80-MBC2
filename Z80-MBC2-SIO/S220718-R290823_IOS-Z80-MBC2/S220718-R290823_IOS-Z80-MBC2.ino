@@ -350,10 +350,14 @@ byte          diskSet;                    // Current "Disk Set"
 byte          moduleSIO       = 0;        // Set to 1 if found
 
 // CP/M3 baud rate values (See cap. 3.2 CP/M 3 System Guide)
-uint16_t      cpmBaudRate[] = { 0, 50, 75, 110,
+                                // the 1st 16 baud rates are CP/M standard
+uint32_t      cpmBaudRate[] = { 0, 50, 75, 110,
                                 134, 150, 300, 600,
                                 1200, 1800, 2400, 3600,
-                                4800, 7200, 9600, 19200
+                                4800, 7200, 9600, 19200,
+                                // additional possible baud rates
+                                14400, 28800, 38400, 57600, // div = 8,4,3,2
+                                115200                      // div = 1
                               };
 
 // IOS debugging support
@@ -1624,20 +1628,24 @@ void loop()
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            -------------------------
-            //                             0  0  0  0 | BaudIndex |
-            if ( verbosity > 1 ) {
-              Serial.print( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA") : F("??SIOB") );
-              Serial.print(F(" set control: 0x"));
-              Serial.print( ioData, HEX );
-              Serial.print(F(" - baudrate: "));
-              Serial.println( cpmBaudRate[ ioData & 0x0F ], DEC );
-            }
+            //                             0  0  0  |  BaudIndex  |
             if (moduleSIO)
             {
-              uint16_t baudRate = cpmBaudRate[ ioData & 0x0F ];
-              if ( baudRate ) {
-                baudRate = SC16IS752_SetBaudrate( ioOpcode == OPC_SIOA_CTRL ? 0 : 1, baudRate );
+              int32_t baudRate = -1;
+              if ( ioData < sizeof( cpmBaudRate ) / sizeof( uint16_t ) )
+                baudRate = cpmBaudRate[ ioData & 0x1F ]; // index to value
+              if ( verbosity > 1 ) {
+                Serial.print( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA") : F("??SIOB") );
+                Serial.print(F(" set control: 0x"));
+                Serial.print( ioData, HEX );
+                Serial.print(F(" - baudrate: "));
+                if ( baudRate > 0 )
+                  Serial.println( baudRate, DEC );
+                else
+                  Serial.println( F( " - invalid baud rate index" ) );
               }
+              if ( baudRate > 0 )
+                    baudRate = SC16IS752_SetBaudrate( ioOpcode == OPC_SIOA_CTRL ? 0 : 1, baudRate );
             }
           break;
 

@@ -91,12 +91,12 @@ int32_t SC16IS752_SetBaudrate(uint8_t channel, uint32_t baudrate) { // return ba
   SC16IS752_WriteRegister(channel, SC16IS752_REG_LCR, temp_lcr);
 
   actual_baudrate = SC16IS752_CRYSTAL_FREQ / 16 / prescaler / divisor;
-  if ( verbosity > 1 ) {
-    Serial.print(F("??SIO: Desired baudrate: "));
+  if ( verbosity > 2 ) {
+    Serial.print(F("???SIO: Desired baudrate: "));
     Serial.println(baudrate,DEC);
-    Serial.print(F("??SIO: Calculated divisor: "));
+    Serial.print(F("???SIO: Calculated divisor: "));
     Serial.println(divisor,DEC);
-    Serial.print(F("??SIO: Actual baudrate: "));
+    Serial.print(F("???SIO: Actual baudrate: "));
     Serial.println(actual_baudrate,DEC);
   }
   return actual_baudrate;
