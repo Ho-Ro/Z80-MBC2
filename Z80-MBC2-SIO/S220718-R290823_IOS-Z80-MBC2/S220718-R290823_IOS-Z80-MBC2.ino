@@ -461,6 +461,7 @@ void setup()
   }
 
   // Initialize the EXP_PORT (I2C) and search for "known" optional modules
+  Wire.setClock(400000L);
   Wire.begin();                                   // Wake up I2C bus
   // Search for GPIO
   Wire.beginTransmission(GPIOEXP_ADDR);
