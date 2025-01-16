@@ -496,7 +496,7 @@ void setup()
 
   // Print some system information
   Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
-  Serial.println(F("\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823 - DEV0125\r\n"));
+  Serial.println(F("\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823-D160125\r\n"));
 
   // Print if the input serial buffer is 128 bytes wide (this is needed for xmodem protocol support)
   if (SERIAL_RX_BUFFER_SIZE >= 128) Serial.println(F("IOS: Found extended serial Rx buffer"));
@@ -510,7 +510,7 @@ void setup()
   // Print RTC and GPIO informations if found
   foundRTC = autoSetRTC();                        // Check if RTC is present and initialize it as needed
   if (moduleGPIO) Serial.println(F("IOS: Found GPE Option"));
-  if (moduleSIO) Serial.println(F("IOS: Found SIO Option"));
+  if (moduleSIO) Serial.println(F("IOS: Found SIOA / SIOB Option"));
 
   // Print CP/M Autoexec on cold boot status
   Serial.print(F("IOS: CP/M Autoexec is "));
@@ -958,14 +958,14 @@ void loop()
       // Opcode 0x10  SETOPT          1
       // Opcode 0x11  SETSPP          1
       // Opcode 0x12  WRSPP           1
-      // Opcode 0x20  SIOA CTRL       1
-      // Opcode 0x21  SIOA TXD        1
-      // Opcode 0x22  SIOB CTRL       1
-      // Opcode 0x23  SIOB TXD        1
-#define OPC_SIOA_CTRL 0x20
-#define OPC_SIOA_TXD  0x21
-#define OPC_SIOB_CTRL 0x22
-#define OPC_SIOB_TXD  0x23
+      // Opcode 0x20  SIOA TXD        1
+      // Opcode 0x21  SIOB TXD        1
+      // Opcode 0x22  SIOA CTRL       1
+      // Opcode 0x23  SIOB CTRL       1
+#define OPC_SIOA_TxD  0x20
+#define OPC_SIOB_TxD  0x21
+#define OPC_SIOA_CTRL 0x22
+#define OPC_SIOB_CTRL 0x23
       // Opcode 0x7E  SET VERBOSITY   1
       // Opcode 0xFF  No operation    1
       //
@@ -985,14 +985,18 @@ void loop()
       // Opcode 0x88  ATXBUFF         1
       // Opcode 0x89  SYSIRQ          1
       // Opcode 0x8A  GETSPP          1
-      // Opcode 0xA0  SIOA STAT       1
-      // Opcode 0xA1  SIOA RXD        1
-      // Opcode 0xA0  SIOB STAT       1
+      // Opcode 0xA0  SIOA RXD        1
       // Opcode 0xA1  SIOB RXD        1
-#define OPC_SIOA_STAT 0xA0
-#define OPC_SIOA_RXD  0xA1
-#define OPC_SIOB_STAT 0xA2
-#define OPC_SIOB_RXD  0xA3
+      // Opcode 0xA2  SIOA Rx STAT    1
+      // Opcode 0xA3  SIOB Rx STAT    1
+      // Opcode 0xA4  SIOA Tx STAT    1
+      // Opcode 0xA5  SIOB Tx STAT    1
+#define OPC_SIOA_RxD    0xA0
+#define OPC_SIOB_RxD    0xA1
+#define OPC_SIOA_RxSTAT 0xA2
+#define OPC_SIOB_RxSTAT 0xA3
+#define OPC_SIOA_TxSTAT 0xA4
+#define OPC_SIOB_TxSTAT 0xA5
       // Opcode 0xFE  GET VERBOSITY   1
       // Opcode 0xFF  No operation    1
       //
@@ -1622,6 +1626,15 @@ void loop()
             }
           break;
 
+// ------------------------------------------------------------------------------
+
+          case  OPC_SIOA_TxD:
+          case  OPC_SIOB_TxD:
+            // SIO TXD Write:
+            if (moduleSIO)
+              SC16IS752_WriteByte( ioOpcode == OPC_SIOA_TxD ? 0 : 1, ioData );
+          break;
+
           case  OPC_SIOA_CTRL:
           case  OPC_SIOB_CTRL:
             // SIO CTRL Write:
@@ -1649,14 +1662,6 @@ void loop()
             }
           break;
 
-          case  OPC_SIOA_TXD:
-          case  OPC_SIOB_TXD:
-            // SIO TXD Write:
-            if (moduleSIO)
-            {
-              SC16IS752_WriteByte( ioOpcode == OPC_SIOA_TXD ? 0 : 1, ioData );
-            }
-          break;
           case 0x7E:
             // set verbosity byte, also used for NMOS/CMOS CPU test
             verbosity = ioData;
@@ -2077,37 +2082,46 @@ void loop()
               }
             break;
 
-            case  OPC_SIOA_STAT:
-            case  OPC_SIOB_STAT:
-              // SIOA Status Read:
+            case  OPC_SIOA_RxD:
+            case  OPC_SIOB_RxD:
+              // SIOA RXD Read:
+              // NOTE: a value 0x1A is forced if the SIO Option is not present
+              if (moduleSIO)
+                ioData = SC16IS752_ReadByte( ioOpcode == OPC_SIOA_RxD ? 0 : 1 );
+              else
+                ioData = 0x1A;  // ^Z (EOF)
+            break;
+
+            case  OPC_SIOA_RxSTAT:
+            case  OPC_SIOB_RxSTAT:
+              // SIO Rx Status Read:
               //
               //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
               //                            -------------------------
-              //                             D7 D6 D5 D4 D3 D2 D1 D0
+              //                              0 | FIFO DATA AVAIL  |
               //
-              // NOTE: a value 0x03 is forced if the SIO Option is not present
-              ioData = 0x03;  // RxD available, TxD ready
-              if (moduleSIO)
-              {
-                ioData = 0;
-                uint8_t channel = ioOpcode == OPC_SIOA_STAT ? 0 : 1;
-                if ( SC16IS752_RxDataAvailable( channel ) )
-                  ioData |= 0x01; // -> 6850 RDRF
-                if ( SC16IS752_TxSpaceAvailable( channel ) )
-                  ioData |= 0x02; // -> 6850 TDRE
-              }
+              // NOTE: a value 0x40 is forced if the SIO Option is not present
+              if (moduleSIO) {
+                ioData = SC16IS752_RxDataAvailable( OPC_SIOA_RxSTAT ? 0 : 1 );
+              } else
+                ioData = 0x40;  // RxFIFO full - USED BY CP/M CHARIO.MAC
             break;
 
-            case  OPC_SIOA_RXD:
-            case  OPC_SIOB_RXD:
-              // SIOA RXD Read:
-              // NOTE: a value 0x1A is forced if the SIO Option is not present
-              ioData = 0x1A;  // ^Z (EOF)
-              if (moduleSIO)
-              {
-                ioData = SC16IS752_ReadByte( ioOpcode == OPC_SIOA_RXD ? 0 : 1 );
-              }
+            case  OPC_SIOA_TxSTAT:
+            case  OPC_SIOB_TxSTAT:
+              // SIO Tx Status Read:
+              //
+              //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+              //                            -------------------------
+              //                              0 | FIFO SPACE AVAIL |
+              //
+              // NOTE: a value 0x40 is forced if the SIO Option is not present
+              if (moduleSIO) {
+                ioData = SC16IS752_TxSpaceAvailable( OPC_SIOA_TxSTAT ? 0 : 1 );
+              } else
+                ioData = 0x40;  // Tx FIFO empty - USED BY CP/M CHARIO.MAC
             break;
+
             case 0xFE:
               // read back verbosity byte, also used for NMOS/CMOS CPU test
               ioData = verbosity;

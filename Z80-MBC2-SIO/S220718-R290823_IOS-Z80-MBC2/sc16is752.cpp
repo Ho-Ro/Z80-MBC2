@@ -46,10 +46,8 @@ void SC16IS752_Init(uint32_t baud_A, uint32_t baud_B) {
 
 
 void SC16IS752_WriteByte(uint8_t channel, uint8_t val) {
-  while ( SC16IS752_TxSpaceAvailable(channel) == 0 )
-    ;  // idle
-  if ( verbosity > 1 ) {
-    Serial.print(F("??SIO: WriteByte 0x"));
+  if ( verbosity > 2 ) {
+    Serial.print(F("???SIO: WriteByte 0x"));
     Serial.println( val, HEX );
   }
   SC16IS752_WriteRegister(channel, SC16IS752_REG_THR, val);
@@ -57,15 +55,32 @@ void SC16IS752_WriteByte(uint8_t channel, uint8_t val) {
 
 
 int SC16IS752_ReadByte(uint8_t channel) {
-  uint8_t val;
-  while ( SC16IS752_RxDataAvailable( channel ) == 0 )
-    ;  // idle
-  val = SC16IS752_ReadRegister(channel, SC16IS752_REG_RHR);
-  if ( verbosity > 1 ) {
+  uint8_t val = SC16IS752_ReadRegister(channel, SC16IS752_REG_RHR);
+  if ( verbosity > 2 ) {
     Serial.print(F("???SIO: ReadByte 0x"));
     Serial.println( val, HEX );
   }
   return val;
+}
+
+
+uint8_t SC16IS752_TxSpaceAvailable(uint8_t channel) {
+  uint8_t avSpc = SC16IS752_ReadRegister(channel, SC16IS752_REG_TXLVL);
+  if ( verbosity > 2 ) {
+    Serial.print(F("???SIO: Tx FIFO Space: "));
+    Serial.println(avSpc, DEC);
+  }
+  return avSpc;
+}
+
+
+uint8_t SC16IS752_RxDataAvailable(uint8_t channel) {
+  uint8_t avDat = SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL);
+  if ( verbosity > 2 ) {
+    Serial.print(F("???SIO: Rx FIFO Level: "));
+    Serial.println(avDat, DEC);
+  }
+  return avDat;
 }
 
 
@@ -91,12 +106,12 @@ int32_t SC16IS752_SetBaudrate(uint8_t channel, uint32_t baudrate) { // return ba
   SC16IS752_WriteRegister(channel, SC16IS752_REG_LCR, temp_lcr);
 
   actual_baudrate = SC16IS752_CRYSTAL_FREQ / 16 / prescaler / divisor;
-  if ( verbosity > 2 ) {
-    Serial.print(F("???SIO: Desired baudrate: "));
+  if ( verbosity > 1 ) {
+    Serial.print(F("??SIO: Desired baudrate: "));
     Serial.println(baudrate,DEC);
-    Serial.print(F("???SIO: Calculated divisor: "));
+    Serial.print(F("??SIO: Calculated divisor: "));
     Serial.println(divisor,DEC);
-    Serial.print(F("???SIO: Actual baudrate: "));
+    Serial.print(F("??SIO: Actual baudrate: "));
     Serial.println(actual_baudrate,DEC);
   }
   return actual_baudrate;
@@ -159,87 +174,49 @@ void SC16IS752_SetLine(uint8_t channel, uint8_t data_length, uint8_t parity_sele
 
 void SC16IS752_FIFOEnable(uint8_t channel, uint8_t fifo_enable) {
   uint8_t temp_fcr = SC16IS752_ReadRegister(channel, SC16IS752_REG_FCR);
-
-  if (fifo_enable == 0){
+  if (fifo_enable == 0)
     temp_fcr &= 0xFE;
-  } else {
+  else
     temp_fcr |= 0x01;
-  }
   SC16IS752_WriteRegister(channel, SC16IS752_REG_FCR, temp_fcr);
   return;
 }
 
 
-uint8_t SC16IS752_RxDataAvailable(uint8_t channel) {
-  uint8_t lsr = SC16IS752_ReadRegister(channel, SC16IS752_REG_LSR);
-  if ( verbosity > 2 ) {
-    Serial.print(F("???SIO: Line Status Register: 0x"));
-    uint8_t avDat = SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL);
-    Serial.println(lsr, HEX);
-    Serial.print(F("???SIO: Receiver FIFO Level: "));
-    Serial.println(avDat, DEC);
-  }
-  return lsr & 0x01; // Data in receiver
-}
-
-
-uint8_t SC16IS752_TxSpaceAvailable(uint8_t channel) {
-  uint8_t avSpc = SC16IS752_ReadRegister(channel, SC16IS752_REG_TXLVL);
-  if ( verbosity > 2 ) {
-    Serial.print(F("???SIO: TxSpaceAvailable: "));
-    Serial.println(avSpc, DEC);
-  }
-  return avSpc;
-}
-
-
 void SC16IS752_ResetDevice() {
   uint8_t reg;
-
   reg = SC16IS752_ReadRegister(SC16IS752_CHANNEL_BOTH, SC16IS752_REG_IOCONTROL);
   reg |= 0x08;
   SC16IS752_WriteRegister(SC16IS752_CHANNEL_BOTH, SC16IS752_REG_IOCONTROL, reg);
-
   return;
 }
 
 
 void SC16IS752_FIFOReset(uint8_t channel, uint8_t rx_fifo) {
   uint8_t temp_fcr;
-
   temp_fcr = SC16IS752_ReadRegister(channel, SC16IS752_REG_FCR);
-
   if (rx_fifo)
     temp_fcr |= 0x02;
   else
     temp_fcr |= 0x04;
   SC16IS752_WriteRegister(channel, SC16IS752_REG_FCR,temp_fcr);
-
   return;
 }
 
 
 uint8_t SC16IS752_Ping() {
   SC16IS752_WriteRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR,0x55);
-  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR) !=0x55) {
+  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR) !=0x55)
     return 0;
-  }
-
   SC16IS752_WriteRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR,0xAA);
-  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR) !=0xAA) {
+  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_A, SC16IS752_REG_SPR) !=0xAA)
     return 0;
-  }
-
   SC16IS752_WriteRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR,0x55);
-  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR) !=0x55) {
+  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR) !=0x55)
     return 0;
-  }
-
   SC16IS752_WriteRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR,0xAA);
-  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR) !=0xAA) {
+  if (SC16IS752_ReadRegister(SC16IS752_CHANNEL_B, SC16IS752_REG_SPR) !=0xAA)
     return 0;
-  }
-
   return 1;
 }
 

@@ -20,7 +20,7 @@
 ; S210918-R090319   Changed CIST0: and CI0: to allow full 8 bit data I/O
 ; S210918-R170319   Added the selection of the mode of CIST0: (7 or 8 bit mode, for XMODEM)
 ; S210918-R210923   Added support for the SPP Adapter board (parallel printer) as Device 1
-; S210918-DEV0125   DEVEL: Add dummy support for I2C SIOA and SIOB devices as Device 2/3
+; S210918-D160125   DEVEL: support for I2C SIOA and SIOB devices as Device 2/3
 ;
 ;******************************************************************************
 
@@ -87,14 +87,6 @@ rdsect$opc equ	086h		; READSECT opcode
 sdmount$opc equ	087h		; SDMOUNT opcode
 GETSPP$OPC EQU	08AH		; GETSPP opcode
 SPPRDY     EQU	0C9H		; SPP status printer ready pattern (11001001)
-sioa$ctrl equ   020h		; SIOA set baudrate
-sioa$txd  equ	021h		; SIOA TxD
-siob$ctrl equ   022h		; SIOB set baudrate
-siob$txd  equ	023h		; SIOB TxD
-sioa$stat equ   0a0h		; SIOA get status
-sioa$rxd  equ   0a1h		; SIOA RxD
-siob$stat equ   0a2h		; SIOB get status
-siob$rxd  equ   0a3h		; SIOB RxD
 
 
 				; WILL START OFF IN COMMON MEMORY FOR BANKED OR NON-BANKED SYSTEMS:
@@ -462,11 +454,29 @@ listRet:
 	ret
 
 ;
+;<<<<<<<<<<<<<< SIOA / SIOB (Z80-MBC2) >>>>>>>>>>>>>>>>>
+;
+
+sioa$txd     equ 020h		; SIOB TxD
+siob$txd     equ 021h		; SIOB TxD
+sioa$ctrl    equ 022h		; SIOA set baudrate
+siob$ctrl    equ 023h		; SIOB set baudrate
+sioa$rxd     equ 0a0h		; SIOA RxD
+siob$rxd     equ 0a1h		; SIOB RxD
+sioa$rx$stat equ 0a2h		; SIOA get Rx status
+siob$rx$stat equ 0a3h		; SIOB get Rx status
+sioa$tx$stat equ 0a4h		; SIOA get Tx status
+siob$tx$stat equ 0a5h		; SIOB get Tx status
+
+
+; SIO status bit mask
+RxLEVEL	equ	07fh		; Rx FIFO level mask
+TxLEVEL	equ	07fh		; Tx FIFO level mask
+
+
+;
 ;<<<<<<<<<<<<<< SIOA / DEVICE 2 INIT/INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
 ;
-; SIO status bits
-RDRF	equ	01h		; Receive Data Register Full
-TDRE	equ	02h		; Transmit Data Register Empty
 
 cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
     if	DBG
@@ -478,46 +488,78 @@ cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
 	call	?pmsg
 	pop	hl
     endif
+	xor	a
+	ld	(sioa$rfa),a	; no rx fifo data (yet)
+	ld	(sioa$tfs),a	; no space (yet)
 	ld 	a,sioa$ctrl	; select sioa ctrl reg
 	out	(sto$opcd),a	; transfer to IOS
 	ld	a,(ctbl2$bd)	; baud rate request
 	out	(exc$wr$opcd),a	; send request to IOS
 	ret			; done
 
+
 cist2:				; DEVICE 2 INPUT STATUS (Z80-MBC2)
-	ld	a,sioa$stat	; get sioa status cmd
+	ld	a,(sioa$rfa)	; Rx FIFO data counter
+	or	a		; data available?
+	jr	nz,cist2a	; yes, no need for slow status check
+				; no, request SIOA Rx level from IOS
+	ld	a,sioa$rx$stat	; "SIOA Rx status" cmd
 	out	(sto$opcd),a	; transfer to IOS
-	in	a,(exc$rd$opcd)	; read status
-	and	RDRF		; RxD available?
-	ret	z		; no, ret A=0
-	ld	a,0ffh		; signal char available
+	in	a,(exc$rd$opcd)	; read FIFO level
+	and	RxLEVEL		; mask level bits
+	ret	z		; no data, ret A=0
+				;
+	ld	(sioa$rfa),a	; update FIFO counter
+cist2a:	ld	a,0ffh		; signal ready
 	ret			; done
 
-cost2:				; DEVICE 2 OUTPUT STATUS (Z80-MBC2)
-	ld	a,sioa$stat	; get sioa status cmd
-	out	(sto$opcd),a	; transfer to IOS
-	in	a,(exc$rd$opcd)	; read status
-	and	TDRE		; TxD empty ?
-	ret	z		; no, ret A=0
-	ld	a,0ffh		; signal ready
-	ret			; done
 
 ci2:				; DEVICE 2 INPUT (Z80-MBC2)
-	ld	a,sioa$rxd	; get data from SIO cmd
+	ld	a,(sioa$rfa)	; available FIFO data
+	or	a
+	jr	c,ci2a		; already zero, do not decrement
+	dec	a		; get one more slot data
+	ld	(sioa$rfa),a
+ci2a:	ld	a,sioa$rxd	; "RX from SIO" cmd
 	out	(sto$opcd),a	; transfer to IOS
 	in	a,(exc$rd$opcd)	; read data from sioa
 	ret			; done
 
+
+cost2:				; DEVICE 2 OUTPUT STATUS (Z80-MBC2)
+	ld	a,(sioa$tfs)	; Tx FIFO space counter
+	or	a		; space available?
+	jr	nz,cost2a	; yes, no need for slow status check
+				; no, request SIOA Tx level from IOS
+	ld	a,sioa$tx$stat	; "SIOA Tx status" cmd
+	out	(sto$opcd),a	; transfer to IOS
+	in	a,(exc$rd$opcd)	; read FIFO level
+	and	TxLEVEL		; mask level bits
+	ret	z		; no space, ret A=00
+				;
+	ld	(sioa$tfs),a	; update FIFO counter
+cost2a:	ld	a,0ffh		; signal ready
+	ret			; done
+
+
 co2:				; DEVICE 2 OUTPUT (Z80-MBC2)
-	ld	a,sioa$txd	; send data to SIO cmd
+	ld	a,(sioa$tfs)	; available FIFO space
+	or	a		; zero?
+	jr	z,co2a		; already zero, do not decrement
+	dec	a
+	ld	(sioa$tfs),a
+co2a:	ld	a,sioa$txd	; "TX to SIO" cmd
 	out	(sto$opcd),a	; transfer to IOS
 	ld	a,c		; get char
 	out	(exc$wr$opcd),a	; send char to sioa
 	ret			; done
 
-
+sioa$tfs:			; Tx FIFO space
+	db	0
+sioa$rfa:			; Rx FIFO data available
+	db	0
 ;
-;<<<<<<<<<<<<<< SIO2 / DEVICE 3 INIT/INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<< SIOB / DEVICE 3 INIT/INPUT/OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>
 ;
 
 cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
@@ -530,43 +572,76 @@ cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
 	call	?pmsg
 	pop	hl
     endif
+	xor	a
+	ld	(siob$rfa),a	; no rx fifo data (yet)
+	ld	(siob$tfs),a	; no space (yet)
 	ld 	a,siob$ctrl	; select siob ctrl reg
 	out	(sto$opcd),a	; transfer to IOS
 	ld	a,(ctbl3$bd)	; baud rate request
 	out	(exc$wr$opcd),a	; send request to IOS
 	ret			; done
 
+
 cist3:				; DEVICE 3 INPUT STATUS (Z80-MBC2)
-	ld	a,siob$stat	; get siob status cmd
+	ld	a,(siob$rfa)	; Rx FIFO data counter
+	or	a		; data available?
+	jr	nz,cist3a	; yes, no need for slow status check
+				; no, request SIOB Rx level from IOS
+	ld	a,siob$rx$stat	; "SIOB Rx status" cmd
 	out	(sto$opcd),a	; transfer to IOS
-	in	a,(exc$rd$opcd)	; read status
-	and	RDRF		; RxD available?
-	ret	z		; no, ret A=0
-	ld	a,0ffh		; signal char available
+	in	a,(exc$rd$opcd)	; read FIFO level
+	and	RxLEVEL		; mask level bits
+	ret	z		; no data, ret A=0
+				;
+	ld	(siob$rfa),a	; update FIFO counter
+cist3a:	ld	a,0ffh		; signal ready
 	ret			; done
 
-cost3:				; DEVICE 3 OUTPUT STATUS (Z80-MBC2)
-	ld	a,siob$stat	; get siob status cmd
-	out	(sto$opcd),a	; transfer to IOS
-	in	a,(exc$rd$opcd)	; read status
-	and	TDRE		; TxD empty ?
-	ret	z		; no, ret A=0
-	ld	a,0ffh		; signal ready
-	ret			; done
 
 ci3:				; DEVICE 3 INPUT (Z80-MBC2)
-	ld	a,siob$rxd	; get data from siob cmd
+	ld	a,(siob$rfa)	; available FIFO data
+	or	a
+	jr	c,ci3a		; already zero, do not decrement
+	dec	a		; get one more slot data
+	ld	(siob$rfa),a
+ci3a:	ld	a,siob$rxd	; "RX from SIO" cmd
 	out	(sto$opcd),a	; transfer to IOS
 	in	a,(exc$rd$opcd)	; read data from siob
 	ret			; done
 
-co3:				; DEVICE 3 OUTPUT (Z80-MBC2)
-	ld	a,siob$txd	; send data to siob cmd
+
+cost3:				; DEVICE 2 OUTPUT STATUS (Z80-MBC2)
+	ld	a,(siob$tfs)	; Tx FIFO space counter
+	or	a		; space available?
+	jr	nz,cost3a	; yes, no need for slow status check
+				; no, request SIOA Tx level from IOS
+	ld	a,siob$tx$stat	; "SIOA Tx status" cmd
+	out	(sto$opcd),a	; transfer to IOS
+	in	a,(exc$rd$opcd)	; read FIFO level
+	and	TxLEVEL		; mask level bits
+	ret	z		; no space, ret A=00
+				;
+	ld	(siob$tfs),a	; update FIFO counter
+cost3a:	ld	a,0ffh		; signal ready
+	ret			; done
+
+
+co3:				; DEVICE 2 OUTPUT (Z80-MBC2)
+	ld	a,(siob$tfs)	; available FIFO space
+	or	a		; zero?
+	jr	z,co3a		; already zero, do not decrement
+	dec	a
+	ld	(siob$tfs),a
+co3a:	ld	a,siob$txd	; "TX to SIO" cmd
 	out	(sto$opcd),a	; transfer to IOS
 	ld	a,c		; get char
 	out	(exc$wr$opcd),a	; send char to siob
 	ret			; done
 
+siob$tfs:			; Tx FIFO space
+	db	0
+siob$rfa:			; Rx FIFO data available
+	db	0
 
 ;
 ; -------------------------------------------------------------------------
@@ -616,7 +691,6 @@ ctbl2$bd:
 	defb	mb$in$out + mb$serial + mb$soft$baud
 ctbl3$bd:
 	defb	baud$19200
-
 
 max$devices equ	($-@ctbl)/8	; # DEVICES IN TABLE
 	defb	0		; TABLE TERMINATOR
