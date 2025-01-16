@@ -1535,7 +1535,7 @@ void loop()
             //
             // If the SPP mode is enabled send a byte to the SPP. No check is done here to know if the printer is 
             //  ready or not, so you have to use the GETSPP Opcode before for that.
-            // If the SPP mode is disabled (or the GPE is not installed) this Opcode is ignored.  
+            // If the SPP mode is disabled (or the GPE is not installed) this Opcode is ignored.
             //
             // NOTE: to use WRSPP the SETSPP Opcode should be called first to activate the SPP mode of the GPIO port.
             
