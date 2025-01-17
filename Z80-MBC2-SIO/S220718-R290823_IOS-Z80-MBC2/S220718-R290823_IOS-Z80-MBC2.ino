@@ -96,7 +96,7 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
                    the SPP adapter is used and a printer is connected, selected online and powered on before
                    the Z80-MBC2, possible "strange" printer behaviors are avoided. This makes the STROBE and
                    INIT lines of the parallel port not active after a power on/reset.
-S220718-DEV0125   DEVEL for I2C 2 x SIO module SC16IS752
+S220718-D160125   DEVEL for I2C 2 x SIO module SC16IS752
 --------------------------------------------------------------------------------- */
 
 // ------------------------------------------------------------------------------
@@ -351,11 +351,11 @@ byte          moduleSIO       = 0;        // Set to 1 if found
 
 // CP/M3 baud rate values (See cap. 3.2 CP/M 3 System Guide)
                                 // the 1st 16 baud rates are CP/M standard
-uint32_t      cpmBaudRate[] = { 0, 50, 75, 110,
-                                134, 150, 300, 600,
-                                1200, 1800, 2400, 3600,
-                                4800, 7200, 9600, 19200,
-                                // additional possible baud rates
+uint32_t      cpmBaudRate[] = { 0, 50, 75, 110,             // div = -,2304,1536,1047
+                                134, 150, 300, 600,         // div = 859,768,384,192
+                                1200, 1800, 2400, 3600,     // div = 96,64,48,32
+                                4800, 7200, 9600, 19200,    // div = 24,16,12,6
+                                // additional useful possible baud rates
                                 14400, 28800, 38400, 57600, // div = 8,4,3,2
                                 115200                      // div = 1
                               };
