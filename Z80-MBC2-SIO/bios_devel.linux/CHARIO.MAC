@@ -24,6 +24,12 @@
 ;
 ;******************************************************************************
 
+
+	dseg
+?chario$ver:
+	defb	'CHARIO S210918-R210923-D160125',0
+
+
 				; DEFINE LOGICAL VALUES:
 true	equ	-1
 false	equ	not true
@@ -45,8 +51,12 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 ; -------------------------------------------------------------------
 
 	include	config.lib	; AGN - for debugging
+    ifndef DBG
+DBG	equ	false
+    endif
 
 				; DEFINE PUBLIC LABELS:
+	public	?chario$ver
 	public	?cinit,?ci,?co,?cist,?cost
 	public	@ctbl
 	public 	?cnstflg	; CONST mode flag (Z80-MBC2) ***

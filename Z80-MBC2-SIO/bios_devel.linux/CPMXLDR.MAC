@@ -79,16 +79,18 @@ rbase::	ld	sp,stackbot	; Stack can overwrite sign-on
 	call	bdos
 
 
-  				; Read the IOS AUTOEXEC flag
-  	ld	a,SYSFLAG$OPC	; Select SYSFLAG opcode
-  	out     (STO$OPCD),a
-  	in	a,(EXC$RD$OPCD)	; A = SYSFLAG
-  	and	01h		; Isolate the AUTOEXEC flag bit
-  	jr	z,rbase1	; load default CPM3.SYS
-  	ld 	a,'x'		; Signon:
+				; Read the IOS AUTOEXEC flag
+	ld	a,SYSFLAG$OPC	; Select SYSFLAG opcode
+	out     (STO$OPCD),a
+	in	a,(EXC$RD$OPCD)	; A = SYSFLAG
+	and	01h		; Isolate the AUTOEXEC flag bit
+	jr	z,rbase1	; load default CPM3.SYS
+	ld 	a,'x'		; Signon:
 	ld	(signum),a	; change CP/M 3.0 -> CP/M 3.x
 	ld	a,'X'		; CP/M system file:
 	ld	(cpmfcb+4),a	; change CPM3.SYS -> CPMX.SYS
+	ld	(oerr1+3),a	; open error CPM3.SYS -> CPMX.SYS
+	ld	(rerr1+3),a	; read error CPM3.SYS -> CPMX.SYS
 
 rbase1:	ld	c,printbuf	; Print the sign on message
 	ld	de,signon
@@ -115,13 +117,13 @@ cloop::
 	inc	hl
 	dec	c
 	jp	nz,cloop
-	
+
 	call	read$proc	; Read display info
 
 	ld	c,printbuf	; Print the info
 	ld	de,buff
 	call	bdos
-	
+
 ;
 ;	Main System Load
 ;
@@ -222,32 +224,20 @@ break::
 	ret
 
 cpmfcb::
-  ifdef	test
-	defb	0,'TEST    SYS',0,0,0,0,0,0
-  else
 	defb	0,'CPM3    SYS',0,0,0,0,0,0
-  endif
 	defw	0,0,0,0,0,0,0,0,0
 
 openerr::
 	defb	cr,lf
-	defb	'CPMLDR error:  failed to open '
-  ifdef test
-	defb	'TEST'
-  else
-	defb	'CPM3'
-  endif
+	defb	'CPMXLDR error:  failed to open '
+oerr1:	defb	'CPM3'
 	defb	'.SYS'
 	defb	cr,lf,'$'
 
 readerr::
 	defb	cr,lf
-	defb	'CPMLDR error:  failed to read '
-  ifdef test
-	defb	'TEST'
-  else
-	defb	'CPM3'
-  endif
+	defb	'CPMXLDR error:  failed to read '
+rerr1:	defb	'CPM3'
 	defb	'.SYS'
 	defb	cr,lf,'$'
 
@@ -256,7 +246,7 @@ readerr::
 	defb	lf
 signon::
 	defb	cr,lf
-	defb	'CPMLDR3 - CP/M V3.'
+	defb	'CPMXLDR - CP/M V3.'
 signum:	defb	'0 Loader',cr,lf
 	defb	'Copyright (C) 1982, Digital Research'
 	defb	cr,lf,'$'
@@ -2106,4 +2096,4 @@ move$tpa equ	movef
 
 	end
 
-
+

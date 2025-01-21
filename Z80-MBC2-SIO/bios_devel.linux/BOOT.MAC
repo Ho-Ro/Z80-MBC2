@@ -33,12 +33,16 @@ false	equ	not true
 banked	equ	true		; <------ BANKED/NON-BANKED SWITCH
 
 	include	config.lib	; AGN - for debugging
+    ifndef DBG
+DBG	equ	false
+    endif
 
 				; DEFINE PUBLIC LABELS:
 	public  ?init,?ldccp,?rlccp,?time
 				; PUBLIC  OUT$BLOCKS
 
 				; EXTERNALLY DEFINED ENTRY POINTS AND LABELS:
+	extrn	?chario$ver	; CHARIO version changes during development
 	extrn   ?pmsg,?conin,?cinit
 	extrn   @civec,@covec,@aivec,@aovec,@lovec
 	extrn   @cbnk,?bnksl
@@ -103,7 +107,11 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 	ld	(@aivec),hl	; AUX INPUT VECTOR
 	ld	(@aovec),hl	; AUX OUTPUT VECTOR
 
-	ld	hl,signon$msg	; POINT TO IT
+	ld	hl,signon$msg1	; Sign-on message part1
+	call	?pmsg
+	ld	hl,?chario$ver	; CHARIO version is WIP
+	call	?pmsg
+	ld	hl,signon$msg2	; Sign-on message part2
 	jp	?pmsg		; AND PRINT IT
 				; Note: "RET" here is not needed because we use the that one at the end of 
 
@@ -390,7 +398,7 @@ fcb$nr:	defb	0,0,0
   endif
 
 				; SYSTEM SIGN-ON MESSAGE:
-signon$msg:
+signon$msg1:
 	defb	cr,lf,'Z80-MBC2 128KB '
 	defb	'(Banked) CP/M V3.0'
   ifdef zpm3
@@ -399,15 +407,20 @@ signon$msg:
   if	DBG			;AGN - debugging version
 	defb	' (DEBUG)'
   endif
-				; BIOSKRNL	S170319
-				; BOOT		S220918-R180319
-				; CHARIO	S210918-R210923
-				; MOVE		S290918
-				; SCB		-
-				; VDISK		S200918
+				; BIOSKRNL	S170319 (stable)
+				; BOOT		S220918-R180319 (stable)
+				; CHARIO	S210918-R210923-Dxxxx25 (WIP)
+				; MOVE		S290918 (stable)
+				; SCB		- (stable)
+				; VDISK		S200918 (stable)
 	defb	cr,lf
-	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf
-	defb	'CHARIO S210918-R210923-D160125, MOVE S290918, SCB -, VDISK S200918'
+;	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf
+;	defb	'CHARIO S210918-R210923-D160125, MOVE S290918, SCB -, VDISK S200918'
+	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf,0
+		; CHARIO.MAC is WIP, it provides its own version string in ?chario$ver
+                ; No need to touch BOOT.MAC if CHARIO.MAC is changed
+signon$msg2:
+	defb	', MOVE S290918, SCB -, VDISK S200918'
 	defb	cr,lf,0
 	end
 

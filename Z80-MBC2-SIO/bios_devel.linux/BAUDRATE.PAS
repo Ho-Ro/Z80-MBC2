@@ -136,8 +136,6 @@ Begin
   { calls BDOS function 49
     DE : address of the parameter area
     return value in BA, HL
-    DEVTBL: Get CHARACTER DEVICE TABLE
-    (See cap. 3.2 CP/M 3 System Guide)
   }
   scbPB[0] := offset;
   scbPB[1] := $00; { get }
@@ -151,8 +149,6 @@ Begin
   { calls BDOS function 49
     DE : address of the parameter area
     return value in BA, HL
-    DEVTBL: Get CHARACTER DEVICE TABLE
-    (See cap. 3.2 CP/M 3 System Guide)
   }
   scbPB[0] := offset;
   scbPB[1] := $FE; { set word }
@@ -322,4 +318,3 @@ Begin
       showDevice( iii );
   End;
 End.
-
