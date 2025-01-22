@@ -1,0 +1,83 @@
+# BIOS for Z80-MBC2-SIO modification
+
+The zipped disk drive image `DS2N13.DSK.zip` (CP/M3 drive `N:`) contains the
+source code, all build tools, and the binaries for a banked CP/M3 BIOS with
+two additional SIO interfaces `SIOA` and `SIOB`, connected to the `I2C` bus.
+The SIOs allow all original CP/M baud rates that can be set with `DEVICE.COM`
+and the additional speeds 14400, 38400, 57600 and 115200 Bd.
+The tool `BAUDRATE.COM` can be used to set all possible baud rates.
+
+## HW preparation
+Obtain an SC16IS752 I2C/SPI Bus Interface to UART Module (or UART expander),
+select I2C mode and address `90h` - connect `A0` and `A1` to `Vdd` (3.3V).
+The datasheet uses 8 bit addressing, while IOS uses the 7 bit address `48h`.
+Attach the module to the Z80-MBC2, directly connecting the 4 lines:
+- Vcc
+- GND
+- SCL
+- SDA
+No need for external pullup resistors. The SC16IS752 operates on 3.3 V,
+but all inputs tolerate the 5 V signals coming from the Z80-MBC2.
+Currently both SIOs do not use any handshake, so it is sufficient to perform
+a voltage conversion of RxD and TxD of each channel for RS232 connections,
+e.g. using a MAX3232 RS-232 line driver and receiver module.
+The level shifter is available as a cheap small module, even with a DB9
+connector (Converter RS232 - UART with connector DB9 - SP3232 3.3V/5V).
+
+## System preparation
+
+### CP/M update
+Unzip the drive image `DS2N13.DSK.zip`.
+Take out the SD-card and copy the file `DS2N13.DSK` to the root directory,
+replacing the old (previously) empty CP/M3 disk image for drive `N:`.
+You can also use any other CP/M3 drive except `A:` aka `DS2N00.DSK`, just
+rename the `DS2N??.DSK` file accordingly.
+
+### IOS update
+The new BIOS requires an updated IOS, ver. S220718-R290823-D160125 or later.
+Program one of the `S220718-D??????-Z80-MBC2-SIO_??MHz.hex` files on your AVR,
+using AVR programmer HW with a tool like e.g. `avrdude`.
+Select the correct file depending on your XTAL frequency.
+
+## Testing
+For a first test you can execute `N:TESTCPMX.COM`.
+This boots your system with the new BIOS showing someting like:
+
+     ...
+     60K TPA
+
+    Z80-MBC2 128KB (Banked) CP/M V3.0 with ZPM3
+    Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319
+    CHARIO S210918-R210923-D160125, MOVE S290918, SCB -, VDISK S200918
+     ...
+
+Pressing the `RESET` button brings you back to the original system.
+
+## Installation - the simple way
+If it works you can copy `N:CPMX.SYS` to `A:CPM3.SYS` - ready.
+Your system will now start up with the new BIOS.
+
+## Installation - the safe way
+If you want a quick fallback-solution w/o SD-card handling keep your
+original `A:CPM3.SYS` and copy the file `N:CPMX.SYS` to `A:CPMX.SYS`.
+This can be done with `PIP A:=N:CPMX.SYS` or `MAKE INSTALL` from `N:`.
+To boot either the original `CPM3.SYS` or the new `CPMX.SYS`, rename
+the provided file `CPMXLDR.COM` to `CPMLDR.COM` and put it on the root
+directory of the Z80-MBC2 SD card.
+Depending on the status of the IOS `AUTOEXEC` bit it will load either
+`A:CPM3.SYS` (`AUTOEXEC==OFF`) or `A:CPMX.SYS` (`AUTOEXEC==ON`).
+When it doesn't find the `A:CPMX.SYS` file then it loads `A:CPM3.SYS`.
+This procedure is strongly recommended if you want to modify your BIOS.
+
+## Utilities
+Also included are source and binaries of utility programs for these SIOs,
+i.e. BAUDRATE.PAS / BAUDRATE.COM to handle all supported baud rates
+and VERBOSE.PAS / VERBOSE.COM to support debugging of the IOS functions.
+
+## Build your own BIOS
+Building and installing is controlled by `MAKE.COM` and the `MAKEFILE`.
+Implement your modifications with your editor of choice, e.g. `WS.COM` or
+`TURBO.COM`; enter `MAKE` and the new system will be created.
+Test it with `TESTCPMX` and install it as described above.
+`MAKE` checks all dependencies and only rebuilds the modules with modified
+source code to speed up the build (this feature requires a working RTC).

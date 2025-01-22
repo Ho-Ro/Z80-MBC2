@@ -1,60 +1,26 @@
-#################################
-# Makefile for project Z80-MBC2 #
-#    build with arduino-cli     #
-#  under Debian Linux (stable)  #
-#################################
+#
+# Makefile to build the AVR IOS and CP/M BIOS for Z80-MBC2 with I2C SIO module
+#
 
-# IOS project
-PRJ = S220718-R290823_IOS-Z80-MBC2
+AVR_IOS = S220718-D160125_IOS-Z80-MBC2-SIO
+CPM_BIOS = bios_devel.linux
 
-# IOS-LITE project
-# PRJ = S220618_IOS-LITE-Z80-MBC2
+.PHONY: all
+all:	BIOS IOS16 IOS20
 
+.PHONY: BIOS
+BIOS:
+	$(MAKE) -C $(CPM_BIOS)
 
-# fully qualified board name for ATmega32
-FQBN = MightyCore:avr:32
+.PHONY: IOS16
+IOS16:
+	CLK=16 $(MAKE) -C $(AVR_IOS)
 
-# default clock 16 MHz
-# CLK = 16
+.PHONY: IOS20
+IOS20:
+	CLK=20 $(MAKE) -C $(AVR_IOS)
 
-# overclock 20 MHz
-# https://hackaday.io/project/159973-z80-mbc2-a-4-ics-homebrew-z80-computer/details
-CLK = 20
-
-
-#############################################
-## normally no need to change something below
-#############################################
-
-# build options, copied from Arduino GUI build
-BUILDOPTIONS = bootloader=uart0,eeprom=keep,baudrate=default,SerialBuf=SB256_64,pinout=standard,BOD=2v7,LTO=Os_flto,clock=$(CLK)MHz_external
-
-# fully qualified board name with build options
-FQBN_BO = "$(FQBN):$(BUILDOPTIONS)"
-
-# build directory inside the project directory
-BUILD = $(PRJ)/build/$(subst :,.,$(FQBN))
-
-# source code for the Arduino project
-INO = $(PRJ)/$(PRJ).ino
-HEADER = $(PRJ)/*.h
-SOURCE = $(PRJ)/*.cpp
-
-# target in intel hex format
-HEX = $(BUILD)/$(PRJ).ino.hex
-HEX_BL = $(BUILD)/$(PRJ).ino.with_bootloader.hex
-HEX_BL_CLK = $(PRJ)/$(PRJ).ino.with_bootloader_$(CLK)MHz.hex
-
-.PHONY: compile
-compile: $(HEX_BL_CLK)
-
-$(HEX_BL_CLK): $(INO) $(SOURCE) $(HEADER) Makefile
-	arduino-cli compile --export-binaries --warnings all --fqbn $(FQBN_BO) $(INO)
-	-rm $(HEX_BL_CLK)
-	-ln $(HEX_BL) $(HEX_BL_CLK)
-
-
-.PHONY: burn-bootloader
-burn-bootloader: $(HEX_BL_CLK)
-	#arduino-cli burn-bootloader --fqbn $(FQBN_BO) -
-	avrdude -pm32 -U $(HEX_BL_CLK)
+.PHONY: clean
+clean:
+	$(MAKE) -C $(AVR_IOS) clean
+	$(MAKE) -C $(CPM_BIOS) clean

@@ -24,4 +24,5 @@ GENCPM.DAT text eol=crlf
 *.SYM text eol=crlf
 *.SYS binary
 *.Z80 text eol=crlf linguist-language=Assembly
-
+*.HEX text eol=crlf
+*.hex text eol=crlf
