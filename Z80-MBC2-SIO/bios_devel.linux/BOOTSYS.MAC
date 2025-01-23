@@ -297,10 +297,10 @@ main::	ld	sp,lstack	; Stack setzten
 	; Check CP/M vectors
 	ld	a,0C3h		; OP-Code fuer JP
 	ld	ix,0
-	cp	a,(ix+wboot)	; Ist an der Stelle von WBOOT ein JP-Opcode
+	cp	(ix+wboot)	; Ist an der Stelle von WBOOT ein JP-Opcode
 	jp	nz,nocpmvektoren; nein --> direkt CPM booten mit YAZE
 
-	cp	a,(ix+bdos)	; Ist an der Stelle von BDOS ein JP-Opcode
+	cp	(ix+bdos)	; Ist an der Stelle von BDOS ein JP-Opcode
 	jp	nz,nocpmvektoren; nein --> direkt CPM booten mit YAZE
 
 	; JP-opcodes vorhanden
@@ -374,7 +374,7 @@ nocopyright::
 
 exit::
 	ld	a,(cpmvek)
-	or	a,a		; sind CP/M Vektoren vorhanden?
+	or	a		; sind CP/M Vektoren vorhanden?
 				; Were CP/M vectors found?
 	jp	nz,wboot	; ja --> Warm boot
 
@@ -400,7 +400,7 @@ nocpmvektoren::
 
 testecpmversion::
 	ld	a,(cpmvek)	; Sind CP/M Vektoren vorhanden?
-	or	a,a
+	or	a
 	jr	z,loadcpm3	; Nein --> gleich CP/M 3 laden
 
 	; CP/M Version testen
@@ -409,8 +409,8 @@ testecpmversion::
 	call	bdos
 
 	ld	a,l
-	and	a,030h		; nur oberer Teil beruecksichtigen
-	cp	a,030h
+	and	30h		; nur oberer Teil beruecksichtigen
+	cp	30h
 	jr	nz,loadcpm3	; ungleich Version 3x --> CPM3.SYS sofort laden
 
 	; wenn CP/M 3.1 bereits laeuft
@@ -675,7 +675,7 @@ loadcpm3::
 	pop	hl		; HL <- zeiger auf banked part
 
 	ld	a,(ix+bnklen)	; LEN of banked part (<bnklen>)
-	or	a,a		; Ist die Laenge fuer banked part 0
+	or	a		; Ist die Laenge fuer banked part 0
 	jr	z,bootcpm3	; ja --> nonbanked System sofort booten
 
 	; Wenn nein, banked part laden
@@ -926,7 +926,7 @@ HLreg::	dw	0
 
 PRSTRfunc::
 	ld	a,(hl)
-	cp	a,'$'
+	cp	'$'
 	ret	z		; if ch='$' --> return
 	push	hl		; HL wird von conout veraendert
 	ld	c,a
@@ -937,7 +937,7 @@ PRSTRfunc::
 
 conout::
 	ld	a,(cpmvek)
-	or	a,a		; existieren CP/M Vektoren
+	or	a		; existieren CP/M Vektoren
 	jr	z,yaze_conout	; NEIN --> direkt Yaze-conout benutzen
 
 	; conout im BIOS aufrufen

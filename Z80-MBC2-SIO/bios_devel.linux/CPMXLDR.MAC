@@ -31,6 +31,10 @@
 ;	22-Dec-2024	Ho-Ro		Check the AUTOEXEC bit and load
 ;					CPM3.SYS (=0) or CPMX.SYS (=1)
 ;					to have a fall-back version
+;	11-Jan-2025	Ho-Ro		If X==1 try to open CPMX.SYS.
+;					If this fails then open CPM3.SYS.
+;					If X==0 open CPM3.SYS only.
+;
 
 	aseg	; Absolute address
 
@@ -71,36 +75,53 @@ osentry equ	abase+84h
 
 	cseg	; Code Segment
 
-rbase::	ld	sp,stackbot	; Stack can overwrite sign-on
+rbase::				; Read the IOS AUTOEXEC flag
+	ld	a,SYSFLAG$OPC	; Select SYSFLAG opcode
+	out     (STO$OPCD),a
+	in	a,(EXC$RD$OPCD)	; A = SYSFLAG
+	and	01h		; Isolate the AUTOEXEC / X flag bit
+	ld	(sys$x$flag),a	; save status of X flag
 
+rbase1:	ld	sp,stackbot	; Stack can overwrite sign-on
 	call	bootf		; First call is to Cold Boot
 
 	ld	c,resetsys	; Initialize the System
 	call	bdos
 
-
-  				; Read the IOS AUTOEXEC flag
-  	ld	a,SYSFLAG$OPC	; Select SYSFLAG opcode
-  	out     (STO$OPCD),a
-  	in	a,(EXC$RD$OPCD)	; A = SYSFLAG
-  	and	01h		; Isolate the AUTOEXEC flag bit
-  	jr	z,rbase1	; load default CPM3.SYS
-  	ld 	a,'x'		; Signon:
-	ld	(signum),a	; change CP/M 3.0 -> CP/M 3.x
-	ld	a,'X'		; CP/M system file:
-	ld	(cpmfcb+4),a	; change CPM3.SYS -> CPMX.SYS
-
-rbase1:	ld	c,printbuf	; Print the sign on message
+	ld	c,printbuf	; Print the sign on message
 	ld	de,signon
 	call	bdos
+
+	ld	a,(sys$x$flag)
+	or	a
+	jr	nz,rbase2	; X==1 -> load development CPMX.SYS
+				; X==0 ...
+				; change CPMX -> CPM3
+	ld	a,'3'		; CP/M system file:
+	ld	(cpmfcb+4),a	; change CPM3.SYS -> CPMX.SYS
+	ld	(ldmsg1+3),a	; Loading CPM3.SYS -> CPMX.SYS
+	ld	(operr1+3),a	; open error CPM3.SYS -> CPMX.SYS
+	ld	(rderr1+3),a	; read error CPM3.SYS -> CPMX.SYS
+
+rbase2:	ld	c,printbuf	; Print 'Loading...'
+	ld	de,loadmsg
+	call	bdos
+
 	ld	c,open$func	; Open the CPM?.SYS file
 	ld	de,cpmfcb
 	call	bdos
-	cp	0ffh
-	ld	de,openerr
-	jp	z,error
+	cp	0ffh		; success?
+	jp	nz,rbase3	; yes, go on
+	ld	de,openerr	; no
+	ld	c,printbuf	; Print error message
+	call	bdos
+	ld	hl,sys$x$flag	; X flag set?
+	dec	(hl)
+	jr	z,rbase1	; Flag was set, now try CPM3.SYS
+	di			; else give up :(
+	halt
 
-	ld	de,buff
+rbase3:	ld	de,buff
 	call	setdma$proc
 
 	call	read$proc	; Read the load record
@@ -108,20 +129,20 @@ rbase1:	ld	c,printbuf	; Print the sign on message
 	ld	hl,buff		; Copy res, bnk, xfr fields
 	ld	de,mem$top
 	ld	c,6
-cloop::
+cloop:
 	ld	a,(hl)
 	ld	(de),a
 	inc	de
 	inc	hl
 	dec	c
 	jp	nz,cloop
-	
+
 	call	read$proc	; Read display info
 
 	ld	c,printbuf	; Print the info
 	ld	de,buff
 	call	bdos
-	
+
 ;
 ;	Main System Load
 ;
@@ -145,7 +166,7 @@ cloop::
 ;
 ;	Execute System
 ;
-$execute::
+$execute:
 	ld	hl,fcb+1
 	ld	a,(hl)
 	cp	'$'
@@ -158,20 +179,22 @@ execute$sys:
 	ld	sp,osentry$adr
 	ret
 
+sys$x$flag:
+	defs	1		; status of IOS X bit
 ;
 ;	Load Routine
 ;
 ;	Input:   A = Page Address of load top
 ;		 H = Length in pages of module to read
 ;
-load::
+load:
 	or	a		; Clear carry
 	ld	d,a
 	ld	e,0
 	ld	a,h
 	rla
 	ld	h,a		; H = length in records of module
-loop::
+loop:
 	ex	de,hl
 	ld	bc,-128
 	add	hl,bc		; Decrement dma address by 128
@@ -189,7 +212,7 @@ loop::
 ;
 ;	Set DMA Routine
 ;
-setdma$proc::
+setdma$proc:
 	ld	c,setdma$func
 	call	bdos
 	ret
@@ -197,7 +220,7 @@ setdma$proc::
 ;
 ;	Read Routine
 ;
-read$proc::
+read$proc:
 	ld	c,read$func	; Read the load record
 	ld	de,cpmfcb	; Into address 80h
 	call	bdos
@@ -207,13 +230,13 @@ read$proc::
 ;
 ;	Error Routine
 ;
-error::
+error:
 	ld	c,printbuf	; Print error message
 	call	bdos
 	di
 	halt
 
-break::
+break:
   ifdef halt$ldr
 	halt
   else
@@ -221,49 +244,40 @@ break::
   endif
 	ret
 
-cpmfcb::
-  ifdef	test
-	defb	0,'TEST    SYS',0,0,0,0,0,0
-  else
-	defb	0,'CPM3    SYS',0,0,0,0,0,0
-  endif
-	defw	0,0,0,0,0,0,0,0,0
+cpmfcb::			; 36 byte FCB
+	defb	0		; drive
+	defb	'CPMX    SYS'	; 8+3 file name
+	defw	0,0,0,0,0,0	; used by BDOS
+	defw	0,0,0,0,0,0	; used by BDOS
 
-openerr::
+openerr:
 	defb	cr,lf
-	defb	'CPMLDR error:  failed to open '
-  ifdef test
-	defb	'TEST'
-  else
-	defb	'CPM3'
-  endif
-	defb	'.SYS'
-	defb	cr,lf,'$'
+	defb	'CPMXLDR error:  failed to open '
+operr1:	defb	'CPMX.SYS',cr,lf,'$'
 
-readerr::
+readerr:
 	defb	cr,lf
-	defb	'CPMLDR error:  failed to read '
-  ifdef test
-	defb	'TEST'
-  else
-	defb	'CPM3'
-  endif
-	defb	'.SYS'
-	defb	cr,lf,'$'
+	defb	'CPMXLDR error:  failed to read '
+rderr1:	defb	'CPMX.SYS',cr,lf,'$'
 
-	; leave these here to keep everything static
-	defb	lf,lf,lf,lf,lf,lf,lf,lf,lf,lf,lf,lf
-	defb	lf
+loadmsg:
+	defb	cr,lf
+	defb	'Loading '
+ldmsg1:	defb	'CPMX.SYS ...',cr,lf,'$'
+
 signon::
 	defb	cr,lf
-	defb	'CPMLDR3 - CP/M V3.'
-signum:	defb	'0 Loader',cr,lf
+	defb	'CPMXLDR - CP/M V3.0 Loader',cr,lf
 	defb	'Copyright (C) 1982, Digital Research'
 	defb	cr,lf,'$'
 
 	defb	'021182',0,0,0,0
 
-  if 0			;AGN - needs more stack-space
+	; leave these here to keep everything static
+	defb	lf,lf,lf,lf,lf,lf,lf,lf,lf,lf,lf,lf
+	defb	lf
+
+	if 0			;AGN - needs more stack-space
 	rept	24
 	defb	'%%%%'
 	endm
@@ -271,15 +285,15 @@ signum:	defb	'0 Loader',cr,lf
 
 stackbot::
 
-mem$top::
+mem$top:
 	defs	1
-res$len::
+res$len:
 	defs	1
-bank$top::
+bank$top:
 	defs	1
-bank$len::
+bank$len:
 	defs	1
-osentry$adr::
+osentry$adr:
 	defs	2
 
 ;	title	'CP/M 3.0 LDRBDOS Interface, Version 3.1 Nov, 1982'
@@ -318,8 +332,8 @@ serial:	defb	0,0,0,0,0,0
 ;	and information address in d,e
 ;
 
-bdos::
-bdose::				; Arrive here from user programs
+bdos:
+bdose:				; Arrive here from user programs
 	ex	de,hl
 	ld	(info),hl
 	ex	de,hl		; info=de, de=info
@@ -2106,4 +2120,4 @@ move$tpa equ	movef
 
 	end
 
-
+
