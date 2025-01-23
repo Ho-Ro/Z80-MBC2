@@ -35,9 +35,19 @@ rename the `DS2N??.DSK` file accordingly.
 
 ### IOS update
 The new BIOS requires an updated IOS, ver. S220718-R290823-D160125 or later.
-Program one of the `S220718-D??????-Z80-MBC2-SIO_??MHz.hex` files on your AVR,
-using AVR programmer HW with a tool like e.g. `avrdude`.
-Select the correct file depending on your XTAL frequency.
+Program one of the `S220718-D??????-IOS-Z80-MBC2-SIO_??MHz.hex` files on your
+AVR, using programmer HW with a tool like e.g. `avrdude`. Chose the correct
+clock frequency 16MHz or 20 MHz, depending on your XTAL.
+
+#### Update using a bootloader
+If you want to update via the serial bootloader then load one of the
+`S220718-D??????-IOS-Z80-MBC2-SIO_BL_??MHz.hex` files initially (unless you
+have already installed a bootloader). Check/set the correct AVR fuse values
+lfuse = 0xAF, hfuse = 0xD6 (avrdude: `-U lfuse:w:0xAF:m -U hfuse:w:0xD6:m`)
+and program the hex file with your programmer.
+Later updates can be done via the serial interface using the `urboot` loader
+(`avrdude -p m32 -c urclock -U S22...-SIO_xxMHz.hex`), no need to attach the
+HW programmer again. The bootloader option depends on the serial DTR-Reset.
 
 ## Testing
 For a first test you can execute `N:TESTCPMX.COM`.
