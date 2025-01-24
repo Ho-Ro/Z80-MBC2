@@ -39,7 +39,7 @@ Program one of the `S220718-D??????-IOS-Z80-MBC2-SIO_??MHz.hex` files on your
 AVR, using programmer HW with a tool like e.g. `avrdude`. Chose the correct
 clock frequency 16MHz or 20 MHz, depending on your XTAL.
 
-#### Update using a bootloader
+#### Update IOS using a bootloader
 If you want to update via the serial bootloader then load one of the
 `S220718-D??????-IOS-Z80-MBC2-SIO_BL_??MHz.hex` files initially (unless you
 have already installed a bootloader). Check/set the correct AVR fuse values
@@ -48,6 +48,29 @@ and program the hex file with your programmer.
 Later updates can be done via the serial interface using the `urboot` loader
 (`avrdude -p m32 -c urclock -U S22...-SIO_xxMHz.hex`), no need to attach the
 HW programmer again. The bootloader option depends on the serial DTR-Reset.
+
+#### Extended RX buffer for CP/M XMODEM
+Instead of 'hijacking' the LTO linker option of the MightyCore library
+there's now an extra menu point `Serial Port Buffers (RX/TX)`,
+select `128/64` or `256/64`:
+```
+  Default
+  64/64
+  128/64
+  128/128
+  256/64
+  256/128
+  256/256
+```
+You can use the provided [`*.diff`](arduino15_packages_MightyCore_hardware_avr_3.0.2_boards.txt.diff)
+file to change the MightyCore library,
+go to the directory with the `boards.txt` file and apply the patch.
+These are the Linux and Windows locations for the current library version:
+
+```
+/home/<username>/.arduino15/packages/MightyCore/hardware/avr/3.0.2
+C:\Users\<username>\AppData\Local\Arduino15\packages\MightyCore\hardware\avr\3.0.2
+```
 
 ## Testing
 For a first test you can execute `N:TESTCPMX.COM`.
@@ -84,10 +107,23 @@ Also included are source and binaries of utility programs for these SIOs,
 i.e. BAUDRATE.PAS / BAUDRATE.COM to handle all supported baud rates
 and VERBOSE.PAS / VERBOSE.COM to support debugging of the IOS functions.
 
-## Build your own BIOS
+## Build your own CP/M3 BIOS
 Building and installing is controlled by `MAKE.COM` and the `MAKEFILE`.
 Implement your modifications with your editor of choice, e.g. `WS.COM` or
 `TURBO.COM`; enter `MAKE` and the new system will be created.
 Test it with `TESTCPMX` and install it as described above.
 `MAKE` checks all dependencies and only rebuilds the modules with modified
 source code to speed up the build (this feature requires a working RTC).
+
+### Cross build on Linux
+CP/M takes some minutes for a complete build due to slow 'disk' access.
+Also the editing is slow and error prone due to the limitation of only
+one source code file - aren't we all used to do a quick copy/paste?
+I've set up a tool chain for Linux using the CP/M command tool `tnylpo`.
+This tool is not a full-blown CP/M emulation, but it executes CP/M 2.2 `*.COM`
+files and accesses data from the Linux file system. You need the version from
+my [GitLab fork](https://gitlab.com/Ho-Ro/tnylpo) to handle the UPPER case
+file names. The toolchain uses a `makefile` and the full build finishes in a
+few seconds. Then I pull in the new `TESTCPMX.COM` via `XMODEM` from CP/M and
+can test it. When it's ok then I transfer also the modified source files over
+to CP/M, rebuild it and finally install the newly created `CPMX.SYS` on `A:`.
