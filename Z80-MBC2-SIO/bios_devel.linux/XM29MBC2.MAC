@@ -2332,12 +2332,12 @@ enhrdr:	defb	0		; 01 for RDR that returns with
 init:	ld	sp,lstack	; Use local stack
 
   ifdef mbc2
-	ld	a,20
-	call	bfbk2		; set default /K20
+	ld      a,20
+	call    bfbk2           ; set default /K20
 	; Set the CONST mode to 8-bit mode on the Z80-MBC2
 	ld	a,constmd
 	call	gobios
-	ld	a,1		; slooow I/O, set 1 MHz CPU
+	ld	a,1		; set 1 MHz CPU
 	jp	ini1
   endif
 ;------------------------------------------------------
@@ -3084,7 +3084,7 @@ csetx:	call	cmdchr
 	ret
 
 ;******--------------------------------
-;* /Z * Specify CPU speed, in MHz (1-6)
+;* /Z * Specify CPU speed, in MHz (1-9)
 ;******
 ;On Entry:
 ;  (de)=next command line chr
@@ -3094,10 +3094,10 @@ csetx:	call	cmdchr
 cmhz:	call	cmdchr
 
 	sub	'1'		; Un-ASCII
-	cp	6		; 1-6 allowed
+	cp	9		; 1-9 allowed
 	jp	nc,badval
 
-	inc	a		; Make it 1-6
+	inc	a		; Make it 1-9
 	ld	(cpumhz),a
 	ret
 
@@ -3690,7 +3690,7 @@ portab:	defw	conto,rxbcon,txcon ; X0 CP/M console
 ;Configuration File Control Block
 ;********************************
 cfgfcb:	defb	0		; (dr) use default drive
-	defb	'XMODEM  '	; (f1-f8)
+	defb	'XM29MBC2'	; (f1-f8)
 	defb	'CFG'		; (t1-t3)
 	defb	0,0,0,0		; (ex,s1,s2,rc)
 	defw	0,0,0,0,0,0,0,0	; (d0-d15)
@@ -3702,4 +3702,3 @@ cfgfcb:	defb	0		; (dr) use default drive
 cfgbuf:	defs	blksiz
 
 	end
-                                                                                           

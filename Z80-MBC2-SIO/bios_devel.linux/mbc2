@@ -2,30 +2,33 @@
 
 # connect to Z80-MBC2 board via serial interface
 #
-#  open a xterm 100x30
-#   translate the VT100 cursor keys to CP/M cursor keys
-#    UP -> ^E; DOWN -> ^X; LEFT -> ^S; RIGHT -> ^D
-#    Screen Up -> ^R; Screen Down -> ^C
-#    Pos1 -> ^QS; End -> ^QD
-#   translate DEL key to BS (^H)
+#   open a xterm 100x30, orange, mono font, size 12
+#   translate
+#     VT100 cursor keys to CP/M cursor keys
+#     UP -> ^E; DOWN -> ^X; LEFT -> ^S; RIGHT -> ^D
+#     Delete -> ^G
+#     BackSpace -> ^H
 #   execute picocom in this terminal
-#    open /dev/ttyUSB0
-#    115200 bps
-#    use xmodem protocol for send "sx" and receive "rx"
+#     open /dev/ttyUSB0
+#     115200 bps
+#     use xmodem protocol for send "sx" and receive "rx"
 
 xterm \
-    -fa LiberationMono -fs 12 -g 100x30 -fg orange \
+    -fa LiberationMono -fs 12 \
+    -g 100x30 -fg orange \
     -title "Z80-MBC2" \
     -xrm \
         'xterm*VT100.translations: #override \
-        None <Key>Up: string(0x05) \n\
-        None <Key>Down: string(0x18) \n\
+        <Key>Up: string(0x05) \n\
+        <Key>Down: string(0x18) \n\
         None <Key>Right: string(0x04) \n\
         None <Key>Left: string(0x13) \n\
         None <Key>Prior: string(0x12) \n\
         None <Key>Next: string(0x03) \n\
         None <Key>Home: string(0x11) string("S") \n\
         None <Key>End: string(0x11) string("D") \n\
+        None <Key>BackSpace: string(0x08) \n\
         None <Key>Delete: string(0x07)' \
-    -e  "picocom --send-cmd 'sx -b'  --receive-cmd 'rx -b' -b 115200 /dev/ttyUSB0" \
-        2>/dev/null
+    -e  "picocom --send-cmd 'sx -b' --receive-cmd 'rx -b' \
+                 --noreset -b 115200 /dev/ttyUSB0" \
+    2>/dev/null
