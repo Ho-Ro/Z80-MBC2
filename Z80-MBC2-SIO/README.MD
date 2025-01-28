@@ -110,10 +110,15 @@ and VERBOSE.PAS / VERBOSE.COM to support debugging of the IOS functions.
 ## Build your own CP/M3 BIOS
 Building and installing is controlled by `MAKE.COM` and the `MAKEFILE`.
 Implement your modifications with your editor of choice, e.g. `WS.COM` or
-`TURBO.COM`; enter `MAKE` and the new system will be created.
+`TURBO.COM`; enter `MAKE` and the new system will be created. `MAKE.COM`
+checks the dependencies defined in `MAKEFILE` and creates the `MAKE@@@.SUB`
+file with all necessary commands to resolve these dependencies. At the end
+of this analysis process `MAKE@@@.SUB` is executed by `SUBMIT MAKE@@@.SUB`.
 Test it with `TESTCPMX` and install it as described above.
 `MAKE` checks all dependencies and only rebuilds the modules with modified
 source code to speed up the build (this feature requires a working RTC).
+The disk image `DS2N13.DSK` contains all necessary tools needed for a build
+on any recent Z80-MBC2 system.
 
 ### Cross build on Linux
 CP/M takes some minutes for a complete build due to slow 'disk' access.
