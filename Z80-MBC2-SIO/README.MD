@@ -5,7 +5,7 @@ source code, all build tools, and the binaries for a banked CP/M3 BIOS with
 two additional SIO interfaces `SIOA` and `SIOB`, connected to the `I2C` bus.
 The SIOs allow all original CP/M baud rates that can be set with `DEVICE.COM`
 and the additional speeds 14400, 38400, 57600 and 115200 Bd.
-The tool `BAUDRATE.COM` can be used to set all possible baud rates.
+The tool `DEVMODE.COM` can be used to set all possible baud rates.
 
 ## HW preparation
 Obtain an SC16IS752 I2C/SPI Bus Interface to UART Module (or UART expander),
@@ -104,21 +104,25 @@ This procedure is strongly recommended if you want to modify your BIOS.
 
 ## Utilities
 Also included are source and binaries of utility programs for these SIOs,
-i.e. BAUDRATE.PAS / BAUDRATE.COM to handle all supported baud rates
-and VERBOSE.PAS / VERBOSE.COM to support debugging of the IOS functions.
+i.e. `DEVMODE.PAS` / `DEVMODE.COM` to handle all supported baud rates and the
+assignment of physical devices to the logical devices `CRT:`, `AUX:`, `PRN:`
+and `VERBOSE.PAS` / `VERBOSE.COM` to support debugging of the IOS functions.
 
 ## Build your own CP/M3 BIOS
 Building and installing is controlled by `MAKE.COM` and the `MAKEFILE`.
 Implement your modifications with your editor of choice, e.g. `WS.COM` or
-`TURBO.COM`; enter `MAKE` and the new system will be created. `MAKE.COM`
-checks the dependencies defined in `MAKEFILE` and creates the `MAKE@@@.SUB`
-file with all necessary commands to resolve these dependencies. At the end
-of this analysis process `MAKE@@@.SUB` is executed by `SUBMIT MAKE@@@.SUB`.
-Test it with `TESTCPMX` and install it as described above.
-`MAKE` checks all dependencies and only rebuilds the modules with modified
-source code to speed up the build (this feature requires a working RTC).
+`TURBO.COM`; enter `MAKE` and the new system will be created.
+`MAKE.COM` checks the dependencies defined in `MAKEFILE` and and creates the
+file `MAKE@@@.SUB` with all necessary commands to resolve these dependencies.
+It will only rebuild the modules with modified source code to speed up the
+build (this feature requires a working RTC).
+At the end of this analysis process the file `MAKE@@@.SUB` is automatically
+executed and deleted after completion.
+Test the result with `TESTCPMX` and install it as described above.
 The disk image `DS2N13.DSK` contains all necessary tools needed for a build
 on any recent Z80-MBC2 system.
+In order to use the new `SIOA` and `SIOB` devices in the improved BIOS, it is
+also necessary to update the IOS to the version maintained here.
 
 ### Cross build on Linux
 CP/M takes some minutes for a complete build due to slow 'disk' access.

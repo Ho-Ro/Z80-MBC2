@@ -1,7 +1,7 @@
 {$U+}
 {$R+}
 
-Program BAUDRATE;
+Program devmode;
 {
   Enhance DEVICE.COM, allow higher baud rates than the
   standard CP/M values 50 .. 19200, e.g. 38400 and 115200
@@ -11,6 +11,7 @@ Program BAUDRATE;
   20250117: v.0.2 - get phys device names and capabilities from BIOS chrtbl
                     show logical device vectors
   20250127: v.0.3 - show logical to physical device assignment
+  20250128: v.0.4 - new name DEVMODE, add logical to physical device assignment
 }
 
 Type
@@ -20,7 +21,7 @@ Type
   Str7 = String[7];
 
 Const
-  programVersion : String[20] = 'BAUDRATE v.0.3';
+  programVersion : String[20] = 'DEVMODE v.0.4';
   HexChar : Array[0..15] of Char = '0123456789ABCDEF';
 
   MaxBaud : Byte = 20;
@@ -57,7 +58,7 @@ Var
 
 Procedure showHelp;
 Begin
-  WriteLn( 'Usage: BAUDRATE [ PDname [baudrate] | LDname ]' );
+  WriteLn( 'Usage: DEVMODE [ PDname [baudrate] | LDname [PDname [PDname] ... ] | /H[ELP] ]' );
   WriteLn;
   WriteLn( '  - Display or set the baud rate of a physical device' );
   WriteLn( '    PDname : Physical Device Name, one of:' );
@@ -66,12 +67,13 @@ Begin
         Write( devNames[ iii ], ' ' );
   WriteLn;
   WriteLn;
-  WriteLn( '  - Display logical to physical device assignment' );
+  WriteLn( '  - Display or set logical to physical device assignment' );
   WriteLn( '    LDname : Logical Device Name, one of:' );
   Write( '      ' );
     For iii := 0 To MaxLogDevice Do
         Write( LogDevices[ iii ], ' ' );
   WriteLn;
+  WriteLn( '    PDname : Physical Device Name, as above' );
 End;
 
 
@@ -178,43 +180,6 @@ Begin
 End;
 
 
-Procedure showLogDevice( ldNum : Integer );
-Var
-  pdnum : Byte;
-  pdmask : Integer;
-Begin
-  If ldNum < 5 Then { IN or OUT devices}
-  Begin
-    pdmask := $8000;
-    Write( LogDevices[ ldNum ], ' ' );
-    For pdnum := 0 to maxDev Do
-    Begin
-      If (getSCB( $22 + 2 * ldNum ) And pdmask ) <> 0 Then
-        Write( devNames[ pdnum ], ' ' );
-      pdmask := pdmask Shr 1;
-    End;
-    WriteLn;
-  End
-  Else { combined IN and OUT }
-  Begin
-    If ldNum = 5 Then { CON: }
-    Begin
-      showLogDevice( 0 ); { CONIN: }
-      showLogDevice( 1 ); { CONOUT: }
-    End;
-    If ldNum = 6 Then { AUX: }
-    Begin
-      showLogDevice( 2 ); { AUXIN: }
-      showLogDevice( 3 ); { AUXOUT: }
-    End;
-    If ldNum = 7 Then { LST: }
-    Begin
-      showLogDevice( 4 ); { LSTOUT: }
-    End;
-  End;
-End;
-
-
 Function getLDNum( name : Str7 ) : Integer;
 Var
   iii : Integer;
@@ -236,6 +201,59 @@ Begin
   For iii := 0 To maxDev Do
     If name = devNames[ iii ] Then
       getPDNum := iii;
+End;
+
+
+Procedure processLogDevice( ldNum : Integer );
+Var
+  pdnum : Integer;
+  ioVector : Integer;
+  paranum : Integer;
+Begin
+  If ldNum < 5 Then { IN or OUT devices}
+  Begin
+    Write( LogDevices[ ldNum ], ' ' );
+    If ParamCount = 1 Then
+    Begin
+      ioVector := $8000;
+      For pdnum := 0 to maxDev Do
+      Begin
+        If (getSCB( $22 + 2 * ldNum ) And ioVector ) <> 0 Then
+          Write( devNames[ pdnum ], ' ' );
+        ioVector := ioVector Shr 1;
+      End;
+      WriteLn;
+    End
+    Else { more parameter }
+    Begin
+      ioVector := 0;
+      For paranum := 2 To ParamCount Do
+      Begin
+        pdnum := getPdNum( ParamStr( paranum ) );
+        If pdnum >= 0 Then
+          ioVector := ioVector Or ( $8000 Shr pdnum );
+      End;
+      WriteLn( ' set IOVECTOR $', itox( ioVector ) );
+      setSCB( $22 + 2 * ldNum, ioVector );
+    End;
+  End
+  Else { combined IN and OUT, call the basic functions recursively }
+  Begin
+    If ldNum = 5 Then { CON: }
+    Begin
+      processLogDevice( 0 ); { CONIN: }
+      processLogDevice( 1 ); { CONOUT: }
+    End;
+    If ldNum = 6 Then { AUX: }
+    Begin
+      processLogDevice( 2 ); { AUXIN: }
+      processLogDevice( 3 ); { AUXOUT: }
+    End;
+    If ldNum = 7 Then { LST: }
+    Begin
+      processLogDevice( 4 ); { LSTOUT: }
+    End;
+  End;
 End;
 
 
@@ -297,7 +315,6 @@ Begin
 End;
 
 
-
 Begin
   WriteLn( programVersion );
   cpmVer := Bdos( 12 ); { get CP/M version }
@@ -312,48 +329,46 @@ Begin
 
   chrtbl := getChrTbl; { get names, characteristic and baud of phys dev from BIOS CHRTBL  }
 
-  If ParamCount > 0 Then { device name given }
+  If ParamCount > 0 Then
   Begin
+    { /H[elp] ? }
     If Pos( '/H', ParamStr( 1 ) ) > 0 Then
     Begin
       showHelp;
       Exit
     End;
+
+    { device name given? }
     devNum := getPDNum( ParamStr( 1 )  );
     If devNum = -1 Then { no known phys device }
     Begin
       devNum := getLDNum( ParamStr( 1 ) );
       If devNum <> -1 Then  { but a logical device }
-        showLogDevice( devNum )
-      Else
+        processLogDevice( devNum )
+      Else { nope }
         WriteLn( 'Unknown device ', ParamStr( 1 ) );
-      Exit;
+      Exit
     End;
-  End;
 
-  { we have already a physical device }
-  If ParamCount > 1 Then { new baud rate given }
-  Begin
-    For iii := 1 To MaxBaud Do
-      If ParamStr( 2 ) = BaudRates[ iii ] Then
-        newBdIndex := iii;
-    If newBdIndex = -1 Then
+    { we have a known physical device }
+    If ParamCount > 1 Then { new baud rate given? }
     Begin
-      WriteLn( 'Unknown baud rate ', ParamStr( 2 ) );
-      Exit;
-    End;
-  End;
-
-  If devNum <> -1 Then { valid device name }
-    If newBdIndex <> -1 Then { valid baud rate }
-      setBaudRate( devNum, newBdIndex ) { show or change baud rate }
-    Else { valid device, but no baudrate }
-      showDevice( devNum ) { show device parameter }
-  Else
-  Begin
-  { no valid parameter -> show complete phys dev status }
+      For iii := 1 To MaxBaud Do
+        If ParamStr( 2 ) = BaudRates[ iii ] Then
+          newBdIndex := iii;
+      If newBdIndex <> -1 Then
+        setBaudRate( devNum, newBdIndex ) { show or change baud rate }
+      Else
+      Begin
+        WriteLn( 'Unknown baud rate ', ParamStr( 2 ) );
+        Exit;
+      End;
+    End
+    Else { only 1 parameter }
+      showDevice( devNum ); { show device parameter }
+  End
+  Else { no valid parameter -> show complete phys dev status }
     For iii := 0 To maxDev Do
       showDevice( iii );
-  End;
 End.
-
+
