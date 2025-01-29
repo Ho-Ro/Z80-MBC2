@@ -10,7 +10,7 @@ Program BAUDRATE;
   20250115: v.0.1 - 1st working version BAUDRATE.COM, use hard coded dev names
   20250117: v.0.2 - get phys device names and capabilities from BIOS chrtbl
                     show logical device vectors
-
+  20250127: v.0.3 - show logical to physical device assignment
 }
 
 Type
@@ -20,7 +20,7 @@ Type
   Str7 = String[7];
 
 Const
-  programVersion : String[20] = 'BAUDRATE v. 0.2';
+  programVersion : String[20] = 'BAUDRATE v.0.3';
   HexChar : Array[0..15] of Char = '0123456789ABCDEF';
 
   MaxBaud : Byte = 20;
@@ -45,7 +45,6 @@ Var
   biosPB : Array[0..7] of Byte;
   chrtbl : Integer;
   devNum : Integer;
-  devName : Str4;
   bdIndex : Integer;
   newBdIndex : Integer;
   hex : Str4;
@@ -54,6 +53,26 @@ Var
   devNames : Array[0..15] of Str6;
   devChars : Array[0..15] of Byte;
   devBauds : Array[0..15] of Byte;
+
+
+Procedure showHelp;
+Begin
+  WriteLn( 'Usage: BAUDRATE [ PDname [baudrate] | LDname ]' );
+  WriteLn;
+  WriteLn( '  - Display or set the baud rate of a physical device' );
+  WriteLn( '    PDname : Physical Device Name, one of:' );
+  Write( '      ' );
+    For iii := 0 To maxDev Do
+        Write( devNames[ iii ], ' ' );
+  WriteLn;
+  WriteLn;
+  WriteLn( '  - Display logical to physical device assignment' );
+  WriteLn( '    LDname : Logical Device Name, one of:' );
+  Write( '      ' );
+    For iii := 0 To MaxLogDevice Do
+        Write( LogDevices[ iii ], ' ' );
+  WriteLn;
+End;
 
 
 Function btox( b : Byte ) : Str2;
@@ -95,7 +114,7 @@ Var
   ret : Integer;
   dev : Byte;
   adr : Integer;
-  name : Array[0..5] Of Char;
+  name : Array[0..6] Of Char;
   iii : Integer;
 Begin
   { calls BIOS via BDOS function 50
@@ -122,7 +141,8 @@ Begin
     maxDev := maxDev + 1;
     For iii := 0 To 5 Do
       name[ iii ] := Char( Mem[ adr + iii ] );
-    devNames[maxDev] := name;
+    name[6] := ' ';
+    devNames[maxDev] := Copy(name,1,Pos(' ',name)-1); { strip spaces }
     devChars[maxDev] := Mem[ adr + 6 ];
     devBauds[maxDev] := Mem[ adr + 7 ];
     adr := adr + 8;
@@ -159,24 +179,39 @@ End;
 
 
 Procedure showLogDevice( ldNum : Integer );
+Var
+  pdnum : Byte;
+  pdmask : Integer;
 Begin
-  If ldNum < 5 Then
-    Writeln( LogDevices[ ldNum ], '  ', itox( getSCB( $22 + 2 * ldNum ) ) );
-  If ldNum = 5 Then
+  If ldNum < 5 Then { IN or OUT devices}
   Begin
-    Writeln( LogDevices[ 0 ], '   ', itox( getSCB( $22 ) ) );
-    Writeln( LogDevices[ 1 ], '  ', itox( getSCB( $24 ) ) );
-  End;
-  If ldNum = 6 Then
+    pdmask := $8000;
+    Write( LogDevices[ ldNum ], ' ' );
+    For pdnum := 0 to maxDev Do
+    Begin
+      If (getSCB( $22 + 2 * ldNum ) And pdmask ) <> 0 Then
+        Write( devNames[ pdnum ], ' ' );
+      pdmask := pdmask Shr 1;
+    End;
+    WriteLn;
+  End
+  Else { combined IN and OUT }
   Begin
-    Writeln( LogDevices[ 2 ], '   ', itox( getSCB( $26 ) ) );
-    Writeln( LogDevices[ 3 ], '  ', itox( getSCB( $28 ) ) );
+    If ldNum = 5 Then { CON: }
+    Begin
+      showLogDevice( 0 ); { CONIN: }
+      showLogDevice( 1 ); { CONOUT: }
+    End;
+    If ldNum = 6 Then { AUX: }
+    Begin
+      showLogDevice( 2 ); { AUXIN: }
+      showLogDevice( 3 ); { AUXOUT: }
+    End;
+    If ldNum = 7 Then { LST: }
+    Begin
+      showLogDevice( 4 ); { LSTOUT: }
+    End;
   End;
-  If ldNum = 7 Then
-  Begin
-    Writeln( LogDevices[ 4 ], '  ', itox( getSCB( $2A ) ) );
-  End;
-  Exit;
 End;
 
 
@@ -196,13 +231,11 @@ End;
 Function getPDNum( name : Str6 ) : Integer;
 Var
   iii : Integer;
-  devNum : Integer;
 Begin
-  devNum := -1;
+  getPDNum := -1;
   For iii := 0 To maxDev Do
-    If name = Copy( devNames[ iii ], 1, Length( name ) ) Then
-      devNum := iii;
-  getPDNum := devNum;
+    If name = devNames[ iii ] Then
+      getPDNum := iii;
 End;
 
 
@@ -281,6 +314,11 @@ Begin
 
   If ParamCount > 0 Then { device name given }
   Begin
+    If Pos( '/H', ParamStr( 1 ) ) > 0 Then
+    Begin
+      showHelp;
+      Exit
+    End;
     devNum := getPDNum( ParamStr( 1 )  );
     If devNum = -1 Then { no known phys device }
     Begin
@@ -318,3 +356,4 @@ Begin
       showDevice( iii );
   End;
 End.
+
