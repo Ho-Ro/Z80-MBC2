@@ -120,7 +120,9 @@ S220718-D160125   DEVEL for I2C 2 x SIO module SC16IS752
 #define   MREQ_         21    // PC5 pin 27   Z80 MREQ (active low)
 #define   RESET_        22    // PC6 pin 28   Z80 RESET (active low)
 #define   MCU_RTS_      23    // PC7 pin 29   Used to reset uTerm (A071218-R250119 and following HW revisions)
+#define   BANK3         23    // MCU_RTS_ is used as BANK3 if 512kByte RAM
 #define   MCU_CTS_      10    // PD2 pin 16   * RESERVED - NOT USED *
+#define   BANK2         10    // MCU_CTS_ is used as BANK2 if 256 or 512kByte RAM
 #define   BANK1         11    // PD3 pin 17   RAM Memory bank address (High)
 #define   BANK0         12    // PD4 pin 18   RAM Memory bank address (Low)
 #define   INT_           1    // PB1 pin 2    Z80 INT (active low)
@@ -211,7 +213,7 @@ S220718-D160125   DEVEL for I2C 2 x SIO module SC16IS752
 // ------------------------------------------------------------------------------
 
 #include <avr/pgmspace.h>                 // Needed for PROGMEM
-#include "Wire.h"                         // Needed for I2C bus
+#include <Wire.h>                         // Needed for I2C bus
 #include <EEPROM.h>                       // Needed for internal EEPROM R/W
 #include "PetitFS.h"                      // Light handler for FAT16 and FAT32 filesystems on SD
 #include "sc16is752.h"                    // I2C double SIO interface
@@ -236,9 +238,11 @@ const byte    clockModeAddr = 13;         // Internal EEPROM address for the Z80
                                           //  (1 = low speed, 0 = high speed)
 const byte    diskSetAddr  = 14;          // Internal EEPROM address for the current Disk Set [0..9]
 const byte    serBaudAddr  = 15;          // Internal EEPROM address for the current serial speed index
+const byte    ramCfgAddr   = 16;          // Internal EEPROM address fot the current RAM config
 const byte    maxBaudIndex = 10;          // Max number of serial speed values
 const byte    maxDiskNum   = 99;          // Max number of virtual disks
 const byte    maxDiskSet   = 6;           // Number of configured Disk Sets
+const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256kByte,2=512kByte)
 
 // Z80 programs images into flash and related constants
 const word  boot_A_StrAddr = 0xfd10;      // Payload A image starting address (flash)
@@ -319,6 +323,7 @@ byte          irqStatus      = 0;         // Store the interrupr status byte (ev
 byte          sysTickTime  = 100;         // Period in milliseconds of the Z80 Systick interrupt (if enabled)
 byte          RxDoneFlag = 1;             // This flag is set (= 1) soon after a Serial Rx operation (used for Rx interrupt control)
 byte          cpmWarmBootFlg = 0;         // This flag enable/disable (1/0) the message "CP/M WARM BOOT" if
+byte          ramCfg;                     // size of RAM in 2^(17+value)
                                           //  the CP/M CBIOS supports this switch (see the SETOPT Opcode)
 
 // DS3231 RTC variables
@@ -426,6 +431,15 @@ void setup()
   pinMode(WR_, INPUT_PULLUP);                     // Configure WR_ as input with pull-up
   pinMode(AD0, INPUT_PULLUP);
 
+  // Read the stored RAM-config, if not valid, set it to 0=128kBytes
+  ramCfg = EEPROM.read(ramCfgAddr);
+  if (ramCfg > maxRamCfg)
+  {
+    EEPROM.update(ramCfgAddr, 0);
+    ramCfg = 0;
+  }
+
+  
   // Initialize the Logical RAM Bank (32KB) to map into the lower half of the Z80 addressing space
   pinMode(BANK0, OUTPUT);                         // Set RAM Logical Bank 1 (Os Bank 0)
   digitalWrite(BANK0, HIGH);
@@ -437,7 +451,14 @@ void setup()
   singlePulsesResetZ80();                         // Reset the Z80 CPU using single clock pulses
 
   // Initialize MCU_RTS and MCU_CTS and reset uTerm (A071218-R250119) if present
-  pinMode(MCU_CTS_, INPUT_PULLUP);                // Parked (not used)
+  // only park CTS if standard 128kBytes RAM
+  if (ramCfg == 0)
+    pinMode(MCU_CTS_, INPUT_PULLUP);  // Parked (not used)
+  else
+  {
+    pinMode(BANK2, OUTPUT);
+    digitalWrite(BANK2, LOW);
+  }
   pinMode(MCU_RTS_, OUTPUT);
   digitalWrite(MCU_RTS_, LOW);                    // Reset the uTerm optional add-on board
   delay(100);
@@ -509,6 +530,14 @@ void setup()
   else Serial.print(CLOCK_HIGH);
   Serial.println(F("MHz"));
 
+  // Print the RAM size
+  Serial.printf(F("IOS: %dkBytes RAM"), (128 << ramCfg));
+  if (ramCfg == 1)
+    Serial.print(" (CTS used as BANK2 signal)");
+  else if (ramCfg == 2)
+    Serial.print(" (CTS, RTS used as BANK2, BANK3 signal, CE2 inverted) NYI!");
+  Serial.println();
+
   // Print RTC and GPIO informations if found
   foundRTC = autoSetRTC();                        // Check if RTC is present and initialize it as needed
   if (moduleGPIO) Serial.println(F("IOS: Found GPE Option"));
@@ -571,6 +600,15 @@ void setup()
       Serial.println(F(" 9: Set RTC time/date"));
       maxSelChar = '9';
     }
+
+    Serial.print(F(" A: Set RAM-size ("));
+    Serial.printf(F("%dkBytes"), (128 << EEPROM.read(ramCfgAddr)));
+    Serial.println(")");
+
+    // only for testing, menu needs to be rewritten!!!
+    maxSelChar = 'a';
+
+
 
     // Ask a choice
     Serial.println();
@@ -661,6 +699,32 @@ void setup()
       case '9':                                   // Change RTC Date/Time
         ChangeRTC();                              // Change RTC Date/Time if requested
       break;
+
+      case 'a':
+      case 'A':
+        printMsg1();
+        iCount = (byte)(ramCfg - 1);  // Set the previous RAM size
+        do
+        {
+          // Print the RAM-size
+          iCount = (byte)(iCount + 1) % (maxRamCfg + 1);
+          Serial.print(F("\r ->"));
+          Serial.printf(F("%d kBytes\r"), (128 << iCount));
+          while (Serial.available() > 0) Serial.read();      // Flush serial Rx buffer
+          while (Serial.available() < 1) WaitAndBlink(BLK);  // Wait a key
+          inChar = Serial.read();
+        } while ((inChar != 13) && (inChar != 27));  // Continue until a CR or ESC is pressed
+        Serial.println();
+        Serial.println();
+        if (inChar == 13)  // Set and store the new Disk Set if required
+        {
+          ramCfg = iCount;
+          EEPROM.update(ramCfgAddr, iCount);
+          inChar = '0';  // Set to boot the current selected OS
+        }
+
+        break;
+
     };
 
     // Save selectd boot program if changed
@@ -1335,7 +1399,7 @@ void loop()
           break;
 
           case  0x0D:
-            // BANKED RAM
+            // BANKEDD RAM - NEED DOCUMENTATION OF EXTENDED RAM!
             // SETBANK - select the Os RAM Bank (binary):
             //
             //                  I/O DATA:  D7 D6 D5 D4 D3 D2 D1 D0
@@ -1389,19 +1453,50 @@ void loop()
                 // Set physical bank 0 (logical bank 1)
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
               break;
 
               case 1:                             // Os bank 1
                 // Set physical bank 2 (logical bank 3)
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
               break;
 
               case 2:                             // Os bank 2
                 // Set physical bank 3 (logical bank 2)
                 digitalWrite(BANK0, LOW);
                 digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
               break;
+
+              case 3:  // Os bank 4
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                break;
+
+              case 4:  // Os bank 5
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                break;
+
+              case 5:  // Os bank 6
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                break;
+
+              case 6:  // Os bank 7
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                 break;
             }
           break;
 
