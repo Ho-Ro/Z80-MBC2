@@ -16,8 +16,10 @@ FQBN = MightyCore:avr:32
 # clock 16 MHz
 # overclock 20 MHz
 # https://hackaday.io/project/159973-z80-mbc2-a-4-ics-homebrew-z80-computer/details
-MBC2_CLK = 20
+MBC2_CLK = 16
 
+# serial port for uploading via arduino-cli
+PORT = /dev/ttyUSB0
 
 #############################################
 ## normally no need to change something below
@@ -71,8 +73,12 @@ $(TARGET) : $(TARGET_BL)
 # update AVR via serial bootloader
 .PHONY: update
 update: $(TARGET)
-	avrdude -pm32 -c urclock -U $<
+ 	avrdude -pm32 -c urclock -U $<
 
+# update AVR via arduino serial bootloader
+.PHONY: upload
+upload: $(TARGET)
+	arduino-cli upload -p $(PORT) --fqbn $(FQBN_BO) $(INO)
 
 .PHONY: clean
 clean:
