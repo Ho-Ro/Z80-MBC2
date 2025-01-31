@@ -1,6 +1,6 @@
-*.LIS
-*.REL
-*.SYM
-BNKBIOS3.SPR
-BOOTSYS.BIN
-TCX.COM
+*.lis
+*.rel
+*.sym
+bnkbios3.spr
+bootsys.bin
+tcx.com
