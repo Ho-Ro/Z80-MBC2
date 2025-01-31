@@ -73,7 +73,7 @@ $(TARGET) : $(TARGET_BL)
 # update AVR via serial bootloader
 .PHONY: update
 update: $(TARGET)
- 	avrdude -pm32 -c urclock -U $<
+	avrdude -pm32 -c urclock -U $<
 
 # update AVR via arduino serial bootloader
 .PHONY: upload
