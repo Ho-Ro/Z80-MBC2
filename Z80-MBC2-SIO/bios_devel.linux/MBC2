@@ -6,6 +6,11 @@
 #   translate
 #     VT100 cursor keys to CP/M cursor keys
 #     UP -> ^E; DOWN -> ^X; LEFT -> ^S; RIGHT -> ^D
+#     PageUp -> ^R; PageDown -> ^C
+#     Home -> ^QS; End -> ^QD
+#     Ctrl PageUp -> ^QR; Ctrl PageDown -> ^QC
+#     Ctrl Home -> ^QE; Ctrl End -> ^QX
+#     Insert -> ^Q
 #     Delete -> ^G
 #     BackSpace -> ^H
 #   execute picocom in this terminal
@@ -19,16 +24,21 @@ xterm \
     -title "Z80-MBC2" \
     -xrm \
         'xterm*VT100.translations: #override \
-        <Key>Up: string(0x05) \n\
-        <Key>Down: string(0x18) \n\
-        None <Key>Right: string(0x04) \n\
-        None <Key>Left: string(0x13) \n\
-        None <Key>Prior: string(0x12) \n\
-        None <Key>Next: string(0x03) \n\
-        None <Key>Home: string(0x11) string("S") \n\
-        None <Key>End: string(0x11) string("D") \n\
+        None <Key>Up:        string(0x05) \n\
+        None <Key>Down:      string(0x18) \n\
+        None <Key>Right:     string(0x04) \n\
+        None <Key>Left:      string(0x13) \n\
+        None <Key>Prior:     string(0x12) \n\
+        None <Key>Next:      string(0x03) \n\
+        None <Key>Home:      string(0x11) string(0x13) \n\
+        None <Key>End:       string(0x11) string(0x04) \n\
+        Ctrl <Key>Prior:     string(0x11) string(0x12) \n\
+        Ctrl <Key>Next:      string(0x11) string(0x03) \n\
+        Ctrl <Key>Home:      string(0x11) string(0x05) \n\
+        Ctrl <Key>End:       string(0x11) string(0x18) \n\
         None <Key>BackSpace: string(0x08) \n\
-        None <Key>Delete: string(0x07)' \
+        None <Key>Insert:    string(0x16) \n\
+        None <Key>Delete:    string(0x07)' \
     -e  "picocom --send-cmd 'sx -b' --receive-cmd 'rx -b' \
                  --noreset -b 115200 /dev/ttyUSB0" \
     2>/dev/null
