@@ -544,7 +544,7 @@ void setup()
   if (ramCfg == 1)
     Serial.print(" (CTS used as BANK2 signal)");
   else if (ramCfg == 2)
-    Serial.print(" (CTS, RTS used as BANK2, BANK3 signal, CE2 inverted) NYI!");
+    Serial.print(" (CTS, RTS used as BANK2, BANK3 signal, CE2 inverted)");
   Serial.println();
 
   // Print RTC and GPIO informations if found
