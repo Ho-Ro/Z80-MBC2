@@ -126,7 +126,7 @@ S220718-D160125   DEVEL for I2C 2 x SIO module SC16IS752
 #define   BANK1         11    // PD3 pin 17   RAM Memory bank address (High)
 #define   BANK0         12    // PD4 pin 18   RAM Memory bank address (Low)
 #define   INT_           1    // PB1 pin 2    Z80 INT (active low)
-#define   RAM_CE2        2    // PB2 pin 3    RAM Chip Enable (CE2). Active High. Used only during boot
+#define   RAM_CE2        2    // PB2 pin 3    RAM Chip Enable (CE2). Active High for ramCfg <2, active Low for ramCfg=2. Used only during boot
 #define   WAIT_          3    // PB3 pin 4    Z80 WAIT (active low)
 #define   SS_            4    // PB4 pin 5    SD SPI (active low)
 #define   MOSI           5    // PB5 pin 6    SD SPI
@@ -459,11 +459,20 @@ void setup()
     pinMode(BANK2, OUTPUT);
     digitalWrite(BANK2, LOW);
   }
-  pinMode(MCU_RTS_, OUTPUT);
-  digitalWrite(MCU_RTS_, LOW);                    // Reset the uTerm optional add-on board
-  delay(100);
-  digitalWrite(MCU_RTS_, HIGH);
-  delay(500);
+  if (ramCfg < 2)
+  {
+    pinMode(MCU_RTS_, OUTPUT);
+    digitalWrite(MCU_RTS_, LOW);                    // Reset the uTerm optional add-on board
+    delay(100);
+    digitalWrite(MCU_RTS_, HIGH);
+    delay(500);
+  }
+  else
+  {
+      digitalWrite(RAM_CE2, LOW);                    // Set RAM_CE(!) active
+      pinMode(BANK3, OUTPUT);
+      digitalWrite(BANK3, LOW);
+  }
 
   // Read the Z80 CPU speed mode
   if (EEPROM.read(clockModeAddr) > 1)             // Check if it is a valid value, otherwise set it to low speed
@@ -1454,6 +1463,7 @@ void loop()
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, LOW);
                 if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
               break;
 
               case 1:                             // Os bank 1
@@ -1461,6 +1471,7 @@ void loop()
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, HIGH);
                 if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
               break;
 
               case 2:                             // Os bank 2
@@ -1468,35 +1479,107 @@ void loop()
                 digitalWrite(BANK0, LOW);
                 digitalWrite(BANK1, HIGH);
                 if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
               break;
 
-              case 3:  // Os bank 4
+	      case 3:                             // Os bank 4
                 // Set physical bank  (logical bank )
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, LOW);
                 if (ramCfg > 0) digitalWrite(BANK2, HIGH);
-                break;
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
+              break;
 
-              case 4:  // Os bank 5
+              case 4:                             // Os bank 5
                 // Set physical bank  (logical bank )
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, HIGH);
                 if (ramCfg > 0) digitalWrite(BANK2, HIGH);
-                break;
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
+              break;
 
-              case 5:  // Os bank 6
+              case 5:                             // Os bank 6
                 // Set physical bank  (logical bank )
                 digitalWrite(BANK0, LOW);
                 digitalWrite(BANK1, HIGH);
                 if (ramCfg > 0) digitalWrite(BANK2, HIGH);
-                break;
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
+              break;
 
-              case 6:  // Os bank 7
+              case 6:                             // Os bank 7
                 // Set physical bank  (logical bank )
                 digitalWrite(BANK0, LOW);
                 digitalWrite(BANK1, LOW);
                 if (ramCfg > 0) digitalWrite(BANK2, HIGH);
-                 break;
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 7:                             // Os bank 8
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 8:                             // Os bank 9
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 9:                             // Os bank 10
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 10:                             // Os bank 11
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+
+              case 11:                             // Os bank 12
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 12:                             // Os bank 13
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 13:                             // Os bank 14
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 14:                             // Os bank 15
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
             }
           break;
 
