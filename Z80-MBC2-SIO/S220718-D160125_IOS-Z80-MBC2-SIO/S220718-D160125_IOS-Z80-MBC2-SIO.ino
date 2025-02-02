@@ -417,7 +417,6 @@ void setup()
   pinMode(INT_, OUTPUT);
   digitalWrite(INT_, HIGH);
   pinMode(RAM_CE2, OUTPUT);                       // Configure RAM_CE2 as output
-  digitalWrite(RAM_CE2, HIGH);                    // Set RAM_CE2 active
   pinMode(WAIT_, INPUT);                          // Configure WAIT_ as input
   pinMode(BUSREQ_, INPUT_PULLUP);                 // Set BUSREQ_ HIGH
   pinMode(BUSREQ_, OUTPUT);
@@ -439,6 +438,14 @@ void setup()
     ramCfg = 0;
   }
 
+  // Print some system information
+  Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
+  Serial.println(F("\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823-D160125\r\n"));
+
+  // Print if the input serial buffer is 128 bytes wide (this is needed for xmodem protocol support)
+  if (SERIAL_RX_BUFFER_SIZE >= 128)
+    Serial.printf(F("IOS: Found extended serial Rx buffer (%d bytes)\r\n"),SERIAL_RX_BUFFER_SIZE);
+
   
   // Initialize the Logical RAM Bank (32KB) to map into the lower half of the Z80 addressing space
   pinMode(BANK0, OUTPUT);                         // Set RAM Logical Bank 1 (Os Bank 0)
@@ -459,8 +466,11 @@ void setup()
     pinMode(BANK2, OUTPUT);
     digitalWrite(BANK2, LOW);
   }
+
   if (ramCfg < 2)
   {
+    digitalWrite(RAM_CE2, HIGH);                    // Set RAM_CE2 active HIGH
+    // Serial.printf("CE2-INIT: %d\r\n",HIGH);
     pinMode(MCU_RTS_, OUTPUT);
     digitalWrite(MCU_RTS_, LOW);                    // Reset the uTerm optional add-on board
     delay(100);
@@ -469,7 +479,8 @@ void setup()
   }
   else
   {
-      digitalWrite(RAM_CE2, LOW);                    // Set RAM_CE(!) active
+      digitalWrite(RAM_CE2, LOW);                    // Set RAM_CE2 active LOW
+      // Serial.printf("CE2-INIT2: %d\r\n",LOW);
       pinMode(BANK3, OUTPUT);
       digitalWrite(BANK3, LOW);
   }
@@ -525,13 +536,6 @@ void setup()
     EEPROM.update(serBaudAddr, 9);
   }
 
-  // Print some system information
-  Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
-  Serial.println(F("\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823-D160125\r\n"));
-
-  // Print if the input serial buffer is 128 bytes wide (this is needed for xmodem protocol support)
-  if (SERIAL_RX_BUFFER_SIZE >= 128)
-    Serial.printf(F("IOS: Found extended serial Rx buffer (%d bytes)\r\n"),SERIAL_RX_BUFFER_SIZE);
 
   // Print the Z80 clock speed mode
   Serial.print(F("IOS: Z80 clock set at "));
@@ -2853,7 +2857,7 @@ void loadByteToRAM(byte value)
   // Execute the LD(HL),n instruction (T = 4+3+3). See the Z80 datasheet and manual.
   // After the execution of this instruction the <value> byte is loaded in the memory address pointed by HL.
   pulseClock(1);                      // Execute the T1 cycle of M1 (Instruction Fetch machine cycle)
-  digitalWrite(RAM_CE2, LOW);         // Force the RAM in HiZ (CE2 = LOW)
+  digitalWrite(RAM_CE2, (ramCfg == 2 ? HIGH : LOW));         // Force the RAM in HiZ (CE2 = LOW for ram <512K)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = LD_HL;                      // Write "LD (HL), n" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
@@ -2866,19 +2870,19 @@ void loadByteToRAM(byte value)
   pulseClock(2);                      // Execute the T2 and T3 cycles of the Memory Read machine cycle
   DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
-  digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
+  digitalWrite(RAM_CE2, (ramCfg == 2 ? LOW : HIGH));        // Enable the RAM again (CE2 = HIGH for ram <512K)
   pulseClock(3);                      // Execute all the following Memory Write machine cycle
 
   // Execute the INC(HL) instruction (T = 6). See the Z80 datasheet and manual.
   // After the execution of this instruction HL points to the next memory address.
   pulseClock(1);                      // Execute the T1 cycle of M1 (Instruction Fetch machine cycle)
-  digitalWrite(RAM_CE2, LOW);         // Force the RAM in HiZ (CE2 = LOW)
+  digitalWrite(RAM_CE2, (ramCfg == 2 ? HIGH :LOW));         // Force the RAM in HiZ (CE2 = LOW for ram <512K)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = INC_HL;                     // Write "INC(HL)" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
   DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
-  digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
+  digitalWrite(RAM_CE2, (ramCfg == 2 ? LOW : HIGH));        // Enable the RAM again (CE2 = HIGH for ram <512K)
   pulseClock(3);                      // Execute all the remaining T cycles
 }
 
@@ -2891,7 +2895,7 @@ void loadHL(word value)
   // Execute the LD dd,nn instruction (T = 4+3+3), with dd = HL and nn = value. See the Z80 datasheet and manual.
   // After the execution of this instruction the word "value" (16bit) is loaded into HL.
   pulseClock(1);                      // Execute the T1 cycle of M1 (Instruction Fetch machine cycle)
-  digitalWrite(RAM_CE2, LOW);         // Force the RAM in HiZ (CE2 = LOW)
+  digitalWrite(RAM_CE2, ramCfg == 2 ? HIGH :LOW);         // Force the RAM in HiZ (CE2 = LOW for ram <512K)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = LD_HLnn;                    // Write "LD HL, n" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
@@ -2907,7 +2911,7 @@ void loadHL(word value)
   pulseClock(2);                      // Execute the T2 and T3 cycles of the second Memory Read machine cycle
   DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
-  digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
+  digitalWrite(RAM_CE2, ramCfg == 2 ? LOW : HIGH);        // Enable the RAM again (CE2 = HIGH for ram <512K)
 }
 
 // ------------------------------------------------------------------------------
