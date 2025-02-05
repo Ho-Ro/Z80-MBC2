@@ -35,9 +35,13 @@
 true	equ	-1
 false	equ	not true
 
-banked	equ	true		; <------ BANKED Version
 
-	include	config.lib	; AGN - added for debugging extras
+    ifndef DBG
+DBG	equ	false
+    endif
+
+
+banked	equ	true		; <------ BANKED Version
 
 
 ;		  Copyright (C), 1982
@@ -107,9 +111,9 @@ ccp	equ	0100h		; Console Command Processor gets loaded into the TPA
 	public ?pmsg,?pdec	; print message, print number from 0 to 65535
 	public ?pderr		; print BIOS disk error message header
 
-    if	DBG			; AGN for debugging output
+  if DBG			;AGN for debugging output
 	public ?phex		; print value in <A> to console in hexadecimal
-    endif
+  endif
 
 	include modebaud.lib	; define character I/O mode bits
 
@@ -615,7 +619,7 @@ table10:
 	ld	hl,(@sect)
 	jp	?pdec		; sector number
 
-    if	DBG
+  if DBG
 ;
 ; ?PHEX
 ;
@@ -642,7 +646,7 @@ phexc:	and	0fh
 	pop	de
 	pop	hl
 	ret
-    endif
+  endif
 
 				; BNKSEL
 				; 	Bank Select.  Select CPU bank for further execution.

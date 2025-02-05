@@ -28,10 +28,11 @@ false	equ	not true
 				; DETERMINE IF FOR BANK SELECT OR NOT
 banked	equ	true		; <------ BANKED/NON-BANKED SWITCH
 
-	;include	CONFIG.LIB	;AGN - for debugging
+
     ifndef DBG
 DBG	equ	false
     endif
+
 				; LOCATE CODE IN THE COMMON SEGMENT:
 				; --------------------------
 	cseg
@@ -47,7 +48,7 @@ DBG	equ	false
 	extrn ?bnksl
   endif
 
-  if	DBG			;AGN - for debugging
+  if DBG			;AGN - for debugging
 	extrn	?pmsg, ?phex
   endif
 
@@ -77,11 +78,11 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 				; ROUTINE SETS UP AN INTER-BANK MOVE OF 128 BYTES ON THE NEXT CALL
 				;  TO ?MOVE
 ?xmove:
-    if banked
+  if banked
 	ld	a,0FFh		; Set extended move flag
 	ld	(xmov$flag),a
 	ld	(xmov$src),bc	; Save destination (B) and source (C) banks
-    if	DBG
+    if DBG
 	ld	(dbgstk),sp	; Swap to stack in common memory
 	ld	sp,dbgstk
 	push	hl		; output "XMOVE(src,dst)" to console
@@ -102,17 +103,17 @@ xmov$flag: defb	0		; Non-zero for extended move
 xmov$src: defb	0		; Source bank
 xmov$dst: defb	0		; Destination
 xmov$buf: defs	128		; 128 byte bounce buffer
-    else
+  else
 	ret
-    endif
+  endif
 
 	
 				; ROUTINE PERFORMS INTRA-BANK MOVES IF ?XMOVE WAS NOT CALLED PRIOR TO
 				;  THIS CALL TO ?MOVE ELSE A 128 BYTE TRANSFER IS CONDUCTED BETWEEN
 				;  DIFFERENT BANKS
 ?move:
-    if banked
-    if	DBG
+  if banked
+    if DBG
 	ld	(dbgstk),sp	; Swap to stack in common memory
 	ld	sp,dbgstk
 	push	hl		; output "MOVE(len,src,dst)" to console
@@ -170,7 +171,7 @@ xmov$buf: defs	128		; 128 byte bounce buffer
 	ld	sp,(cmnstk)	;  and stack pointer
 	ret			; Return
 mover:
-    endif
+  endif
 	ex	de,hl		; we are passed source in DE and dest in HL
 	ldir			; use Z80 block move instruction
 	ex	de,hl		; need next addresses in same regs
@@ -181,21 +182,21 @@ mover:
 				; ?BANK is called with the bank address in register A. This bank address ha
 				; stored in @CBNK for future reference. All registers except A must be main
 ?bank:
-    if	banked
+  if	banked
 	push	af		; Save requested bank
 	ld	a, setbank$opc	; Select the SETBANK opcode
 	out	(sto$opcd),a
 	pop	af		; A = bank number [0..2]
 	out	(exc$wr$opcd),a	; Select it
-    endif
+  endif
 	ret
 
-    if banked
+  if banked
 	cseg
 	defs	24		; 12-level stack in common
 cmnstk:	defs	2
 
-    if	DBG
+    if DBG
 	defs	24		; debugging stack in common
 dbgstk:	defs	2
 
@@ -211,6 +212,6 @@ comma$msg:
 	defb	')',cr,lf,0
     endif
 
-    endif
+  endif
 
 	end

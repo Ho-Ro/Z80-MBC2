@@ -24,6 +24,12 @@
 true	equ	-1
 false	equ	not true
 
+
+    ifndef DBG
+DBG	equ	false
+    endif
+
+
 				;  DETERMINE IF BANKED SELECT OR NOT
 banked	equ	true		; <------ BANKED/NON-BANKED SWITCH
 

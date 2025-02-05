@@ -32,10 +32,11 @@ false	equ	not true
 				; DETERMINE IF FOR BANK SELECT OR NOT:
 banked	equ	true		; <------ BANKED/NON-BANKED SWITCH
 
-	include	config.lib	; AGN - for debugging
+
     ifndef DBG
-DBG	equ	false
+DBG	equ     false
     endif
+
 
 				; DEFINE PUBLIC LABELS:
 	public  ?init,?ldccp,?rlccp,?time
@@ -109,7 +110,7 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 
 	ld	hl,signon$msg1	; Sign-on message part1
 	call	?pmsg
-	ld	hl,?chario$ver	; CHARIO version is WIP
+	ld	hl,?chario$ver	; CHARIO version changes during development
 	call	?pmsg
 	ld	hl,signon$msg2	; Sign-on message part2
 	jp	?pmsg		; AND PRINT IT
@@ -418,7 +419,7 @@ signon$msg1:
 ;	defb	'CHARIO S210918-R210923-D160125, MOVE S290918, SCB -, VDISK S200918'
 	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf,0
 		; CHARIO.MAC is WIP, it provides its own version string in ?chario$ver
-                ; No need to touch BOOT.MAC if CHARIO.MAC is changed
+		; No need to touch BOOT.MAC if CHARIO.MAC is changed
 signon$msg2:
 	defb	', MOVE S290918, SCB -, VDISK S200918'
 	defb	cr,lf,0

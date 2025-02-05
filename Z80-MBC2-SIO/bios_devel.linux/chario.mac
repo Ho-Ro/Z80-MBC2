@@ -34,6 +34,12 @@
 true	equ	-1
 false	equ	not true
 
+
+    ifndef DBG
+DBG	equ	false
+    endif
+
+
 				; DETERMINE IF FOR BANK SELECT OR NOT:
 banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 
@@ -49,11 +55,6 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 ; set at "FALSE" (although the system is banked)
 ;
 ; -------------------------------------------------------------------
-
-	include	config.lib	; AGN - for debugging
-    ifndef DBG
-DBG	equ	false
-    endif
 
 				; DEFINE PUBLIC LABELS:
 	public	?chario$ver

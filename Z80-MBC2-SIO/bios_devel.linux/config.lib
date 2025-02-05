@@ -1,9 +1,0 @@
-; display 'with ZPM3' during boot when defined (value doesn't care)
-;
-ZPM3    equ	true
-
-
-; debugging support - set to "true" or "false"
-;
-DBG	equ	false
-
