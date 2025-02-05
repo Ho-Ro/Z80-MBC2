@@ -36,6 +36,15 @@ Const
                 '115200'
               );
 
+  { BIOS modebaud bit masks }
+  mbInput    : Byte = $01;
+  mbOutput   : Byte = $02;
+  mbInOut    : Byte = $03;
+  mbSoftBaud : Byte = $04;
+  mbSerial   : Byte = $08;
+  mbXonXoff  : Byte = $10;
+  mbRtsCts   : Byte = $20;
+
   MaxLogDevice : Byte = 7;
   LogDevices : Array[0..7] of Str7 = (
                 'CONIN:', 'CONOUT:', 'AUXIN:', 'AUXOUT:', 'LSTOUT:',
@@ -128,15 +137,15 @@ begin
     (See cap. 3.2 CP/M 3 System Guide)
   }
   biosPB[0] := 20; { BIOS function DEVTBL }
-  { biospb[1] := 0;  { Register A }
-  { biospb[2] := 0;  { Register C }
-  { biospb[3] := 0;  { Register B }
-  { biospb[4] := 0;  { Register E }
-  { biospb[5] := 0;  { Register D }
-  { biospb[6] := 0;  { Register L }
-  { biospb[7] := 0;  { Register H }
+  biospb[1] := 0;  { Register A }
+  biospb[2] := 0;  { Register C }
+  biospb[3] := 0;  { Register B }
+  biospb[4] := 0;  { Register E }
+  biospb[5] := 0;  { Register D }
+  biospb[6] := 0;  { Register L }
+  biospb[7] := 0;  { Register H }
   adr := BdosHL( 50, Addr( biosPB ) );
-  getChrTbl := adr;
+  getChrTbl := adr; { function return value }
 
   maxDev := -1;
 
@@ -206,6 +215,7 @@ begin
       getPDNum := iii
 end;
 
+
 {$A-} { allow recursive procedure call }
 Procedure processLogDevice( ldNum : Integer );
 Var
@@ -215,8 +225,8 @@ Var
 begin
   if ldNum < 5 then { IN or OUT devices}
     begin
-      Write( LogDevices[ ldNum ], ' ' );
-      if ParamCount = 1 then { show assigned phys. devices }
+      Write( LogDevices[ ldNum ]:7, ' ' );
+      if ParamCount <= 1  then { show assigned phys. devices }
         begin
           ioVector := $8000; { mask phys dev. #0 }
           for pdNum := 0 to maxDev do
@@ -275,40 +285,40 @@ begin
   if (dvOpt and $0C = $0C) and (nwBdIdx <> $FF) and (nwBdIdx <> bdIdx) then
     begin { change baud rate }
       Mem[ bdPos ] := nwBdIdx; { set new baudrate }
-      biosPB[1] := 21;  { DEVINI }
-      biosPB[3] := dev; { Reg C }
-      Bdos( 50, Addr( biosPB ) ); { call BIOS DEVINI to update baud rate }
+      biosPB[0] := 21;  { DEVINI }
+      biosPB[2] := dev; { Reg C }
+      Bdos( 50, Addr( biosPB ) ); { call BIOS DEVINI to update dev baud rate }
       Writeln( devNames[ dev ], ' : ',
               BaudRates[ bdIdx ], ' Bd -> ',
               BaudRates[ nwBdIdx ], ' Bd' )
     end
   else { no change, just show the current value }
-    if (dvOpt and $08 = $08) then
+    if dvOpt and $08 = $08 then
       WriteLn( devNames[ dev ], ' : ', BaudRates[ bdIdx ], ' Bd' )
 end;
 
 
 Procedure showDevice( devNum : Integer );
 begin
-  Write( devNames[ devNum ], '  ' );
-  if (devChars[ devNum ] and $01) <> 0 then
+  Write( devNames[ devNum ]:6, '  ' );
+  if devChars[ devNum ] and $01 <> 0 then
     Write( 'I' )
   else
     Write( ' ' );
-  if (devChars[ devNum ] and $02) <> 0 then
+  if devChars[ devNum ] and $02 <> 0 then
     Write( 'O' )
   else
     Write( ' ' );
   Write( ' ' );
-  if (devChars[ devNum ] and $08) <> 0 then
+  if devChars[ devNum ] and $08 <> 0 then
     Write( 'S' )
   else
     Write( ' ' );
-  if (devChars[ devNum ] and $04) <> 0 then
+  if devChars[ devNum ] and $04 <> 0 then
     Write( 'B' )
   else
     Write( ' ' );
-  if (devChars[ devNum ] and $10) <> 0 then
+  if devChars[ devNum ] and $10 <> 0 then
     Write( 'X' )
   else
     Write( ' ' );
@@ -371,7 +381,11 @@ begin
       else { only 1 parameter }
         showDevice( devNum ); { show device parameter }
     end
-  else { no valid parameter -> show complete phys. dev. status }
-    for iii := 0 to maxDev do
-      showDevice( iii );
+  else { no valid parameter -> show complete phys./log. dev. status }
+    begin
+      for devNum := 5 to 7 do  { CON:, AUX:, LST: }
+        processLogDevice( devNum );
+      for devNum := 0 to maxDev do  { all phys. devices }
+        showDevice( devNum )
+    end
 end.
