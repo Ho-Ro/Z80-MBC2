@@ -36,7 +36,7 @@ Const
                 '115200'
               );
 
-  { BIOS modebaud bit masks }
+{ BIOS modebaud bit masks }
   mbInput    : Byte = $01;
   mbOutput   : Byte = $02;
   mbInOut    : Byte = $03;
@@ -54,8 +54,7 @@ Const
 
 Var
   cpmVer : Byte;
-  biosPB : Array[0..7] of Byte;
-  chrtbl : Integer;
+  chrTbl : Integer;
   devNum : Integer;
   bdIndex : Integer;
   newBdIndex : Integer;
@@ -65,6 +64,9 @@ Var
   devNames : Array[0..15] of Str6;
   devChars : Array[0..15] of Byte;
   devBauds : Array[0..15] of Byte;
+
+
+{$I UBIOS.PAS -> function UBIOS( FNUM, A, BC, DE, HL ) }
 
 
 Procedure showHelp;
@@ -131,20 +133,11 @@ Var
   iii : Integer;
 begin
   { calls BIOS via BDOS function 50
-    DE : address of the parameter area
-    return value in BA, HL
     DEVTBL: Get CHARACTER DEVICE TABLE
     (See cap. 3.2 CP/M 3 System Guide)
   }
-  biosPB[0] := 20; { BIOS function DEVTBL }
-  biospb[1] := 0;  { Register A }
-  biospb[2] := 0;  { Register C }
-  biospb[3] := 0;  { Register B }
-  biospb[4] := 0;  { Register E }
-  biospb[5] := 0;  { Register D }
-  biospb[6] := 0;  { Register L }
-  biospb[7] := 0;  { Register H }
-  adr := BdosHL( 50, Addr( biosPB ) );
+  adr := UBIOS( 20, 0, 0, 0, 0 ); { FNUM, A, BC, DE, HL }
+
   getChrTbl := adr; { function return value }
 
   maxDev := -1;
@@ -277,17 +270,16 @@ Var
   dvOpt : Byte;
   bdPos : Integer;
 begin
-  bdPos := chrtbl + 8 * dev + 7;
+  bdPos := chrTbl + 8 * dev + 7;
   bdIdx := Mem[ bdPos ];
   dvOpt := Mem[ bdPos - 1 ];
 
   { If mb$serial AND mb$soft$baud AND valid index AND index is different }
   if (dvOpt and $0C = $0C) and (nwBdIdx <> $FF) and (nwBdIdx <> bdIdx) then
     begin { change baud rate }
-      Mem[ bdPos ] := nwBdIdx; { set new baudrate }
-      biosPB[0] := 21;  { DEVINI }
-      biosPB[2] := dev; { Reg C }
-      Bdos( 50, Addr( biosPB ) ); { call BIOS DEVINI to update dev baud rate }
+      Mem[ bdPos ] := nwBdIdx; { set new baudrate value in chrTbl }
+      { call BIOS DEVINI to update the baud rate for dev }
+      iii := UBIOS( 21, 0, dev, 0, 0 ); { FNUM, A, BC, DE, HL }
       Writeln( devNames[ dev ], ' : ',
               BaudRates[ bdIdx ], ' Bd -> ',
               BaudRates[ nwBdIdx ], ' Bd' )
@@ -341,7 +333,7 @@ begin
   devNum := -1;
   newBdIndex := -1;
 
-  chrtbl := getChrTbl; { get names, characteristic and baud of phys dev from BIOS CHRTBL  }
+  chrTbl := getChrTbl; { get names, characteristic and baud of phys dev from BIOS CHRTBL  }
 
   if ParamCount > 0 then
     begin
