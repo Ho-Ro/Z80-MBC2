@@ -20,14 +20,14 @@
 ; S210918-R090319   Changed CIST0: and CI0: to allow full 8 bit data I/O
 ; S210918-R170319   Added the selection of the mode of CIST0: (7 or 8 bit mode, for XMODEM)
 ; S210918-R210923   Added support for the SPP Adapter board (parallel printer) as Device 1
-; S210918-D160125   DEVEL: support for I2C SIOA and SIOB devices as Device 2/3
+; S210918-D060225   DEVEL: support for I2C SIOA and SIOB devices as Device 2/3
 ;
 ;******************************************************************************
 
 
 	dseg
 ?chario$ver:
-	defb	'CHARIO S210918-R210923-D160125',0
+	defb	'CHARIO S210918-R210923-D060225',0
 
 
 				; DEFINE LOGICAL VALUES:
@@ -490,9 +490,22 @@ TxLEVEL	equ	07fh		; Tx FIFO level mask
 ;
 
 cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
+				; input ctbl2$md and ctbl2$bd
+				; bd 4..0: baud index
+				; md 7..6: 00 - no change
+				;          10 - enable RTS/CTS
+				;          01 - enable XON/XOFF (NYI)
+				;          11 - disable all handshake
     if	DBG
 	push	hl
+	ld	a,(ctbl2$md)	; handshake request
+	rla
+	rla
+	and	03h		; mask handshake mode
+	add	a,'0'		; convert 0..3 to '0'..'3'
+	ld	(cinit2$md),a	; build debug string
 	ld	a,(ctbl2$bd)	; baud rate request
+	and	01Fh		; mask baud rate
 	add	a,'@'		; convert 1..20 to 'A'..'T'
 	ld	(cinit2$bd),a	; build debug string
 	ld	hl,cinit2$msg	; show short debug message
@@ -504,7 +517,12 @@ cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
 	ld	(sioa$tfs),a	; no space (yet)
 	ld 	a,sioa$ctrl	; select sioa ctrl reg
 	out	(sto$opcd),a	; transfer to IOS
+	ld	a,(ctbl2$md)	; mode request
+	and	0C0h		; mask handshake bits
+	ld	b,a
 	ld	a,(ctbl2$bd)	; baud rate request
+	and	01Fh		; mask baud rate bits
+	or	b		; combine into one byte
 	out	(exc$wr$opcd),a	; send request to IOS
 	ret			; done
 
@@ -574,9 +592,22 @@ sioa$rfa:			; Rx FIFO data available
 ;
 
 cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
+				; input ctbl3$md and ctbl3$bd
+				; bd 4..0: baud index
+				; md 7..6: 00 - no change
+				;          10 - enable RTS/CTS
+				;          01 - enable XON/XOFF (NYI)
+				;          11 - disable all handshake
     if	DBG
 	push	hl
+	ld	a,(ctbl3$md)	; handshake request
+	rla
+	rla
+	and	03h		; mask handshake mode
+	add	a,'0'		; convert 0..3 to '0'..'3'
+	ld	(cinit3$md),a	; build debug string
 	ld	a,(ctbl3$bd)	; baud rate request
+	and	01Fh		; mask baud rate
 	add	a,'@'		; convert 1..20 to 'A'..'T'
 	ld	(cinit3$bd),a	; build debug string
 	ld	hl,cinit3$msg	; show short debug message
@@ -586,9 +617,14 @@ cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
 	xor	a
 	ld	(siob$rfa),a	; no rx fifo data (yet)
 	ld	(siob$tfs),a	; no space (yet)
-	ld 	a,siob$ctrl	; select siob ctrl reg
+	ld 	a,siob$ctrl	; select sioa ctrl reg
 	out	(sto$opcd),a	; transfer to IOS
+	ld	a,(ctbl3$md)	; mode request
+	and	0C0h		; mask handshake bits
+	ld	b,a
 	ld	a,(ctbl3$bd)	; baud rate request
+	and	01Fh		; mask baud rate bits
+	or	b		; combine into one byte
 	out	(exc$wr$opcd),a	; send request to IOS
 	ret			; done
 
@@ -694,11 +730,13 @@ dev$code:
 	defb	baud$none
 ;
 	defb	'SIOA  '	; I2C serial I/O via AVR (DEVICE 2)
+ctbl2$md:
 	defb	mb$in$out + mb$serial + mb$soft$baud
 ctbl2$bd:
 	defb	baud$300
 ;
 	defb	'SIOB  '	; I2C serial I/O via AVR (DEVICE 3)
+ctbl3$md:
 	defb	mb$in$out + mb$serial + mb$soft$baud
 ctbl3$bd:
 	defb	baud$19200
@@ -708,12 +746,16 @@ max$devices equ	($-@ctbl)/8	; # DEVICES IN TABLE
 
     if	DBG
 cinit2$msg:
-	db	'Bd2:'
+	db	'SIOA:'
+cinit2$md:
+	db	' '
 cinit2$bd:
 	db	' '
 	db	cr,lf,0
 cinit3$msg:
-	db	'Bd3:'
+	db	'SIOB:'
+cinit3$md:
+	db	' '
 cinit3$bd:
 	db	' '
 	db	cr,lf,0

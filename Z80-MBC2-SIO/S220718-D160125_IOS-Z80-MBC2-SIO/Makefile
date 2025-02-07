@@ -62,9 +62,11 @@ all: $(ALL_TARGETS)
 $(TARGET_BL) : $(INO) $(SOURCE) $(HEADER) Makefile
 	arduino-cli compile --export-binaries --warnings all --fqbn $(FQBN_BO) $(INO)
 	@-cp $(IOS_INO_BL_HEX) $@
+	@unix2dos --keepdate --quiet $@
 
 $(TARGET) : $(TARGET_BL)
 	@-cp $(IOS_INO_HEX) $@
+	@unix2dos --keepdate --quiet $@
 	@ls -l *.hex
 
 
@@ -72,6 +74,12 @@ $(TARGET) : $(TARGET_BL)
 .PHONY: update
 update: $(TARGET)
 	avrdude -pm32 -c urclock -U $<
+
+
+# update AVR via SPI programmer
+.PHONY: flash
+flash: $(TARGET_BL)
+	avrdude -pm32 -U $<
 
 
 .PHONY: clean

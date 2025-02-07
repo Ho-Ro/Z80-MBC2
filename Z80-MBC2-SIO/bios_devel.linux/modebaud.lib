@@ -8,12 +8,11 @@ mb$soft$baud		equ 00000100b	; software selectable
 					; baud rates
 
 mb$serial		equ 00001000b	; device may use protocol
-mb$xon$xoff		equ 00010000b	; XON/XOFF protocol
-					; enabled
+mb$xon$xoff		equ 00010000b	; XON/XOFF protocol (ignore)
 
 ; additional mode for Z80-MBC2-SIO module
-mb$rts$cts		equ 00100000b	; RTS/CTS hansdhake
-					; enabled
+mb$auto$xx		equ 01000000b	; set auto XON/XOFF handshake (NYI)
+mb$rts$cts		equ 10000000b	; set auto RTS/CTS handshake
 
 baud$none		equ 0		; no baud rate associated
 					; with this device

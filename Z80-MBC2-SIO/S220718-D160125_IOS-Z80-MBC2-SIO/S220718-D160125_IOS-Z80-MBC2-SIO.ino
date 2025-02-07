@@ -96,8 +96,10 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
                    the SPP adapter is used and a printer is connected, selected online and powered on before
                    the Z80-MBC2, possible "strange" printer behaviors are avoided. This makes the STROBE and
                    INIT lines of the parallel port not active after a power on/reset.
-S220718-D160125   DEVEL for I2C 2 x SIO module SC16IS752
+S220718-D060225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS
 --------------------------------------------------------------------------------- */
+
+#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823-D06025\r\n"
 
 // ------------------------------------------------------------------------------
 //
@@ -497,7 +499,7 @@ void setup()
 
   // Print some system information
   Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
-  Serial.println(F("\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823-D160125\r\n"));
+  Serial.println( F( VERSION_STRING ) );  // defined on top of file
 
   // Print if the input serial buffer is 128 bytes wide (this is needed for xmodem protocol support)
   if (SERIAL_RX_BUFFER_SIZE >= 128)
@@ -1643,24 +1645,41 @@ void loop()
             //
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            -------------------------
-            //                             0  0  0  |  BaudIndex  |
-            if (moduleSIO)
-            {
+            //                            |--HS-| 0 |--BaudIndex--|
+            //                no change:    0  0
+            //                 XON/XOFF:    0  1
+            //                  RTS/CTS:    1  0
+            //               disable HS:    1  1
+            //
+            if (moduleSIO) {
+              uint8_t handShake = ioData >> 6;
               int32_t baudRate = -1;
-              if ( ioData < sizeof( cpmBaudRate ) / sizeof( uint16_t ) )
+              if ( ( ioData & 0x1F ) < sizeof( cpmBaudRate ) / sizeof( uint16_t ) )
                 baudRate = cpmBaudRate[ ioData & 0x1F ]; // index to value
               if ( verbosity > 1 ) {
                 Serial.print( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA") : F("??SIOB") );
-                Serial.print(F(" set control: 0x"));
-                Serial.print( ioData, HEX );
-                Serial.print(F(" - baudrate: "));
+                Serial.printf( F(" set control: 0x%02X"), ioData );
                 if ( baudRate > 0 )
-                  Serial.println( baudRate, DEC );
-                else
-                  Serial.println( F( " - invalid baud rate index" ) );
+                  Serial.printf( F(" - baudrate: %d"), baudRate );
+                Serial.printf( F(" - handshake: %d\r\n"), handShake );
               }
               if ( baudRate > 0 )
-                    baudRate = SC16IS752_SetBaudrate( ioOpcode == OPC_SIOA_CTRL ? 0 : 1, baudRate );
+                baudRate = SC16IS752_SetBaudrate( ioOpcode == OPC_SIOA_CTRL ? 0 : 1, baudRate );
+              if ( handShake ) {
+                // enable/disable handshake
+                if ( verbosity > 1 )
+                  switch ( handShake ) {
+                    case 1:
+                      Serial.printf( F("??SIO: auto Xon/Xoff\r\n") );
+                      break;
+                    case 2:
+                      Serial.printf( F("??SIO: auto RTS/CTS\r\n") );
+                      break;
+                    case 3:
+                      Serial.printf( F("??SIO: disable auto handshake\r\n") );
+                      break;
+                  }
+              }
             }
           break;
 

@@ -14,6 +14,7 @@ Program devmode;
   20250127: v.0.3 - show logical to physical device assignment
   20250128: v.0.4 - new name DEVMODE, add logical to physical device assignment
   20250131:       - source code reformatting w/o functional change
+  20250207: v.0.5 - enable/disable auto RTS/CTS handshake (and XON/XOFF, NYI)
 }
 
 Type
@@ -23,7 +24,7 @@ Type
   Str7 = String[7];
 
 Const
-  programVersion : String[20] = 'DEVMODE v.0.4';
+  programVersion : String[20] = 'DEVMODE v.0.5';
   HexChar : Array[0..15] of Char = '0123456789ABCDEF';
 
   MaxBaud : Byte = 20;
@@ -37,15 +38,17 @@ Const
               );
 
 { BIOS modebaud bit masks }
-  mbInput    : Byte = $01;
-  mbOutput   : Byte = $02;
-  mbInOut    : Byte = $03;
-  mbSoftBaud : Byte = $04;
-  mbSerial   : Byte = $08;
-  mbXonXoff  : Byte = $10;
-  mbRtsCts   : Byte = $20;
+  mbInput       : Byte = $01;
+  mbOutput      : Byte = $02;
+  mbInOut       : Byte = $03;
+  mbSoftBaud    : Byte = $04;
+  mbSerial      : Byte = $08;
+  mbXonXoff     : Byte = $10; { ignore this one }
+  mbAutoXonXoff : Byte = $40;
+  mbAutoRtsCts  : Byte = $80;
+  mbAutoOff     : Byte = $C0;
 
-  MaxLogDevice : Byte = 7;
+  MaxLogDev  : Byte = 7;
   LogDevices : Array[0..7] of Str7 = (
                 'CONIN:', 'CONOUT:', 'AUXIN:', 'AUXOUT:', 'LSTOUT:',
                 'CON:', 'AUX:', 'LST:'
@@ -60,8 +63,8 @@ Var
   newBdIndex : Integer;
   hex : Str4;
   iii : Integer;
-  maxDev : Integer;
-  devNames : Array[0..15] of Str6;
+  MaxPhysDev : Integer;
+  PhysDevices : Array[0..15] of Str6;
   devChars : Array[0..15] of Byte;
   devBauds : Array[0..15] of Byte;
 
@@ -71,22 +74,35 @@ Var
 
 Procedure showHelp;
 begin
-  WriteLn( 'Usage: DEVMODE [ PDname [baudrate] | LDname [PDname [PDname] ... ] | /H[ELP] ]' );
+  WriteLn( 'Usage: DEVMODE [ PD [BAUD | HDSH] | LD [PD [PD] ... ] | /H[ELP] ]' );
   WriteLn;
-  WriteLn( '  - Display or set the baud rate of a physical device' );
-  WriteLn( '    PDname : Physical Device Name, one of:' );
-  Write( '      ' );
-  for iii := 0 to maxDev do
-    Write( devNames[ iii ], ' ' );
+  WriteLn( '  - Set the baud rate or handshake mode of a physical device' );
+  WriteLn( '    PD:   Physical Device Name, one of:' );
+  Write(   '          ' );
+  for iii := 0 to MaxPhysDev do
+    Write( PhysDevices[ iii ], ' ' );
   WriteLn;
+  Write(   '    BAUD: Baud rate, one of:' );
+  for iii := 1 to maxBaud do
+    begin
+      if iii mod 8 = 1 then
+        begin
+          WriteLn;
+          Write( '        ' )
+        end;
+      Write( BaudRates[ iii ]:7 )
+    end;
+  WriteLn;
+  WriteLn( '    HDSH: Handshake mode, one of:' );
+  WriteLn( '          NONE, RTSCTS, XONXOFF' );
   WriteLn;
   WriteLn( '  - Display or set logical to physical device assignment' );
-  WriteLn( '    LDname : Logical Device Name, one of:' );
-  Write( '      ' );
-  for iii := 0 to MaxLogDevice do
+  WriteLn( '    LD:   Logical Device Name, one of:' );
+  Write(   '          ' );
+  for iii := 0 to MaxLogDev do
     Write( LogDevices[ iii ], ' ' );
   WriteLn;
-  WriteLn( '    PDname : Physical Device Name, as above' )
+  WriteLn( '    PD:   Physical Device Name, as above' )
 end;
 
 
@@ -140,17 +156,17 @@ begin
 
   getChrTbl := adr; { function return value }
 
-  maxDev := -1;
+  MaxPhysDev := -1;
 
   while Mem[ adr ] <> 0 do
     begin
-      maxDev := maxDev + 1;
+      MaxPhysDev := MaxPhysDev + 1;
       for iii := 0 to 5 do
         name[ iii ] := Char( Mem[ adr + iii ] );
       name[6] := ' ';
-      devNames[maxDev] := Copy(name,1,Pos(' ',name)-1); { strip spaces }
-      devChars[maxDev] := Mem[ adr + 6 ];
-      devBauds[maxDev] := Mem[ adr + 7 ];
+      PhysDevices[MaxPhysDev] := Copy(name,1,Pos(' ',name)-1); { strip spaces }
+      devChars[MaxPhysDev] := Mem[ adr + 6 ];
+      devBauds[MaxPhysDev] := Mem[ adr + 7 ];
       adr := adr + 8
     end
 end;
@@ -191,7 +207,7 @@ Var
   devNum : Integer;
 begin
   devNum := -1;
-  for iii := 0 to MaxLogDevice do
+  for iii := 0 to MaxLogDev do
     if name = logDevices[ iii ] then
       devNum := iii;
   getLDNum := devNum
@@ -203,8 +219,8 @@ Var
   iii : Integer;
 begin
   getPDNum := -1;
-  for iii := 0 to maxDev do
-    if name = devNames[ iii ] then
+  for iii := 0 to MaxPhysDev do
+    if name = PhysDevices[ iii ] then
       getPDNum := iii
 end;
 
@@ -222,10 +238,10 @@ begin
       if ParamCount <= 1  then { show assigned phys. devices }
         begin
           ioVector := $8000; { mask phys dev. #0 }
-          for pdNum := 0 to maxDev do
+          for pdNum := 0 to MaxPhysDev do
             begin
               if (getSCB( $22 + 2 * ldNum ) and ioVector ) <> 0 then
-                Write( devNames[ pdNum ], ' ' );
+                Write( PhysDevices[ pdNum ], ' ' );
               ioVector := ioVector Shr 1  { next phys. device }
             end;
           WriteLn
@@ -280,38 +296,99 @@ begin
       Mem[ bdPos ] := nwBdIdx; { set new baudrate value in chrTbl }
       { call BIOS DEVINI to update the baud rate for dev }
       iii := UBIOS( 21, 0, dev, 0, 0 ); { FNUM, A, BC, DE, HL }
-      Writeln( devNames[ dev ], ' : ',
+      Writeln( PhysDevices[ dev ], ' : ',
               BaudRates[ bdIdx ], ' Bd -> ',
               BaudRates[ nwBdIdx ], ' Bd' )
     end
   else { no change, just show the current value }
     if dvOpt and $08 = $08 then
-      WriteLn( devNames[ dev ], ' : ', BaudRates[ bdIdx ], ' Bd' )
+      WriteLn( PhysDevices[ dev ], ' : ', BaudRates[ bdIdx ], ' Bd' )
+end;
+
+
+Function setHandshake( devNum : Integer ) : Boolean;
+Var
+  devOpt  : Byte;
+  optPos : Integer;
+begin
+  optPos := chrTbl + 8 * devNum + 6;
+  devOpt := Mem[ optPos ];
+
+  { If mb$serial }
+  if (devOpt and mbSerial = mbSerial) then
+    begin
+      if ParamStr( 2 ) = 'RTSCTS' then
+        begin
+          if devOpt and mbAutoRtsCts = 0 then   { no auto RTS/CTS }
+            begin { enable auto RTS/CTS }
+              Mem[ optPos ] := devOpt and $3F or mbAutoRtsCts;
+              { call BIOS DEVINI to enable HW handshaking for dev }
+              iii := UBIOS( 21, 0, devNum, 0, 0 ) { FNUM, A, BC, DE, HL }
+            end;
+          setHandshake := True;  { return ok }
+          Exit
+        end;
+      if ParamStr( 2 ) = 'XONXOFF' then
+        begin
+          if devOpt and mbAutoXonXoff = 0 then  { no auto XON/XOFF }
+            begin { enable auto XON/XOFF }
+              Mem[ optPos ] := devOpt and $3F or mbAutoXonXoff;
+              { call BIOS DEVINI to enable SW handshaking for dev }
+              iii := UBIOS( 21, 0, devNum, 0, 0 ) { FNUM, A, BC, DE, HL }
+            end;
+          setHandshake := True;  { return ok }
+          Exit
+        end;
+      if ParamStr( 2 ) = 'NONE' then
+        begin
+          if devOpt and (mbAutoRtsCts or mbAutoXonXoff) <> 0 then
+            begin { disable all handshake }
+              Mem[ optPos ] := devOpt and $3F or mbAutoOff;
+              { call BIOS DEVINI to disable all handshaking for dev }
+              iii := UBIOS( 21, 0, devNum, 0, 0 ); { FNUM, A, BC, DE, HL }
+              Mem[ optPos ] := devOpt and $3F  { neither HW nor SW HS }
+            end;
+          setHandshake := True;  { return ok }
+          Exit
+        end
+    end
+  else
+    begin
+      WriteLn( PhysDevices[ devNum ], ' does not support handshake' );
+      setHandshake := True;  { but return True b/c cmd syntax was ok }
+      Exit
+    end;
+  setHandshake := False;  { return error }
 end;
 
 
 Procedure showDevice( devNum : Integer );
 begin
-  Write( devNames[ devNum ]:6, '  ' );
-  if devChars[ devNum ] and $01 <> 0 then
+  Write( PhysDevices[ devNum ]:6, '  ' );
+  if devChars[ devNum ] and mbInput <> 0 then
     Write( 'I' )
   else
     Write( ' ' );
-  if devChars[ devNum ] and $02 <> 0 then
+  if devChars[ devNum ] and mbOutput <> 0 then
     Write( 'O' )
   else
     Write( ' ' );
   Write( ' ' );
-  if devChars[ devNum ] and $08 <> 0 then
+  if devChars[ devNum ] and mbSerial <> 0 then
     Write( 'S' )
   else
     Write( ' ' );
-  if devChars[ devNum ] and $04 <> 0 then
+  if devChars[ devNum ] and mbSoftbaud <> 0 then
     Write( 'B' )
   else
     Write( ' ' );
-  if devChars[ devNum ] and $10 <> 0 then
+  Write( ' ' );
+  if devChars[ devNum ] and mbAutoXonXoff <> 0 then
     Write( 'X' )
+  else
+    Write( ' ' );
+  if devChars[ devNum ] and mbAutoRtsCts <> 0 then
+    Write( 'H' )
   else
     Write( ' ' );
   bdIndex := devBauds[ devNum ];
@@ -358,26 +435,36 @@ begin
 
     { we have a known physical device }
       if ParamCount > 1 then
-        begin { new baud rate given? }
+        begin
+
+          { new baud rate given? }
           for iii := 1 to MaxBaud do
             if ParamStr( 2 ) = BaudRates[ iii ] then
               newBdIndex := iii;
           if newBdIndex <> -1 then
-            setBaudRate( devNum, newBdIndex ) { show or change baud rate }
-          else
             begin
-              WriteLn( 'Unknown baud rate ', ParamStr( 2 ) );
-              Halt;
+              setBaudRate( devNum, newBdIndex ); { show or change baud rate }
+              Halt
             end;
+
+          { is it handshake mode parameter? }
+          if setHandshake( devNum ) then  { ready if ok }
+            Halt;
+
+          { neither baudrate nor handshake request }
+          WriteLn( 'Unknown argument ', ParamStr( 2 ) );
+          showHelp;
+          Halt
+
         end
       else { only 1 parameter }
-        showDevice( devNum ); { show device parameter }
+        showDevice( devNum )  { show device parameter }
     end
   else { no valid parameter -> show complete phys./log. dev. status }
     begin
       for devNum := 5 to 7 do  { CON:, AUX:, LST: }
         processLogDevice( devNum );
-      for devNum := 0 to maxDev do  { all phys. devices }
+      for devNum := 0 to MaxPhysDev do  { all phys. devices }
         showDevice( devNum )
     end
 end.
