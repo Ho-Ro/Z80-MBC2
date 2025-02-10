@@ -96,10 +96,10 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
                    the SPP adapter is used and a printer is connected, selected online and powered on before
                    the Z80-MBC2, possible "strange" printer behaviors are avoided. This makes the STROBE and
                    INIT lines of the parallel port not active after a power on/reset.
-S220718-D060225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS
+S220718-D090225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS
 --------------------------------------------------------------------------------- */
 
-#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823-D06025\r\n"
+#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823-D090225\r\n"
 
 // ------------------------------------------------------------------------------
 //
@@ -1646,40 +1646,57 @@ void loop()
             //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
             //                            -------------------------
             //                            |--HS-| 0 |--BaudIndex--|
-            //                no change:    0  0
+            //             no handshake:    0  0
             //                 XON/XOFF:    0  1
             //                  RTS/CTS:    1  0
-            //               disable HS:    1  1
+            //                 reserved:    1  1
             //
             if (moduleSIO) {
+              static uint8_t lastCTRL[2] = { 0xFF, 0xFF };
+              uint8_t channel = ioOpcode == OPC_SIOA_CTRL ? 0 : 1;
               uint8_t handShake = ioData >> 6;
-              int32_t baudRate = -1;
-              if ( ( ioData & 0x1F ) < sizeof( cpmBaudRate ) / sizeof( uint16_t ) )
-                baudRate = cpmBaudRate[ ioData & 0x1F ]; // index to value
+              uint8_t baudIndex = ioData & 0x1F;
               if ( verbosity > 1 ) {
-                Serial.print( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA") : F("??SIOB") );
+                Serial.printf( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA") : F("??SIOB") );
                 Serial.printf( F(" set control: 0x%02X"), ioData );
-                if ( baudRate > 0 )
-                  Serial.printf( F(" - baudrate: %d"), baudRate );
-                Serial.printf( F(" - handshake: %d\r\n"), handShake );
               }
-              if ( baudRate > 0 )
-                baudRate = SC16IS752_SetBaudrate( ioOpcode == OPC_SIOA_CTRL ? 0 : 1, baudRate );
-              if ( handShake ) {
-                // enable/disable handshake
+              if ( baudIndex != ( lastCTRL[ channel ] & 0x1F ) ) {  // baudrate has changed
+                if ( ( ioData & 0x1F ) < sizeof( cpmBaudRate ) / sizeof( uint16_t ) ) {
+                  int32_t baudRate = cpmBaudRate[ ioData & 0x1F ]; // index to value
+                  if ( verbosity > 1 )
+                    Serial.printf( F(" - baudrate: %ld"), baudRate );
+                  baudRate = SC16IS752_SetBaudrate( channel, baudRate );
+                }
+              }
+              if ( handShake != ( lastCTRL[ channel ] >> 6 ) ) {  // HS has changed
+                // change handshake
                 if ( verbosity > 1 )
-                  switch ( handShake ) {
-                    case 1:
-                      Serial.printf( F("??SIO: auto Xon/Xoff\r\n") );
-                      break;
-                    case 2:
-                      Serial.printf( F("??SIO: auto RTS/CTS\r\n") );
-                      break;
-                    case 3:
-                      Serial.printf( F("??SIO: disable auto handshake\r\n") );
-                      break;
-                  }
+                  Serial.printf( F(" - handshake: %d"), handShake );
+                switch ( handShake ) {
+                  case 0:
+                    if ( verbosity > 1 )
+                      Serial.printf( F(" disable") );
+                    SC16IS752_SetAutoHandshake(channel, 0, 0);
+                    break;
+                  case 1:
+                    if ( verbosity > 1 )
+                      Serial.printf( F("auto Xon/Xoff (NYI)") );
+                    SC16IS752_SetAutoHandshake(channel, 0, 0);
+                    break;
+                  case 2:
+                    if ( verbosity > 1 )
+                      Serial.printf( F(" auto RTS/CTS") );
+                    SC16IS752_SetAutoHandshake(channel, 1, 1);
+                    break;
+                  case 3:
+                    if ( verbosity > 1 )
+                      Serial.printf( F(" reserved") );
+                    break;
+                }
               }
+              if ( verbosity > 1 )
+                Serial.println();
+              lastCTRL[ channel ] = ioData;
             }
           break;
 

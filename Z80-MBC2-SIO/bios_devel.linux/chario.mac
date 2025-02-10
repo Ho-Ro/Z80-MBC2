@@ -594,10 +594,10 @@ sioa$rfa:			; Rx FIFO data available
 cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
 				; input ctbl3$md and ctbl3$bd
 				; bd 4..0: baud index
-				; md 7..6: 00 - no change
+				; md 7..6: 00 - no handshake
 				;          10 - enable RTS/CTS
 				;          01 - enable XON/XOFF (NYI)
-				;          11 - disable all handshake
+				;          11 - reserved, no change
     if	DBG
 	push	hl
 	ld	a,(ctbl3$md)	; handshake request

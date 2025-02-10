@@ -24,3 +24,7 @@ IOS20:
 clean:
 	$(MAKE) -C $(AVR_IOS) clean
 	$(MAKE) -C $(CPM_BIOS) clean
+
+.PHONY: update
+update:
+	$(MAKE) -C $(AVR_IOS) update

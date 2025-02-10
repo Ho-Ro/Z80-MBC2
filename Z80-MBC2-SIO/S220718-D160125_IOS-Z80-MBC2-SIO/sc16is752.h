@@ -109,6 +109,10 @@ void SC16IS752_SetLine(uint8_t channel, uint8_t data_length, uint8_t parity_sele
 
 void SC16IS752_FIFOEnable(uint8_t channel, uint8_t fifo_enable);
 
+void SC16IS752_SetAutoHandshake(uint8_t channel, uint8_t AutoRTS, uint8_t AutoCTS);
+
+void SC16IS752_FIFOSetTriggerLevel(uint8_t channel, uint8_t rx_fifo, uint8_t length);
+
 uint8_t SC16IS752_RxDataAvailable(uint8_t channel);
 
 uint8_t SC16IS752_TxSpaceAvailable(uint8_t channel);
