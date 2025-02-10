@@ -122,11 +122,13 @@ S220718-D090225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS
 #define   MREQ_         21    // PC5 pin 27   Z80 MREQ (active low)
 #define   RESET_        22    // PC6 pin 28   Z80 RESET (active low)
 #define   MCU_RTS_      23    // PC7 pin 29   Used to reset uTerm (A071218-R250119 and following HW revisions)
+#define   BANK3         23    // MCU_RTS_ is used as BANK3 if 512kByte RAM
 #define   MCU_CTS_      10    // PD2 pin 16   * RESERVED - NOT USED *
+#define   BANK2         10    // MCU_CTS_ is used as BANK2 if 256 or 512kByte RAM
 #define   BANK1         11    // PD3 pin 17   RAM Memory bank address (High)
 #define   BANK0         12    // PD4 pin 18   RAM Memory bank address (Low)
 #define   INT_           1    // PB1 pin 2    Z80 INT (active low)
-#define   RAM_CE2        2    // PB2 pin 3    RAM Chip Enable (CE2). Active High. Used only during boot
+#define   RAM_CE2        2    // PB2 pin 3    RAM Chip Enable (CE2). Active High for ramCfg <2, active Low for ramCfg=2. Used only during boot
 #define   WAIT_          3    // PB3 pin 4    Z80 WAIT (active low)
 #define   SS_            4    // PB4 pin 5    SD SPI (active low)
 #define   MOSI           5    // PB5 pin 6    SD SPI
@@ -213,7 +215,7 @@ S220718-D090225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS
 // ------------------------------------------------------------------------------
 
 #include <avr/pgmspace.h>                 // Needed for PROGMEM
-#include "Wire.h"                         // Needed for I2C bus
+#include <Wire.h>                         // Needed for I2C bus
 #include <EEPROM.h>                       // Needed for internal EEPROM R/W
 #include "PetitFS.h"                      // Light handler for FAT16 and FAT32 filesystems on SD
 #include "sc16is752.h"                    // I2C double SIO interface
@@ -238,9 +240,11 @@ const byte    clockModeAddr = 13;         // Internal EEPROM address for the Z80
                                           //  (1 = low speed, 0 = high speed)
 const byte    diskSetAddr  = 14;          // Internal EEPROM address for the current Disk Set [0..9]
 const byte    serBaudAddr  = 15;          // Internal EEPROM address for the current serial speed index
+const byte    ramCfgAddr   = 16;          // Internal EEPROM address fot the current RAM config
 const byte    maxBaudIndex = 10;          // Max number of serial speed values
 const byte    maxDiskNum   = 99;          // Max number of virtual disks
 const byte    maxDiskSet   = 6;           // Number of configured Disk Sets
+const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256kByte,2=512kByte)
 
 // Z80 programs images into flash and related constants
 const word  boot_A_StrAddr = 0xfd10;      // Payload A image starting address (flash)
@@ -321,6 +325,7 @@ byte          irqStatus      = 0;         // Store the interrupr status byte (ev
 byte          sysTickTime  = 100;         // Period in milliseconds of the Z80 Systick interrupt (if enabled)
 byte          RxDoneFlag = 1;             // This flag is set (= 1) soon after a Serial Rx operation (used for Rx interrupt control)
 byte          cpmWarmBootFlg = 0;         // This flag enable/disable (1/0) the message "CP/M WARM BOOT" if
+byte          ramCfg;                     // size of RAM in 2^(17+value)
                                           //  the CP/M CBIOS supports this switch (see the SETOPT Opcode)
 
 // DS3231 RTC variables
@@ -414,7 +419,6 @@ void setup()
   pinMode(INT_, OUTPUT);
   digitalWrite(INT_, HIGH);
   pinMode(RAM_CE2, OUTPUT);                       // Configure RAM_CE2 as output
-  digitalWrite(RAM_CE2, HIGH);                    // Set RAM_CE2 active
   pinMode(WAIT_, INPUT);                          // Configure WAIT_ as input
   pinMode(BUSREQ_, INPUT_PULLUP);                 // Set BUSREQ_ HIGH
   pinMode(BUSREQ_, OUTPUT);
@@ -428,6 +432,22 @@ void setup()
   pinMode(WR_, INPUT_PULLUP);                     // Configure WR_ as input with pull-up
   pinMode(AD0, INPUT_PULLUP);
 
+  // Read the stored RAM-config, if not valid, set it to 0=128kBytes
+  ramCfg = EEPROM.read(ramCfgAddr);
+  if (ramCfg > maxRamCfg)
+  {
+    EEPROM.update(ramCfgAddr, 0);
+    ramCfg = 0;
+  }
+
+  // Print some system information
+  Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
+  Serial.println( F( VERSION_STRING ) );  // defined on top of file
+
+  // Print if the input serial buffer is 128 bytes wide (this is needed for xmodem protocol support)
+  if (SERIAL_RX_BUFFER_SIZE >= 128)
+    Serial.printf(F("IOS: Found extended serial Rx buffer (%d bytes)\r\n"),SERIAL_RX_BUFFER_SIZE);
+
   // Initialize the Logical RAM Bank (32KB) to map into the lower half of the Z80 addressing space
   pinMode(BANK0, OUTPUT);                         // Set RAM Logical Bank 1 (Os Bank 0)
   digitalWrite(BANK0, HIGH);
@@ -439,12 +459,32 @@ void setup()
   singlePulsesResetZ80();                         // Reset the Z80 CPU using single clock pulses
 
   // Initialize MCU_RTS and MCU_CTS and reset uTerm (A071218-R250119) if present
-  pinMode(MCU_CTS_, INPUT_PULLUP);                // Parked (not used)
-  pinMode(MCU_RTS_, OUTPUT);
-  digitalWrite(MCU_RTS_, LOW);                    // Reset the uTerm optional add-on board
-  delay(100);
-  digitalWrite(MCU_RTS_, HIGH);
-  delay(500);
+  // only park CTS if standard 128kBytes RAM
+  if (ramCfg == 0)
+    pinMode(MCU_CTS_, INPUT_PULLUP);  // Parked (not used)
+  else
+  {
+    pinMode(BANK2, OUTPUT);
+    digitalWrite(BANK2, LOW);
+  }
+
+  if (ramCfg < 2)
+  {
+    digitalWrite(RAM_CE2, HIGH);                    // Set RAM_CE2 active HIGH
+    // Serial.printf("CE2-INIT: %d\r\n",HIGH);
+    pinMode(MCU_RTS_, OUTPUT);
+    digitalWrite(MCU_RTS_, LOW);                    // Reset the uTerm optional add-on board
+    delay(100);
+    digitalWrite(MCU_RTS_, HIGH);
+    delay(500);
+  }
+  else
+  {
+      digitalWrite(RAM_CE2, LOW);                    // Set RAM_CE2 active LOW
+      // Serial.printf("CE2-INIT2: %d\r\n",LOW);
+      pinMode(BANK3, OUTPUT);
+      digitalWrite(BANK3, LOW);
+  }
 
   // Read the Z80 CPU speed mode
   if (EEPROM.read(clockModeAddr) > 1)             // Check if it is a valid value, otherwise set it to low speed
@@ -465,6 +505,7 @@ void setup()
   // Initialize the EXP_PORT (I2C) and search for "known" optional modules
   Wire.begin();                                   // Wake up I2C bus
   Wire.setClock(400000L);
+
   // Search for GPIO
   Wire.beginTransmission(GPIOEXP_ADDR);
   if (Wire.endTransmission() == 0)
@@ -479,6 +520,7 @@ void setup()
     Wire.write(0b00000101);                       // Write value (1 = pullup enabled, 0 = pullup disabled)
     Wire.endTransmission();
   }
+
   // Search for SIO
   Wire.beginTransmission(SC16IS752_ADDRESS);
   if (Wire.endTransmission() == 0)
@@ -497,19 +539,19 @@ void setup()
     EEPROM.update(serBaudAddr, 9);
   }
 
-  // Print some system information
-  Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
-  Serial.println( F( VERSION_STRING ) );  // defined on top of file
-
-  // Print if the input serial buffer is 128 bytes wide (this is needed for xmodem protocol support)
-  if (SERIAL_RX_BUFFER_SIZE >= 128)
-    Serial.printf(F("IOS: Found extended serial Rx buffer (%d bytes)\r\n"),SERIAL_RX_BUFFER_SIZE);
-
   // Print the Z80 clock speed mode
   Serial.print(F("IOS: Z80 clock set at "));
   if (clockMode) Serial.print(CLOCK_LOW);
   else Serial.print(CLOCK_HIGH);
   Serial.println(F("MHz"));
+
+  // Print the RAM size
+  Serial.printf(F("IOS: %dkBytes RAM"), (128 << ramCfg));
+  if (ramCfg == 1)
+    Serial.print(" (CTS used as BANK2 signal)");
+  else if (ramCfg == 2)
+    Serial.print(" (CTS, RTS used as BANK2, BANK3 signal, CE2 inverted)");
+  Serial.println();
 
   // Print RTC and GPIO informations if found
   foundRTC = autoSetRTC();                        // Check if RTC is present and initialize it as needed
@@ -573,6 +615,15 @@ void setup()
       Serial.println(F(" 9: Set RTC time/date"));
       maxSelChar = '9';
     }
+
+    Serial.print(F(" A: Set RAM-size ("));
+    Serial.printf(F("%dkBytes"), (128 << EEPROM.read(ramCfgAddr)));
+    Serial.println(")");
+
+    // only for testing, menu needs to be rewritten!!!
+    maxSelChar = 'a';
+
+
 
     // Ask a choice
     Serial.println();
@@ -663,6 +714,32 @@ void setup()
       case '9':                                   // Change RTC Date/Time
         ChangeRTC();                              // Change RTC Date/Time if requested
       break;
+
+      case 'a':
+      case 'A':
+        printMsg1();
+        iCount = (byte)(ramCfg - 1);  // Set the previous RAM size
+        do
+        {
+          // Print the RAM-size
+          iCount = (byte)(iCount + 1) % (maxRamCfg + 1);
+          Serial.print(F("\r ->"));
+          Serial.printf(F("%d kBytes\r"), (128 << iCount));
+          while (Serial.available() > 0) Serial.read();      // Flush serial Rx buffer
+          while (Serial.available() < 1) WaitAndBlink(BLK);  // Wait a key
+          inChar = Serial.read();
+        } while ((inChar != 13) && (inChar != 27));  // Continue until a CR or ESC is pressed
+        Serial.println();
+        Serial.println();
+        if (inChar == 13)  // Set and store the new Disk Set if required
+        {
+          ramCfg = iCount;
+          EEPROM.update(ramCfgAddr, iCount);
+          inChar = '0';  // Set to boot the current selected OS
+        }
+
+        break;
+
     };
 
     // Save selectd boot program if changed
@@ -1337,7 +1414,7 @@ void loop()
           break;
 
           case  0x0D:
-            // BANKED RAM
+            // BANKEDD RAM - NEED DOCUMENTATION OF EXTENDED RAM!
             // SETBANK - select the Os RAM Bank (binary):
             //
             //                  I/O DATA:  D7 D6 D5 D4 D3 D2 D1 D0
@@ -1391,19 +1468,124 @@ void loop()
                 // Set physical bank 0 (logical bank 1)
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
               break;
 
               case 1:                             // Os bank 1
                 // Set physical bank 2 (logical bank 3)
                 digitalWrite(BANK0, HIGH);
                 digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
               break;
 
               case 2:                             // Os bank 2
                 // Set physical bank 3 (logical bank 2)
                 digitalWrite(BANK0, LOW);
                 digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
               break;
+
+	      case 3:                             // Os bank 4
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
+              break;
+
+              case 4:                             // Os bank 5
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
+              break;
+
+              case 5:                             // Os bank 6
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
+              break;
+
+              case 6:                             // Os bank 7
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 7:                             // Os bank 8
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 8:                             // Os bank 9
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 9:                             // Os bank 10
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 10:                             // Os bank 11
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, LOW);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+
+              case 11:                             // Os bank 12
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 12:                             // Os bank 13
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, HIGH);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 13:                             // Os bank 14
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, HIGH);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
+              case 14:                             // Os bank 15
+                // Set physical bank  (logical bank )
+                digitalWrite(BANK0, LOW);
+                digitalWrite(BANK1, LOW);
+                if (ramCfg > 0) digitalWrite(BANK2, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+              break;
+
             }
           break;
 
@@ -2711,7 +2893,7 @@ void loadByteToRAM(byte value)
   // Execute the LD(HL),n instruction (T = 4+3+3). See the Z80 datasheet and manual.
   // After the execution of this instruction the <value> byte is loaded in the memory address pointed by HL.
   pulseClock(1);                      // Execute the T1 cycle of M1 (Instruction Fetch machine cycle)
-  digitalWrite(RAM_CE2, LOW);         // Force the RAM in HiZ (CE2 = LOW)
+  digitalWrite(RAM_CE2, (ramCfg == 2 ? HIGH : LOW));         // Force the RAM in HiZ (CE2 = LOW for ram <512K)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = LD_HL;                      // Write "LD (HL), n" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
@@ -2724,19 +2906,19 @@ void loadByteToRAM(byte value)
   pulseClock(2);                      // Execute the T2 and T3 cycles of the Memory Read machine cycle
   DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
-  digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
+  digitalWrite(RAM_CE2, (ramCfg == 2 ? LOW : HIGH));        // Enable the RAM again (CE2 = HIGH for ram <512K)
   pulseClock(3);                      // Execute all the following Memory Write machine cycle
 
   // Execute the INC(HL) instruction (T = 6). See the Z80 datasheet and manual.
   // After the execution of this instruction HL points to the next memory address.
   pulseClock(1);                      // Execute the T1 cycle of M1 (Instruction Fetch machine cycle)
-  digitalWrite(RAM_CE2, LOW);         // Force the RAM in HiZ (CE2 = LOW)
+  digitalWrite(RAM_CE2, (ramCfg == 2 ? HIGH :LOW));         // Force the RAM in HiZ (CE2 = LOW for ram <512K)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = INC_HL;                     // Write "INC(HL)" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
   DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
-  digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
+  digitalWrite(RAM_CE2, (ramCfg == 2 ? LOW : HIGH));        // Enable the RAM again (CE2 = HIGH for ram <512K)
   pulseClock(3);                      // Execute all the remaining T cycles
 }
 
@@ -2749,7 +2931,7 @@ void loadHL(word value)
   // Execute the LD dd,nn instruction (T = 4+3+3), with dd = HL and nn = value. See the Z80 datasheet and manual.
   // After the execution of this instruction the word "value" (16bit) is loaded into HL.
   pulseClock(1);                      // Execute the T1 cycle of M1 (Instruction Fetch machine cycle)
-  digitalWrite(RAM_CE2, LOW);         // Force the RAM in HiZ (CE2 = LOW)
+  digitalWrite(RAM_CE2, ramCfg == 2 ? HIGH :LOW);         // Force the RAM in HiZ (CE2 = LOW for ram <512K)
   DDRA = 0xFF;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as output
   PORTA = LD_HLnn;                    // Write "LD HL, n" instruction on data bus
   pulseClock(2);                      // Execute T2 and T3 cycles of M1
@@ -2765,7 +2947,7 @@ void loadHL(word value)
   pulseClock(2);                      // Execute the T2 and T3 cycles of the second Memory Read machine cycle
   DDRA = 0x00;                        // Configure Z80 data bus D0-D7 (PA0-PA7) as input...
   PORTA = 0xFF;                       // ...with pull-up
-  digitalWrite(RAM_CE2, HIGH);        // Enable the RAM again (CE2 = HIGH)
+  digitalWrite(RAM_CE2, ramCfg == 2 ? LOW : HIGH);        // Enable the RAM again (CE2 = HIGH for ram <512K)
 }
 
 // ------------------------------------------------------------------------------
