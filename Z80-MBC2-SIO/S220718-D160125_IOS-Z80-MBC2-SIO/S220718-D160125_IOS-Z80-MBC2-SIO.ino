@@ -99,7 +99,8 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
 S220718-D090225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS
 --------------------------------------------------------------------------------- */
 
-#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - I/O Subsystem - S220718-R290823-D090225\r\n"
+#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D090225\r\n"
+#define BUILD_STRING "      " __DATE__ "  " __TIME__
 
 // ------------------------------------------------------------------------------
 //
@@ -122,9 +123,9 @@ S220718-D090225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS
 #define   MREQ_         21    // PC5 pin 27   Z80 MREQ (active low)
 #define   RESET_        22    // PC6 pin 28   Z80 RESET (active low)
 #define   MCU_RTS_      23    // PC7 pin 29   Used to reset uTerm (A071218-R250119 and following HW revisions)
-#define   BANK3         23    // MCU_RTS_ is used as BANK3 if 512kByte RAM
+#define   BANK3         23    // MCU_RTS_ is used as BANK3 if 512KByte RAM
 #define   MCU_CTS_      10    // PD2 pin 16   * RESERVED - NOT USED *
-#define   BANK2         10    // MCU_CTS_ is used as BANK2 if 256 or 512kByte RAM
+#define   BANK2         10    // MCU_CTS_ is used as BANK2 if 256 or 512KByte RAM
 #define   BANK1         11    // PD3 pin 17   RAM Memory bank address (High)
 #define   BANK0         12    // PD4 pin 18   RAM Memory bank address (Low)
 #define   INT_           1    // PB1 pin 2    Z80 INT (active low)
@@ -244,7 +245,7 @@ const byte    ramCfgAddr   = 16;          // Internal EEPROM address fot the cur
 const byte    maxBaudIndex = 10;          // Max number of serial speed values
 const byte    maxDiskNum   = 99;          // Max number of virtual disks
 const byte    maxDiskSet   = 6;           // Number of configured Disk Sets
-const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256kByte,2=512kByte)
+const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256KByte,2=512KByte)
 
 // Z80 programs images into flash and related constants
 const word  boot_A_StrAddr = 0xfd10;      // Payload A image starting address (flash)
@@ -432,7 +433,7 @@ void setup()
   pinMode(WR_, INPUT_PULLUP);                     // Configure WR_ as input with pull-up
   pinMode(AD0, INPUT_PULLUP);
 
-  // Read the stored RAM-config, if not valid, set it to 0=128kBytes
+  // Read the stored RAM-config, if not valid, set it to 0=128KBytes
   ramCfg = EEPROM.read(ramCfgAddr);
   if (ramCfg > maxRamCfg)
   {
@@ -442,7 +443,14 @@ void setup()
 
   // Print some system information
   Serial.begin(indexToBaud(EEPROM.read(serBaudAddr)));
-  Serial.println( F( VERSION_STRING ) );  // defined on top of file
+
+#ifdef VERSION_STRING
+  Serial.print( F( VERSION_STRING ) );  // defined on top of file
+#endif
+#ifdef BUILD_STRING
+  Serial.println( F( BUILD_STRING ) );  // defined on top of file
+#endif
+  Serial.println();
 
   // Print if the input serial buffer is 128 bytes wide (this is needed for xmodem protocol support)
   if (SERIAL_RX_BUFFER_SIZE >= 128)
@@ -459,7 +467,7 @@ void setup()
   singlePulsesResetZ80();                         // Reset the Z80 CPU using single clock pulses
 
   // Initialize MCU_RTS and MCU_CTS and reset uTerm (A071218-R250119) if present
-  // only park CTS if standard 128kBytes RAM
+  // only park CTS if standard 128KBytes RAM
   if (ramCfg == 0)
     pinMode(MCU_CTS_, INPUT_PULLUP);  // Parked (not used)
   else
@@ -546,7 +554,7 @@ void setup()
   Serial.println(F("MHz"));
 
   // Print the RAM size
-  Serial.printf(F("IOS: %dkBytes RAM"), (128 << ramCfg));
+  Serial.printf(F("IOS: %dKBytes RAM"), (128 << ramCfg));
   if (ramCfg == 1)
     Serial.print(" (CTS used as BANK2 signal)");
   else if (ramCfg == 2)
@@ -617,7 +625,7 @@ void setup()
     }
 
     Serial.print(F(" A: Set RAM-size ("));
-    Serial.printf(F("%dkBytes"), (128 << EEPROM.read(ramCfgAddr)));
+    Serial.printf(F("%dKBytes"), (128 << EEPROM.read(ramCfgAddr)));
     Serial.println(")");
 
     // only for testing, menu needs to be rewritten!!!
@@ -724,7 +732,7 @@ void setup()
           // Print the RAM-size
           iCount = (byte)(iCount + 1) % (maxRamCfg + 1);
           Serial.print(F("\r ->"));
-          Serial.printf(F("%d kBytes\r"), (128 << iCount));
+          Serial.printf(F("%d KBytes\r"), (128 << iCount));
           while (Serial.available() > 0) Serial.read();      // Flush serial Rx buffer
           while (Serial.available() < 1) WaitAndBlink(BLK);  // Wait a key
           inChar = Serial.read();
@@ -1839,45 +1847,43 @@ void loop()
               uint8_t handShake = ioData >> 6;
               uint8_t baudIndex = ioData & 0x1F;
               if ( verbosity > 1 ) {
-                Serial.printf( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA") : F("??SIOB") );
+                Serial.printf( ioOpcode == OPC_SIOA_CTRL ? F("??SIOA:") : F("??SIOB:") );
                 Serial.printf( F(" set control: 0x%02X"), ioData );
               }
               if ( baudIndex != ( lastCTRL[ channel ] & 0x1F ) ) {  // baudrate has changed
                 if ( ( ioData & 0x1F ) < sizeof( cpmBaudRate ) / sizeof( uint16_t ) ) {
                   int32_t baudRate = cpmBaudRate[ ioData & 0x1F ]; // index to value
                   if ( verbosity > 1 )
-                    Serial.printf( F(" - baudrate: %ld"), baudRate );
+                    Serial.printf( F(" - baudrate: %ld\r\n"), baudRate );
                   baudRate = SC16IS752_SetBaudrate( channel, baudRate );
                 }
               }
               if ( handShake != ( lastCTRL[ channel ] >> 6 ) ) {  // HS has changed
                 // change handshake
                 if ( verbosity > 1 )
-                  Serial.printf( F(" - handshake: %d"), handShake );
+                  Serial.printf( F(" - handshake: %d "), handShake );
                 switch ( handShake ) {
                   case 0:
                     if ( verbosity > 1 )
-                      Serial.printf( F(" disable") );
+                      Serial.printf( F("disable\r\n") );
                     SC16IS752_SetAutoHandshake(channel, 0, 0);
                     break;
                   case 1:
                     if ( verbosity > 1 )
-                      Serial.printf( F("auto Xon/Xoff (NYI)") );
+                      Serial.printf( F("auto Xon/Xoff (NYI)\r\n") );
                     SC16IS752_SetAutoHandshake(channel, 0, 0);
                     break;
                   case 2:
                     if ( verbosity > 1 )
-                      Serial.printf( F(" auto RTS/CTS") );
+                      Serial.printf( F("auto RTS/CTS\r\n") );
                     SC16IS752_SetAutoHandshake(channel, 1, 1);
                     break;
                   case 3:
                     if ( verbosity > 1 )
-                      Serial.printf( F(" reserved") );
+                      Serial.printf( F("reserved\r\n") );
                     break;
                 }
               }
-              if ( verbosity > 1 )
-                Serial.println();
               lastCTRL[ channel ] = ioData;
             }
           break;
