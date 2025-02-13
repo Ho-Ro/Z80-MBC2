@@ -1,0 +1,23 @@
+gencpm.dat text eol=crlf
+gencpm.md text eof=crlf
+*.DOC text eof=crlf
+*.ASM text eol=crlf
+*.asm text eol=crlf
+*.cfg text eol=crlf
+*.com binary
+*.lbr binary
+*.lib text eol=crlf
+*.lis text eol=crlf
+*.log text eol=crlf
+*.zpr text eof=crlf
+*.mac text eol=crlf
+*.pas text eol=crlf
+*.readme text
+*.rel binary
+*.spr binary
+*.sub text eol=crlf
+*.sym text eol=crlf
+*.sys binary
+*.z80 text eol=crlf
+*.HEX text eol=crlf
+*.hex text eol=crlf
