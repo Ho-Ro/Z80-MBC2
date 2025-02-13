@@ -1,6 +1,6 @@
 
-Program Disk3;  { ---- DISK EDITOR FOR CP/M 3.0 ---- }
-                { (c) 1984 by Gerhard Strube, Munich }
+Program Diskedit;  { ---- DISK EDITOR FOR CP/M 3.0 ---- }
+                   { (c) 1984 by Gerhard Strube, Munich }
 
 { https://mark-ogden.uk/mirrors/www.cirsovius.de/CPM/Projekte/Artikel/TP/DirDisk/DirDisk.html }
 
@@ -195,9 +195,9 @@ begin
 end;
 
 
-Function UserFrame( Mode: RWtype ): Boolean; { screen mask and data input }
+Function UserFrame( Mode: RWtype ): Char; { screen mask and data input }
 Var
-  YesNo:      char;
+  Result : Char;
 begin
   if Mode = FormatTracks then
     ClrFromTo( USRLINE, BOTLINE );
@@ -274,7 +274,6 @@ begin
             if FirstTrack > 99 then Write( chr( 8 ) );
             readln( FirstTrack )
           until ( FirstTrack >= 0 ) and ( FirstTrack < MaxTrack );
-          Write( FirstTrack, '  ' );
           LastTrack := FirstTrack;
           repeat
             GotoXY( 13, USRLINE + 2 );
@@ -284,16 +283,14 @@ begin
             if LastTrack > 99 then Write( chr( 8 ) );
             readln( LastTrack )
           until ( LastTrack >= FirstTrack ) and ( LastTrack < MaxTrack );
-          Write( LastTrack, '  ' );
-          YesNo := 'N';
-          GotoXY( 13, USRLINE + 3 );
-          Write( 'ARE YOU SURE? ', YesNo, chr(8) );
-          readln( YesNo );
-          YesNo := UpCase( YesNo );
-          if YesNo = 'Y' then
-            UserFrame := true
-          else
-            UserFrame := false
+          Result := 'N';
+          GotoXY( 1, USRLINE + 3 );
+          Write( 'PROCEED?    (N)o  (F)ormat  (I)nitdir : ', Result, chr(8) );
+          readln( Result );
+          Result := UpCase( Result );
+          if (Result <> 'F') and (Result <> 'I') then
+            Result := 'N';
+          UserFrame := Result
         end
       else  { Read / Write }
         begin
@@ -323,7 +320,7 @@ begin
           Lsector := Sector;
           Part := Sector mod LogPerPhy;     { make logical to physical }
           Sector := Sector div LogPerPhy;   { sector size translation  }
-          UserFrame := True
+          UserFrame := 'Y'
         end
     end
 end;
@@ -331,7 +328,7 @@ end;
 
 Procedure DoDisk( Mode: RWtype ); { execute disk operation }
 begin
-  if not UserFrame( Mode ) then
+  if UserFrame( Mode ) = 'N' then
     exit;  { user abort }
   DPB_i := UBIOS( 9, 0, Drive, 1, 0 ); { selekt disk }
   { DPB_i = address of translation table log. -> phys. sector }
@@ -372,16 +369,38 @@ end;
 Procedure Format; { format tracks }
 Var
   Ftrack : integer;
+  FormatType : char;
+  InfoString : String[13];
+
+Procedure InitBuffer( INITDIR : Boolean);
 begin
-  if not UserFrame( FormatTracks ) then
+  for i := 1 to Psize do           { fill phys. sector }
+    if INITDIR and (i mod $80 = $61) then  { INITDIR timestamp }
+      PhySecBuf[i] := $21   { '!' for file date }
+    else
+      PhySecBuf[i] := $E5;  { erased data }
+end;
+
+begin
+  FormatType := UserFrame( FormatTracks ); { No / Format / Initdir }
+  if FormatType = 'N' then
     Exit;  { user abort }
   i := UBIOS( 9, 0, Drive, 1, 0 ); { selekt disk }
-  for i := 1 to Psize do           { fill phys. sector }
-    PhySecBuf[i] := $E5;
+  BufferValid := False;            { do not show buffer after formatting }
   for Ftrack := FirstTrack to LastTrack do
     begin
+      if (Ftrack < DirTrack) or (Ftrack = DataTrack) then
+        begin
+          InitBuffer( False );
+          InfoString := 'FORMAT track '
+        end
+      else if Ftrack = DirTrack then
+             begin
+               InitBuffer( True );
+               InfoString := 'INITDIR track'
+             end;
       GotoXY( 1, USRLINE + 5 );
-      Write( 'Format track ', Ftrack:3 );
+      Write( InfoString , Ftrack:3 );
       for Psector := 0 to ( MaxSector div LogPerPhy ) - 1 do
         begin
           i := UBIOS( 23, 0, 1, 0, 0 );                { execute 1 sector   }

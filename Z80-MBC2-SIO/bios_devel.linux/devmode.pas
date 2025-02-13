@@ -3,6 +3,7 @@
 
 Program devmode;
 
+
 {
   Enhance DEVICE.COM, allow higher baud rates than the
   standard CP/M values 50 .. 19200, e.g. 38400 and 115200
@@ -30,13 +31,13 @@ Const
 
   MaxBaud : Byte = 20;
   BaudRates : Array[0..20] of Str6 = (
-                'NONE',  '50',    '75',    '110',   { std CP/M baud rates}
-                '134',   '150',   '300',   '600',   { std CP/M baud rates}
-                '1200',  '1800',  '2400',  '3600',  { std CP/M baud rates}
-                '4800',  '7200',  '9600',  '19200', { std CP/M baud rates}
-                '14400', '28800', '38400', '57600', { new baud rates }
-                '115200'
-              );
+    'NONE',  '50',    '75',    '110',   { std CP/M baud rates}
+    '134',   '150',   '300',   '600',   { std CP/M baud rates}
+    '1200',  '1800',  '2400',  '3600',  { std CP/M baud rates}
+    '4800',  '7200',  '9600',  '19200', { std CP/M baud rates}
+    '14400', '28800', '38400', '57600', { new baud rates }
+    '115200'
+  );
 
 { BIOS modebaud bit masks }
   mbInput       : Byte = $01;
@@ -50,9 +51,9 @@ Const
 
   MaxLogDev  : Byte = 7;
   LogDevices : Array[0..7] of Str7 = (
-                'CONIN:', 'CONOUT:', 'AUXIN:', 'AUXOUT:', 'LSTOUT:',
-                'CON:', 'AUX:', 'LST:'
-              );
+    'CONIN:', 'CONOUT:', 'AUXIN:', 'AUXOUT:', 'LSTOUT:',
+    'CON:', 'AUX:', 'LST:'
+  );
 
 
 Var
@@ -147,7 +148,8 @@ Var
   name : Array[0..6] of Char;
   iii : Integer;
 begin
-  { calls BIOS via BDOS function 50
+
+{ calls BIOS via BDOS function 50
     DEVTBL: Get CHARACTER DEVICE TABLE
     (See cap. 3.2 CP/M 3 System Guide)
   }
@@ -291,8 +293,8 @@ begin
 
   { If mb$serial AND mb$soft$baud AND valid index AND index is different }
   if ( dvOpt and (mbSerial or mbSoftBaud) = (mbSerial or mbSoftbaud) )
-  and (nwBdIdx <> $FF)
-  and (nwBdIdx <> bdIdx) then
+     and (nwBdIdx <> $FF)
+     and (nwBdIdx <> bdIdx) then
     begin { change baud rate }
       Mem[ bdPos ] := nwBdIdx; { set new baudrate value in chrTbl }
       { call BIOS DEVINI to update the baud rate for dev }
@@ -389,7 +391,7 @@ begin
 end;
 
 
-Label nextArg;
+label nextArg;
 
 begin
   WriteLn( programVersion );
@@ -440,9 +442,9 @@ begin
             if setHandshake( devNum, aaa ) then  { if ok }
               goto nextArg;
           { neither baudrate nor handshake request }
-              WriteLn( 'Unknown argument ', ParamStr( aaa ) );
-              showHelp;
-              Halt;
+            WriteLn( 'Unknown argument ', ParamStr( aaa ) );
+            showHelp;
+            Halt;
             nextArg:
           end { for aaa }
     end { ParamCount > 0 }
