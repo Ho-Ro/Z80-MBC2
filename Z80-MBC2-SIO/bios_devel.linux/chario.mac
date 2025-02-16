@@ -20,14 +20,14 @@
 ; S210918-R090319   Changed CIST0: and CI0: to allow full 8 bit data I/O
 ; S210918-R170319   Added the selection of the mode of CIST0: (7 or 8 bit mode, for XMODEM)
 ; S210918-R210923   Added support for the SPP Adapter board (parallel printer) as Device 1
-; S210918-D060225   DEVEL: support for I2C SIOA and SIOB devices as Device 2/3
+; S210918-D150225   DEVEL: support for I2C SIOA and SIOB devices as Device 2/3
 ;
 ;******************************************************************************
 
 
 	dseg
 ?chario$ver:
-	defb	'CHARIO S210918-R210923-D060225',0
+	defb	'CHARIO S210918-R210923-D150225',0
 
 
 				; DEFINE LOGICAL VALUES:
@@ -730,10 +730,10 @@ dev$code:
 	defb	baud$none
 ;
 	defb	'SIOA  '	; I2C serial I/O via AVR (DEVICE 2)
-ctbl2$md:
-	defb	mb$in$out + mb$serial + mb$soft$baud
-ctbl2$bd:
-	defb	baud$300
+ctbl2$md:			; enable auto RTS/CTS handshake
+	defb	mb$in$out + mb$serial + mb$soft$baud + mb$rts$cts
+ctbl2$bd:			; fast speed for kermit transfer
+	defb	baud$115200
 ;
 	defb	'SIOB  '	; I2C serial I/O via AVR (DEVICE 3)
 ctbl3$md:
