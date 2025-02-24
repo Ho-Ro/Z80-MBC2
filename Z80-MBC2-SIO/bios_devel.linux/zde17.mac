@@ -49,6 +49,7 @@ USRN	EQU	32
 RSTV	EQU	37
 ERRM	EQU	45
 DOSV	EQU	48
+SCBA	EQU	49
 FTRU	EQU	99
 GETF	EQU	100
 SETF	EQU	101
@@ -104,11 +105,15 @@ ErrSta	EQU	ErrBit+EcpBit+ExtBit
 ;      1.6 - 11/19/20 - ZDE 1.6 source reconstituted using VDE 2.67
 ;			source as a guide
 ;      1.7 - 11/21/20 - Incorporated Al Hawley's timestamp fixes
+;      1.7.1            ?
+;      1.7.2 2025/02/24 fix ANSI for >= 100 columns (cursor pos: "ESC[rrr;lllH")
+;			ANSI auto size patch
 ;    -------------------
 ;
 	ORG	0100H
 ;
-	JP	Start		;Entry and exit vectors
+	JP	UsrPat		; was: JP Start
+	;JP	Start		;Entry and exit vectors
 	DB	'Z3ENV'
 	DB	1
 Z3Env:	DW	0
@@ -137,10 +142,10 @@ VersID:	DB	'ZDE 1.7.1, (C) 1990 C.Wilson',0
 	ORG	0140H
 BAKFlg:	DB	0FFH	;0140H - create BAK files (y/n)
 DFMode:	DB	'N'	;default file modem W/A/N
-FDflt1:	DB	'Z80N'	;1st default override
+FDflt1:	DB	'DOCW'	;1st default override
 FDflt2:	DB	'WS W'	;2nd
-FDflt3:	DB	'CMDN'	;3rd
-FDflt4:	DB	'LIBN'	;4th
+FDflt3:	DB	'ASMN'	;3rd
+FDflt4:	DB	'MACN'	;4th
 InsFlg:	DB	0FFH	;default insert on (y/n)
 RulFlg:	DB	0FFH	;default rules on (y/n)
 HCDflt:	DB	0FFH	;default HCR disp on (y/n)
@@ -148,7 +153,7 @@ HypFlg:	DB	0FFH	;enable hyphenation (y/n)
 PSFlg:	DB	0	;default proportional flag (y/n)
 PSokFl:	DB	0FFH	;default allow proportional flag (y/n)
 DfltLM:	DB	1	;left margin column (1=OFF)
-DfltRM:	DB	120	;right margin column (1=OFF)
+DfltRM:	DB	1	;right margin column (1=OFF)
 Ovlap:	DB	2	;scroll overlap (0=none)
 DirSys:	DB	0	;include SYS files (y/n)
 FixDsk:	DB	'@@'	;fixed drives
@@ -170,11 +175,12 @@ NTgTbl:	DB	11H,17H,5,12H	;switches ^Q,^W,^E,^R (last 015C)
 ;INSTALLATION
 ;
 	ORG	180H
-Z3tcap:	DB	'ANSI standard   '	;ID
+Z3tcap:	DB	'ANSI auto size  '	;ID
+	;DB	'ANSI standard   '	;ID
 	ORG	190H
-View:	DB	120			;190H: viewable columns (max 128)
+View:	DB	80			;190H: viewable columns (max 128) def.
 AuWrap:	DB	0FFH			;191H: does autowrap cursor
-Lines:	DB	30			;192H: lines
+Lines:	DB	24			;192H: lines (default for CP/M 2.2)
 UsrKys:	DB	08H			;193H: BS, DEL key
 	DB	0FFH			;194H: arrow up
 	DB	0FFH			;195H: arrow down
@@ -194,8 +200,8 @@ PosDly:	DB	0			;1C5H: delay after curpos (00-FF)
 InsL:	DB	3,ESC,'[L',0,0,0	;1C6H: insert line [1], 1+6 bytes
 DelL:	DB	3,ESC,'[M',0,0,0	;1CDH: delete line [1], 1+6 byts
 OddDel:	DB	0			;1D4H: ins/del line specific?
-CsrOff:	DB	3,ESC,';A',0,0,0	;1D5H: cursor off, 1+6 bytes
-CurOn:	DB	3,ESC,';I',0,0,0	;1DCH: cursor on, 1+6 bytes
+CsrOff:	DB	0,0,0,0,0,0,0		;1D5H: cursor off, 1+6 bytes
+CurOn:	DB	0,0,0,0,0,0,0		;1DCH: cursor on, 1+6 bytes
 ;
 	ORG	01F0H			;Printer codes
 	DB	'Teletype        '	;1F0H: ID
@@ -221,9 +227,33 @@ UCodes:	DB	0,0,0,0,0,0,0,0		;sw 1 (^Q)
 	DB	0,0,0,0,0,0,0,0		;sw 3 (^E)
 	DB	0,0,0,0,0,0,0,0		;sw 4 (^R)
 ;
+;
 	ORG	0280H
 UsrPat: 			;0280-02AFH - User Patch Area
 ;(Can extend back into UCodes section if fewer switches used)
+;
+Patch:	ld	c,CPMV		; CP/M "get version function"
+	call	BDOSep
+	cp	31h		; CP/M Plus?
+	jr	c,PExit		; Skip if not
+	ld	c,SCBA		; SCB access function
+	ld	de,ScbPb	; Pre-conditioned for screen width
+	call	BDOSep		; width-1 comes back in A and L
+	inc	a		; Adjust
+	jp	p,PVok		; jp if < 128
+	ld	a,128		; limit max screen width
+PVok:	ld	(View),a	; Store screen width
+	ld	hl,ScbPb	; Adjust SCB parameter block to
+	ld	(hl),1Ch	;  request screen height
+	ex	de,hl		; BDOS expects pointer in DE
+	ld	c,SCBA		; SCB access function
+	call	BDOSep		; height-1 comes back in A and L
+	inc	a		; Adjust
+	ld	(Lines),a 	; Store screen height
+PExit:	jp	Start		; start ZDE
+
+ScbPb:	DB	1Ah,0,0,0	; SCB - get screen width
+;
 ;
 	ORG	02B0H		;02B0-030EH - Proportinal table
 UPatL	EQU	$-UsrPat
@@ -7107,27 +7137,36 @@ GoToDl:	LD	A,(PosDly)	;optional delay for some terminals
 	LD	B,A
 	LD	C,0
 	JP	BDlyLp
-GoANSI:	LD	HL,ANSIms+3	;use ANSI sequence
+;
+GoANSI:	LD	HL,ANSIro	;use ANSI sequence (HORO: 3 digits)
 	LD	A,D
 	INC	A		;origin 1,1
 	CALL	GoASub
-	LD	HL,ANSIms+6
+	LD	HL,ANSIco
 	LD	A,E
 	INC	A
 	CALL	GoASub
 	LD	HL,ANSIms
 	CALL	CtlStr
 	JR	GoToDl
-GoASub:	LD	(HL),'0'	;tens digit
-GASl1:	CP	10
-	JR	C,GAS2
+GoASub:	LD	(HL),'0'	;hundreds digit
+GAS100:	CP	100
+	JR	C,GAS10		; if < 100
+	INC	(HL)
+	SUB	100
+	JR	GAS100		; loop for 100s
+GAS10:	INC	HL
+	LD	(HL),'0'	; tens digit
+GAS10a:	CP	10
+	JR	C,GAS1		; if < 10
 	INC	(HL)
 	SUB	10
-	JR	GASl1
-GAS2:	INC	HL
-	ADD	A,'0'		;units
+	JR	GAS10a		; loop for 10s
+GAS1:	INC	HL
+	ADD	A,'0'		;units digit
 	LD	(HL),A
 	RET
+;
 Go2Byt:	CALL	Go1Byt		;show one or two bytes at HL
 	LD	A,(HL)
 	OR	A
@@ -7137,7 +7176,9 @@ Go1Byt:	PUSH	DE
 	CALL	CtlSLp
 	POP	DE
 	RET
-ANSIms:	DB	8,ESC,'[00;00H'	;for use with CtlStr
+ANSIms:	DB	10,ESC,'['	;for use with CtlStr
+ANSIro:	DB	'000;'
+ANSIco:	DB	'000H'
 ;
 ;
 IfSpLn:	LD	A,(AltHdr)	;draw sep line IF headers not alt
