@@ -2,10 +2,11 @@
 
 # connect to Z80-MBC2 board via serial interface
 #
-#   open a xterm 100x30, orange, mono font, size 12
+#   open a xterm 100x30, orange, mono font, size 16
 #   translate
 #     VT100 cursor keys to CP/M cursor keys
 #     UP -> ^E; DOWN -> ^X; LEFT -> ^S; RIGHT -> ^D
+#     Shift UP -> ^W; Shift DOWN -> ^Z
 #     PageUp -> ^R; PageDown -> ^C
 #     Home -> ^QS; End -> ^QD
 #     Ctrl PageUp -> ^QR; Ctrl PageDown -> ^QC
@@ -14,24 +15,35 @@
 #     Delete -> ^G
 #     BackSpace -> ^H
 #   execute picocom in this terminal
-#     open /dev/ttyUSB0
+#     open /dev/z80-mbc2
 #     115200 bps
 #     use xmodem protocol for send "sx" and receive "rx"
 
+# use unique device id
+PORT=/dev/z80-mbc2
+
 xterm \
-    -fa LiberationMono -fs 12 \
+    -fa LiberationMono -fs 16 \
     -g 100x30 -fg orange \
     -title "Z80-MBC2" \
     -xrm \
         'xterm*VT100.translations: #override \
         None <Key>Up:        string(0x05) \n\
         None <Key>Down:      string(0x18) \n\
-        None <Key>Right:     string(0x04) \n\
-        None <Key>Left:      string(0x13) \n\
+        Shift <Key>Up:       string(0x05) \n\
+        Shift <Key>Down:     string(0x18) \n\
+        <Key>Right:          string(0x04) \n\
+        <Key>Left:           string(0x13) \n\
+        Ctrl <Key>Up:        string(0x17) \n\
+        Ctrl <Key>Down:      string(0x1A) \n\
         None <Key>Prior:     string(0x12) \n\
+        Shift <Key>Prior:    string(0x12) \n\
         None <Key>Next:      string(0x03) \n\
+        Shift <Key>Next:     string(0x03) \n\
         None <Key>Home:      string(0x11) string(0x13) \n\
+        Shift <Key>Home:     string(0x11) string(0x13) \n\
         None <Key>End:       string(0x11) string(0x04) \n\
+        Shift <Key>End:      string(0x11) string(0x04) \n\
         Ctrl <Key>Prior:     string(0x11) string(0x12) \n\
         Ctrl <Key>Next:      string(0x11) string(0x03) \n\
         Ctrl <Key>Home:      string(0x11) string(0x05) \n\
@@ -40,5 +52,5 @@ xterm \
         None <Key>Insert:    string(0x16) \n\
         None <Key>Delete:    string(0x07)' \
     -e  "picocom --send-cmd 'sx -b' --receive-cmd 'rx -b' \
-                 --noreset -b 115200 /dev/ttyUSB0" \
+                 -b 115200 $PORT" \
     2>/dev/null

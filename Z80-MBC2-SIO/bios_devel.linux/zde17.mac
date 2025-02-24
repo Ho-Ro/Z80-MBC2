@@ -141,14 +141,14 @@ FDflt1:	DB	'Z80N'	;1st default override
 FDflt2:	DB	'WS W'	;2nd
 FDflt3:	DB	'CMDN'	;3rd
 FDflt4:	DB	'LIBN'	;4th
-InsFlg:	DB	0FFH	;defulat insert on (y/n)
+InsFlg:	DB	0FFH	;default insert on (y/n)
 RulFlg:	DB	0FFH	;default rules on (y/n)
 HCDflt:	DB	0FFH	;default HCR disp on (y/n)
 HypFlg:	DB	0FFH	;enable hyphenation (y/n)
 PSFlg:	DB	0	;default proportional flag (y/n)
 PSokFl:	DB	0FFH	;default allow proportional flag (y/n)
 DfltLM:	DB	1	;left margin column (1=OFF)
-DfltRM:	DB	99	;right margin column (1=OFF)
+DfltRM:	DB	120	;right margin column (1=OFF)
 Ovlap:	DB	2	;scroll overlap (0=none)
 DirSys:	DB	0	;include SYS files (y/n)
 FixDsk:	DB	'@@'	;fixed drives
@@ -172,15 +172,15 @@ NTgTbl:	DB	11H,17H,5,12H	;switches ^Q,^W,^E,^R (last 015C)
 	ORG	180H
 Z3tcap:	DB	'ANSI standard   '	;ID
 	ORG	190H
-View:	DB	120			;viewable columns (max 128)
-AuWrap:	DB	0FFH			;does autowrap cursor
-Lines:	DB	30			;lines
-UsrKys:	DB	08H			;BS, DEL key
-	DB	05H			;^E, arrow up
-	DB	18H			;^X, arrow down
-	DB	04H			;^D, arrow right
-	DB	13H			;^S, arrow left
-	DB	0
+View:	DB	120			;190H: viewable columns (max 128)
+AuWrap:	DB	0FFH			;191H: does autowrap cursor
+Lines:	DB	30			;192H: lines
+UsrKys:	DB	08H			;193H: BS, DEL key
+	DB	0FFH			;194H: arrow up
+	DB	0FFH			;195H: arrow down
+	DB	0FFH			;196H: arrow right
+	DB	0FFH			;197H: arrow left
+	DB	0			;198H:
 CIL:	DB	3,ESC,'[K',0,0,0	;199H: clear to end of line, 1+6 bytes
 TInit:	DB	6,ESC,'[H',ESC,'[J',0	;1A0H: terminal init, 1+7 bytes
 TUInit:	DB	6,ESC,'[H',ESC,'[J',0	;1A8H: terminal uninit, 1+7 bytes
@@ -198,12 +198,12 @@ CsrOff:	DB	3,ESC,';A',0,0,0	;1D5H: cursor off, 1+6 bytes
 CurOn:	DB	3,ESC,';I',0,0,0	;1DCH: cursor on, 1+6 bytes
 ;
 	ORG	01F0H			;Printer codes
-	DB	'Teletype        '	;ID
+	DB	'Teletype        '	;1F0H: ID
 	ORG	0200H
-UseLF:	DB	0FFH			;use LF after CR in print?
-FormL:	DB	54			;form length (0=no pag)
-PTMarg:	DB	0			;top margin skip
-DotPO:	DB	0			;left margin skip
+UseLF:	DB	0FFH			;200H: use LF after CR in print?
+FormL:	DB	54			;201H: form length (0=no pag)
+PTMarg:	DB	0			;202H: top margin skip
+DotPO:	DB	0			;203H: left margin skip
 PInit:					;printer init, 19 bytes
 	ORG	0218H
 PUInit:					;printer uninit, 7 bytes
@@ -8108,4 +8108,4 @@ OMenu:	DB '^OL,','R'+X,'mar','g'+X,'set',X,2,'^O','I'+X,'ta','b'+X,'set'
 	DS	4
 MnuEnd:		;menus end here, text can begin
 	END
-
+
