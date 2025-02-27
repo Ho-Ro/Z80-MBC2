@@ -96,10 +96,10 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
                    the SPP adapter is used and a printer is connected, selected online and powered on before
                    the Z80-MBC2, possible "strange" printer behaviors are avoided. This makes the STROBE and
                    INIT lines of the parallel port not active after a power on/reset.
-S220718-D090225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS
+S220718-D260225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS - finetuning FIFO level
 --------------------------------------------------------------------------------- */
 
-#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D090225\r\n"
+#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D260225\r\n"
 #define BUILD_STRING "      " __DATE__ "  " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -1940,7 +1940,7 @@ void loop()
           if (debug > 1)
           {
             Serial.println();
-            Serial.print(F("DEBUG: SER TX"));
+            Serial.print(F("DEBUG: SER RX"));
             Serial.print(F(" - irqStatus = "));
             Serial.println(irqStatus);
           }
