@@ -34,7 +34,7 @@ You can also use any other CP/M3 drive except `A:` aka `DS2N00.DSK`, just
 rename the `DS2N??.DSK` file accordingly.
 
 ### IOS update
-The new BIOS requires an updated IOS, ver. S220718-R290823-D160125 or later.
+The new BIOS requires an updated IOS, ver. S220718-R290823-D260125 or later.
 Program one of the `S220718-D??????-IOS-Z80-MBC2-SIO_??MHz.hex` files on your
 AVR, using programmer HW with a tool like e.g. `avrdude`. Chose the correct
 clock frequency 16MHz or 20 MHz, depending on your XTAL.
@@ -128,11 +128,15 @@ also necessary to update the IOS to the version maintained here.
 CP/M takes some minutes for a complete build due to slow 'disk' access.
 Also the editing is slow and error prone due to the limitation of only
 one source code file - aren't we all used to do a quick copy/paste?
-I've set up a tool chain for Linux using the CP/M command tool `tnylpo`.
+I've set up a tool chain for Linux using a makefile and the CP/M command tool
+[`tnylpo`](https://gitlab.com/gbrein/tnylpo).
 This tool is not a full-blown CP/M emulation, but it executes CP/M 2.2 `*.COM`
 files and accesses data from the Linux file system. You need the version from
-my [GitLab fork](https://gitlab.com/Ho-Ro/tnylpo) to handle the UPPER case
-file names. The toolchain uses a `makefile` and the full build finishes in a
-few seconds. Then I pull in the new `TESTCPMX.COM` via `XMODEM` from CP/M and
-can test it. When it's ok then I transfer also the modified source files over
-to CP/M, rebuild it and finally install the newly created `CPMX.SYS` on `A:`.
+my [GitLab fork](https://gitlab.com/Ho-Ro/tnylpo) if you want to handle also
+UPPER case file names. To build type `make` - the full build finishes within
+few seconds. Then I pull in the new `TESTCPMX.COM` via `XMODEM` or `KERMIT`
+from CP/M and can test it. When it's all ok then I transfer also the modified
+source files over to CP/M, rebuild everything there again and finally install
+the newly created `CPMX.SYS` on `A:`.
+The bios source code and the toolchain is in the directory `bios_devel.linux`.
+Some of my own CP/M tools and some old but improved ones are in `cpm_tools`.
