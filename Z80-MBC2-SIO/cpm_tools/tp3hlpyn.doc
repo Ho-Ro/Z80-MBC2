@@ -1,0 +1,99 @@
+Below is a patch that causes Turbo Pascal (Z80 version) to automatically
+load  the  error message overlay file without asking the user first.  In
+essence, what happens is that Turbo displays the question (do  you  want
+to  load the message file), calls a subroutine to read the response, and
+stores the response.  The yes_or_no sbr returns a 0 if  the  answer  was
+'N',  and  non-zero  (I  didn't check the exact value) if the answer was
+'Y'.  Turbo then loads the message file if the zero flag is not set.
+
+This patch overwrites the call to the "display string" function and  the
+start  of  the message.  It clears the A register, adds one to clear the
+zero flag, and branches past the call to yes_or_no.  If don't  you  want
+to load the error file, change the increment instruction to a no_op.
+
+When the patched Turbo is run, the copyright message will  be  displayed
+until  the  error  file has been loaded, then it will display the "main"
+menu.  If the error file is not being loaded, the c-r  message  will  be
+displayed  briefly,  to  be  replaced  by the main menu.  Remember, this
+patch is for the Z-80 versions, but a similar patch is available for the
+IBM version.
+
+NOTE: in the patches below, all user input is in lower case, and comments
+       to the user are in brackets [].
+
+------------------------------------------------------------
+
+            Patch for Z-80 version 1.0
+
+A>ddt turbo.com
+DDT VERS 2.2
+NEXT  PC
+6F00 0100
+-d1e40,1e6f      [ display original code ]
+1E40 6E 63 2E 0D 0A 0A 00 21 23 01 CD A5 01 CD F8 01 nc.....!#.......
+1E50 0D 0A 0A 0A 49 6E 63 6C 75 64 65 20 65 72 72 6F ....Include erro
+1E60 72 20 6D 65 73 73 61 67 65 73 00 CD 1F 29 32 6D r messages...)2m
+-a1e4d           [ enter patch in assembler ]
+1E4D  sub a
+1E4E  inr a      [ type NOP if you DON'T want the error file loaded ]
+1E4F  jmp 1e6e
+1E52  .          [ exit from assembler input mode ]
+-d1e40,1e6f      [ display patched code ]
+1E40 6E 63 2E 0D 0A 0A 00 21 23 01 CD A5 01 97 3C C3 nc.....!#.......
+1E50 6E E1 0A 0A 49 6E 63 6C 75 64 65 20 65 72 72 6F n...Include erro
+1E60 72 20 6D 65 73 73 61 67 65 73 00 CD 1F 29 32 6D r messages...)2m
+-g0              [ exit from DDT ]
+A>save 110 turbo.com    [ save patched version ]
+A>
+
+------------------------------------------------------------
+
+            Patch for Z-80 version 2.0
+
+A>ddt turbo.com
+DDT VERS 2.2
+NEXT  PC
+7800 0100
+-d2100,212f      [ display original code ]
+2100 6C 3A 20 00 21 53 01 CD D0 01 CD 25 02 0D 0D 0A l: .!S.....!....
+2110 0A 0A 49 6E 63 6C 75 64 65 20 65 72 72 6F 72 20 ..Include error 
+2120 6D 65 73 73 61 67 65 73 00 CD 42 2c 32 24 44 C4 messages..B,2$D.
+-a210a           [ enter patch in assembler ]
+210A  sub a
+210B  inr a      [ type NOP if you DON'T want the error file loaded ]
+210C  jmp 212c
+210F  .          [ exit from assembler input mode ]
+-d2100,212f      [ display patched code ]
+2100 6C 3A 20 00 21 53 01 CD D0 01 97 3C C3 2C 21 0A l: .!S.....<.,!.
+2110 0A 0A 49 6E 63 6C 75 64 65 20 65 72 72 6F 72 20 ..Include error 
+2120 6D 65 73 73 61 67 65 73 00 CD 42 2c 32 24 44 C4 messages..B,2$D.
+-g0              [ exit from DDT ]
+A>save 119 turbo.com    [ save patched version ]
+A>
+
+------------------------------------------------------------
+
+            Patch for Turbo Pascal 3.01A CP/M-80, Z80
+
+P>save
+
+P>zsid turbo.com
+SID VERS 1.4
+NEXT  PC  END
+7900 0100 C7FF
+#a21ec
+21EC  ld a,0b
+21EE  or a
+21EF  jr 220e
+21F1  .
+#l21e9
+  21E9  CALL 01D0
+  21EC  LD   A,0B
+  21EE  OR   A
+  21EF  JR   1D
+#g0
+
+CP/M 3 SAVE - Version 3.1
+Enter file (type RETURN to exit): turboyes.com
+Beginning hex address 100
+Ending hex address    7900

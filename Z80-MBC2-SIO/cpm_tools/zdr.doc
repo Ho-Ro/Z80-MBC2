@@ -1,0 +1,51 @@
+                        **>> ZDR.DOC <<**
+
+ZDR is a small ( <7 records, <1k ), but complete disk directory 
+program, meant for situations where conservation of disk space is 
+of value.  Its small size, and horiZontal format (the Z in ZDR) 
+are suited to the screen of the portable Epson Geneva PX-8.
+
+                       **>> Using ZDR <<**
+
+A>zdr
+> DDT     COM  5k > DO      COM  1k > LASM    COM  8k > LOAD    COM  2k       
+> MDM     COM 18k > MODEM   COM  6k > RESULTS HMG 12k > UNERA   COM  1k       
+> ZDR     COM  1k                                                             
+A:  64k total/ 55k used >>  9k left                                 
+
+ZDR can also be called with    A>zdr B:   or   A>zdr D4:   and 
+will recognize these CPM-style and ZCPR-style requests for disk
+areas and disk id's.  If ZDR is asked for a directory of another 
+user area, it will list the files in that disk/area only, with 
+their correct sizes.  ZDR should work with any floppy 
+disk/ramdisk/rom chip setup which uses CPM v2.2 protocols to 
+define disk space.  It will deal correctly with files up to 255k 
+in size, and with disks having up to 1000k of total space.  ZDR
+senses the data block size (some disks use 1k, fewer 2k, very few 
+4k, and so on) and adjusts its calculations to take account of 
+the disk space allocation protocols.  The directory is 
+alphabetized and presented in order from upper left to lower 
+right.
+
+ZDR's small size suggests that it might be useful for inclusion
+in other programs which need directory functions.  It is more
+sophisticated than most "internal" directories in its provision
+for file size statistics and alphabetization, yet small enough
+to add only a small bulge to a modem program or text processor.
+The assembly language for ZDR, ZDR.ASM, should also be found
+in this area if you wish to use ZDR in this way.  If you install
+ZDR in another program, note that it builds a directory table 
+upward from its own last address, potentially overwriting the 
+next k or so above.
+
+There are many excellent directory programs available, but if
+you keep a directory program on every floppy disk, you'll save
+2-3k/disk for other files if that directory program is ZDR.
+
+                            **>> <<**
+
+July, 1985                                   Mike Yarus
+                                             2231 16th Street
+                                             Boulder, CO 80302
+                                             Compuserve 73145,513
+

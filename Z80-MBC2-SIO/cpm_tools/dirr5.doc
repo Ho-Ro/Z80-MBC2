@@ -1,0 +1,202 @@
+		    DIRR, A CP/M DIRETORY PROGRAM
+			  notes by Irv Hoff
+			      01/07/86
+
+
+
+		 NOTE:	MAY BE USED WITH 8080, 8085
+			OR Z80 PROCESSORS.  SUPPORTS
+			CP/M V2.2 AND CP/M V3.0 BOTH.
+
+
+    HISTORY:
+    -------
+    The history of DIRR is quite clouded.  It was likely called D.COM
+    originally and probably written in 'C'.  Jim King disassembled it
+    and obviously spent a considerable amount of time in documenting
+    and altering it for his terminal, printer and time-date board.  It
+    was limited for use with Z80 processors.  He called his version
+    DI214.COM.	His work was mostly done around December 1983.
+
+    I had independently modified the original D.COM program for a dis-
+    play I liked a lot more, but renamed my version DIRR.COM.  This
+    was done so it would not interfere with any changes the original
+    author might wish to make in future releases of D.COM, and would
+    minimize any animosity to my making such extensive changes to his
+    program, then using his original name.
+
+    In early December 1985, I found Jim King had the source code for
+    his Z80 version, and he graciously made that available.  I made a
+    large number of changes and again thought I should call my version
+    something different from either D.COM or his DI214.COM.  This ver-
+    sion is again called DIRR.COM as the display is almost identical to
+    the version I have been using for some time, and distributed under
+    the name DIRR2.COM.
+
+    The most important thing I did was to rewrite it in normal 8080 code
+    and eliminate the macro libraries that were required.  It may now be
+    used on any CP/M-80 v2.2 computer with 8080, 8085 or Z80 processor.
+    It may now be assembled with any normal assembler.	Numerous other
+    changes were made, which include making the reverse video optional.
+    Several new options were added, and all were changed to be similar
+    to those offered for the 'SD' directory program, where possible.
+    This should make it easier for people to move between the two pro-
+    grams - note there is no "D" option with this program, at present.
+    In early January, I updated the pragram to work with CP/M 3.0, as I
+    found a large number of people with CP/M 3.0 (especially Commodore
+    C128 owners) were trying to use the program but getting incorrect
+    "space remaining" displays.
+
+
+    PURPOSE:
+    -------
+    DIRR makes an alphabetical list of the CP/M directory files and in-
+    cludes the file length.  A number of options are available to make
+    the program quite useful.  These are listed below.	Several of them
+    are likely unique to this program.	Most can be set to be activated
+    by default, if preferred.
+
+    The program is for CP/M-80 v2.2 or v3.0 and can run with 8080, 8085
+    or Z80 processors.
+
+
+    EXAMPLES OF USE:
+    ---------------
+    DIRR ?	 help guide that shows all the options
+    DIRR	 lists all non-"SYSTEM" files in the current user area
+    DIRR *.COM	 lists all the ".COM" files in the current user area
+    DIRR B:*.*"  lists all files on drive B: in the current user area
+    DIRR *.* $A  lists all programs in all user areas on current disk
+    DIRR *.* $E  gives an extended display of user area and attributes
+    DIRR *.* $S  lists all files including .SYS system files.
+    DIRR $AES"	 extended listing of all files this disk
+
+
+    OPTIONS, QUICK REFERENCE:
+    ------------------------
+103H	A - shows files from all user area on current disk
+104H	C - compressed display, 5 rows, no file size included
+105H	E - extended display, shows user areas and attributes
+106H	F - Makes a disk file after the CRT display is done
+107H	N - Does not stop at full screen, else shows [more] when full
+108H	P - Printer output, does not display on CRT
+109H	S - Includes any systems files (most useful with $AES)
+10AH	V - Version number and date
+
+
+    OPTIONS, DETAILED:
+    -----------------
+    DIRR $A	 Shows all the files on the disk, alphabetized, no user
+		 areas shown (use the 'E' option to include user area.)
+
+    DIRR $C	 Compressed listing - 5 rows instead of 4, leaves off
+		 the file length to get the extra row for users with
+		 very large disk systems.  Overrides 'E' option request.
+
+    DIRR $E	 Extended display, easily the most unique feature of
+		 this program.	Shows one row less than normal, but
+		 to the right of each row it shows the user area of
+		 the file just listed and then has a separate area for
+		 each of the attributes:
+
+				archive bit
+				read/only file
+				system file
+
+    DIRR $F	 After displaying the directory, will then make a disk
+		 file of the same information, called ~DIR.  Using this
+		 special character will insure the file is listed at the
+		 very end of a normal display where it is easily found.
+
+    DIRR $N	 When the CRT display fills, DIRR stops with a [more]
+		 message on the bottom line.  Touching any character on
+		 the keyboard restarts the display.  The 'N' option will
+		 keep the display running until finished with no stops.
+
+    DIRR $P	 Prints the output for a hard copy.  Option offered for
+		 sending control strings to the printer for the print
+		 font preferred, etc.  Another option returns it to the
+		 normal print size, etc. when done printing.
+
+    DIRR $S	 Includes any systems files that meet the original re-
+		 quest - the ideal display for these files would be to
+		 use options '$AES'.
+
+    DIRR $V	 Shows the version number and date.
+
+    DIRR $ACEFNPSV  -  causes ALL of the above options to be used.
+
+		 NOTE:	A few options cannot work well at the same time.
+			For instance, 'C' overrides the 'E' option as it
+			not possible to compress to 5 rows and also
+			expand to just 3 rows showing user areas and
+			attributes.  Keeping this in mind, the options
+			may be entered in any order.
+
+
+
+			     SUMMARY:
+
+    Special Note:  DIRR alphabetizes vertically, but in a quite unique
+    manner that has established its popularity.  If the file names can
+    all be shown at one time, then the DIRR display is similar to that
+    of some other programs.  When they can't be all shown at one time,
+    DIRR has two different types of displays available.
+
+    To help simplify the explanation, assume a normal display of 24x80.
+    the bottom line will display [more] after the screen fills, leaving
+    23 lines of 4 rows, or 92 total files displayed.
+
+    The normal display alphabetizes the first 92 files into four rows
+    and displays those, saying [more] on the bottom line to indicate the
+    user should tap any key to continue.  It then alphabetizes the next
+    92 files and displays those, etc. until finished.  DIRR is perhaps
+    the only directory program available that works in this manner.
+
+    If the 'N' option (nonstop) is selected, the entire directory is
+    first alphabetized and placed into four rows, the top 23 lines
+    shown on the first screen, then the next 23 lines, etc.  This is
+    very similar to other programs such as SD, where the same method is
+    used whether you operate the 'N' option or not.
+
+    When sending to the printer where 56 lines are typed between form
+    feeds, the first 220 files are alphabetized, etc.  This makes each
+    hard copy page somewhat independent of any others.
+
+    These special features are difficult to describe.  They are quite
+    quite unique in performance and unlike other programs, such as "SD"
+    which originally offered only horizontal alphabetization.  This is
+    pretty difficult to scan rapidly for content, and much harder to de-
+    termine if a specific file exists on this system while looking at a
+    general listing.  DIRR alphabetizes vertically, which is more common
+    to general index listings and may be rapidly scanned for content.
+
+    The header at the bottom has some very interesting information.
+    Here is one from a system using a 1 megabyte floppy disk drive:
+
+		B: 984k   Used: 31/412k   Free:  97/572k
+
+    This says the disk has 984k available to the user, 31 files and ex-
+    tents have been used totaling 412k leaving 572k and room for 97 more
+    file names.  Few other directory programs give all this information.
+    Some users frequently run out of room for new file names before they
+    exhaust all the disk space, so this information is very useful.
+
+    Try DIRR, you may like it better than what you have been using.  In
+    any case, it has some quite unique features you are certain to like.
+    (Suggest you rename it to D.COM on your working disk as you can then
+    just type "D <ret>" to activate the program.  This is a lot easier
+    than typing "DIR <ret>" for the normal display - and display lots of
+    additional information as well.)
+
+    It does have some modest drawbacks - it can only be used on one disk
+    drive at a time, has no provision for use with RCPM systems using a
+    wheel byte, and no means of limiting outside users to certain drives
+    or maximum user areas.  It is excellent however for local use on any
+    size disk system.
+
+					- Irv Hoff
+					  Los Altos Hills, CA
+					  (415) 948-2166 - voice
+
+
