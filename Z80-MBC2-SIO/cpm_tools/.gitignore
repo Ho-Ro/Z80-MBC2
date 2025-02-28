@@ -2,3 +2,6 @@
 *.prn
 *.rel
 *.sym
+*.arc
+*.ark
+*.lbr

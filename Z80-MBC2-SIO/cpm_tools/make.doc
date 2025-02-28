@@ -1,0 +1,165 @@
+
+
+  MAKE(CPM+)						       MAKE(CPM+)
+
+	
+	SYNTAX
+
+		make [-f makefile] [-nprst] [macro=val ...] [target(s) ...]
+
+	WHERE
+
+		-i means don't continue if an error is encountered
+
+		-f specifies that the following argument is the name of
+		   a makefile to be used instead of default "MAKEFILE.DAT"
+		   or "MAKEFILE".
+
+		-n means don't execute the commands, just write the ones that
+		   would be executed to the standard output. 
+
+		-p Print all macros & targets
+
+		-r Do not use inbuilt rules
+
+		-s Make silently
+
+		-t Touch files instead of making them
+
+	"macro" -  is a macro name, and...
+
+	  "val" -  is the string value to set it to.  Use quotes around
+	           the "macro=val" if there are imbedded spaces.
+
+
+	DESCRIPTION
+
+		This program is a slightly simplified clone of the UNIX
+		(tm of AT&T) utility of the same name.  Dependancy
+		information is extracted from a makefile and acted upon.
+
+		This version requires CP/M-80 version 3.0 ("CP/M PLUS")
+		with time-of-day-clock implemented.  Also the file timestamps
+		must be "turned on". Current time-of-day call to CP/M is
+	        also used.  Note that "CP/M" is a trademark of Digital
+	 	Research.
+
+
+
+	MAKEFILE FORMAT
+
+		For general usage, refer to a UNIX(tm) man-page.
+
+	        "Make" without parameters makes the first target in the
+		makefile.
+
+		The default name of the 'makefile' is 'MAKEFILE.DAT'
+		or 'MAKEFILE' in that order.  If the '-f' option is used,
+		the default makefile is not processed.
+	
+		Any blank lines in the 'makefile(s)' are ignored, as are
+		lines that have a "#" in the first column.
+
+
+
+
+  MAKE(CPM+)			-2-			   MAKE(CPM+)
+
+	
+	
+	 	Lines starting with a tab character are 'howto'
+		lines, and consist of a command name followed by arguments.
+
+		Any other line is a 'dependency' line.  'Dependency'
+		lines consist of a filename followed by a (possibly empty)
+		list of dependent filenames.  A colon is required after
+		the target filename.
+	
+	 	'Howto' lines apply to the most	recently preceding 
+		'dependency' line.  It is improper for 	a 'howto' line
+		 to precede the first 'dependency' line.
+
+		Lines ending with "\" join the next-line to the current
+		one with all but one-character of the next-line's leading
+		whitespace removed.
+
+
+	SIDE EFFECTS
+
+		This program works by producing a temporary file "MAKE@@@.SUB"
+		then chaining to it for execution of the command list.  This
+		file then deletes itself upon successful completion.  Should
+		the execution be aborted, then this file will remain
+		in the file system (but will not harm later invocations of
+		make).
+
+		Everything has been made case-independent (CP/M forces command
+		lines upper case.  That makes this case-independence a
+		requirement.)
+
+        BUGS
+		The -i option is opposite of "normal" so that error codes
+		are normally ignored.  If the -i option is used, colons
+		will proceed commands that aren't to execute after an
+		error.  This sortof almost works in CP/M Plus.  To be
+		made to work three things need to be done. 1) an RSX
+		written that makes a compiler(etc) set the error flag (should
+		be easy to do). 2) Keep CP/M 3.0 and/or the CCP from resetting
+		the error flag on each command that is executed (patch
+		somewhere?), and 3) Let the ":" exclusion work in front
+		of .SUB files as well as .COM files (patch somewhere?).
+		Discription of the ":" is in the CP/M Plus Programmer's
+		Guide in the description of bdos function 108.
+
+
+
+
+
+  MAKE(CPM+)			-3-			    MAKE(CPM+)
+
+	
+	
+	RULES
+		The built in rules currently are these:
+		
+		".o" files depend on ".c" files and are made by:
+			$(CCC) $(CFLAGS) $(CWHICH)
+			
+			where:
+				CCC    = cc-c   (mdk's submit file)
+				CFLAGS = 	(they are in cc-c.sub)
+				CWHICH = $*     (target's basename)
+
+
+		".rel" files depend on ".asm" files and are made by:
+			$(ASM) $(ASMWHICH) $(ASMFLAGS)
+
+			where:
+				ASM      = rmac
+				ASMWHICH = $*
+				ASMFLAGS = $$PZ SZ
+
+		Note: These macros can be redefined in the makefile.
+
+
+
+	AUTHOR
+
+		Originally written for "EON" (whatever that is).
+		This program was originally posted by, and presumably
+		written by:
+
+		   Neil Russell
+		   Organization: TIME. Office Computers, Sydney, Australia
+		   UUCP:  ...!seismo!munnari!tictoc.oz!caret
+		
+		The port to CP/M 3.0 consists of numerous small and medium
+		modifications seemingly everywhere. That plus the generation
+		of this psuedo-man page was done by:
+
+		   Michael D. Kersenbrock
+		   Aloha, Oregon
+		   UUCP: ...!tektronix!copper!michaelk
+
+
+
