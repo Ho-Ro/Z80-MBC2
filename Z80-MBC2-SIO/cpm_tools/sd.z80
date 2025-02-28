@@ -123,9 +123,10 @@ DRVVEC		EQU	NO	; Set to YES if want support of Z34
 Z3ENV:		DW	0	; Environment Address.	If using ZCPR33
 ; This can be left as is.
 
-HEIGHT		EQU	30	; Screen height
+HEIGHT		EQU	24	; Default screen height
 COLUMNS		EQU	4	; MUST BE 4 AT THE MOMENT (under devel)
 ZDCOLS		EQU	COLUMNS/2 ; less columns for Z80DOS due to date
+HEIGHT_		DW	HEIGHT-1 ; will be changed to real SCB value
 ;-------------------------------
 ;
 ; Drive/User area lookup table:
@@ -463,7 +464,7 @@ TMPLT0		EQU	$	; Start of initialization template
 ;
 		DW	OUTBUF	; Next location in output buffer
 		DB	128	; # of bytes left in output buffer
-		DB	0,'DISK    DIR'	; Output Filename.typ
+		DB	0,'--DISK--DIR'	; Output Filename.typ
 ;
 TMPLT1		EQU	$	; End of initialization data template
 
@@ -497,11 +498,24 @@ VERNAME:	DB	13,10,'SD',MAIN+'0'
 ;			 Program starts here
 ;-----------------------------------------------------------------------
 ;
+ScbPb:	DB	1Ch,0,0,0	; SCB - get screen height
+;
+
+
 START:		LD	HL,0
 		ADD	HL,SP	; HL=old stack
 		LD	(STACK),HL	; Save it
 		LD	SP,STACK	; Get new stack
 
+		LD	C,CPMVER	; CP/M "get version function"
+		CALL	BDOS
+		CP	31h		; CP/M Plus?
+		JR	C,START1	; Skip if not
+		LD	C,SCBA		; SCB access function
+		LD	DE,ScbPb	; Pre-conditioned for screen height
+		CALL	BDOS		; height-1 comes back in A and L
+		LD	(HEIGHT_),A
+START1:
 		IF	ZCPR3P
 		LD	HL,(Z3ENV)	; Get ENV address
 		PUSH	HL
@@ -2339,8 +2353,24 @@ NOD2:
 		LD	C,COLUMNS	; Reset names per line counter
 		ENDIF	;NOT Z80DOS
 
-		CALL	CRLF	; Space down to next line
+		CALL	STRTNDL	; Start of new directory line
 		JP	ENTRY	; Output another file
+
+;.....
+;
+; Start of new directory line, write CR, LF, "DU:  "
+;
+STRTNDL:	CALL	CRLF		; Space down to next line
+		LD	A,(FCB)
+		ADD	A,'A'-1
+		CALL	PUTCHR		; Output the drive code
+		CALL	CKVER		; CP/M 2?
+		JP	C,STRTNDL1	; Skip user
+		CALL	PUTUSR		; Output user number
+STRTNDL1:	LD	DE,NOFMS3	; ':  '
+		CALL	PUTS
+		RET
+
 ;.....
 ;
 ; Compute the size of the file/library and update our summary datum.
@@ -2680,7 +2710,8 @@ NVSORT:		LD	A,C
 VSORT:
 		LD	A,(LINCNT)	; Get number of lines currently displayed
 		LD	B,A
-		LD	A,HEIGHT-2	; 22 Calc number left
+		LD	A,(HEIGHT_)
+		DEC	A
 		SUB	B
 		LD	B,A
 		LD	A,C	; Get how many lines this DU
@@ -2689,10 +2720,11 @@ VSORT:
 		LD	A,B	; This DU won't fit, so calc to fill up page
 		OR	A
 		JP	NZ,OVSORT
+		LD	HL,HEIGHT_
 		LD	A,C
-		CP	HEIGHT-1	; 23
+		CP	(HL)		; 23
 		JP	C,OVSORT
-		LD	A,HEIGHT-1	; 23
+		LD	A,(HL)	; 23
 OVSORT:
 		ENDIF	; VSPAGE
 
@@ -2744,7 +2776,8 @@ NOD5:
 		OR	A
 		JP	Z,NOD51
 
-		CALL	CRLF	; Start a new line
+		CALL	STRTNDL		; Start a new directory line
+
 NOD51:
 		LD	A,1
 		LD	(VSFRST),A
@@ -3070,10 +3103,12 @@ NOWRIT:		LD	A,B	; Recall stripped character
 		OR	A	; Set?
 		JP	Z,PUTRET	; Yes, skip page pause
 
+		LD	A,(HEIGHT_)	; 23 Allows use of [more] to finish display
+		INC	A
+		LD	L,A
 		LD	A,(LINCNT)	; Load line count
 		INC	A	; Bump it
 		LD	(LINCNT),A
-		LD	L,HEIGHT-1	; 23 Allows use of [more] to finish display
 		CP	L	; End of the screen?
 		JP	C,PUTRET
 
@@ -3114,10 +3149,12 @@ NOTEOS1:	LD	(LINCNT),A
 		LD	A,(VSFRST)
 		OR	A
 		JP	Z,DLINES1
+		LD	A,(HEIGHT_)
+		LD	L,A
 		LD	A,(WASHERE)	; Were we here before?
 		OR	A
 		JP	Z,WEWERE	; Z=no
-		CP	HEIGHT-1	; 23 Yes, must be moving by space bar, see how
+		CP	L		; 23 Yes, must be moving by space bar, see how
 ; many times
 		JP	NZ,DLINES	; NZ=not a full page worth yet
 		XOR	A	; A full page, move JUMPER up
@@ -3142,10 +3179,12 @@ WEWERE1:
 		ENDIF	; NOT Z80DOS
 
 		IF	VSPAGE
-		LD	(XPOINT),HL	; New current poition in output array
-		LD	HL,HEIGHT-1	; 23 Calc new jumper, 23 lines/page
+		LD	(XPOINT),HL	; New current position in output array
+		LD	HL,(HEIGHT_)	; 23 Calc new jumper, 23 lines/page
+		LD	E,L
+		INC	E
 		LD	A,(LINES)
-		CP	HEIGHT		; 24
+		CP	E		; 24
 		JP	NC,MLINES
 		LD	L,A
 MLINES:		CALL	MULT13
@@ -5508,6 +5547,7 @@ STDMA		EQU	26	; Set DMA Address
 DSKALL		EQU	27	; Get address of allocation vector
 DSKPAR		EQU	31	; Get address of disk parameters
 STUSER		EQU	32	; Set/get user number
+SCBA		EQU	49	; SCB access
 
 		IF	ZRDOS
 ZRDVER		EQU	48	; Return version (ZRDOS)
