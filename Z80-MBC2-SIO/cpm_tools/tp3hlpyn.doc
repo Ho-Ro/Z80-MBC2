@@ -75,25 +75,35 @@ A>
 
             Patch for Turbo Pascal 3.01A CP/M-80, Z80
 
-P>save
+Turbo shows the Copyright message and the text "Include error messages",
+and calls a subroutine to display "(Y/N)? " and read the response.
+The return value is either A=0x00, Z=1 for N/n or A=0x0B, Z=0 for Y/y.
+The minimal patch below sets A=0x0B and Z=0 instead of calling the subroutine.
 
+P>save
 P>zsid turbo.com
 SID VERS 1.4
 NEXT  PC  END
-7900 0100 C7FF
-#a21ec
-21EC  ld a,0b
-21EE  or a
-21EF  jr 220e
-21F1  .
-#l21e9
-  21E9  CALL 01D0
-  21EC  LD   A,0B
-  21EE  OR   A
-  21EF  JR   1D
+7900 0100 CFFF
+#l220b,2213
+  220B  CALL 2D00
+  220E  LD   (4523),A
+  2211  CALL NZ,2D83
+  2214
+#a220b
+220B  ld a,0b
+220D  or a
+220E  .
+#l220b,2213
+  220B  LD   A,0B
+  220D  OR   A
+  220E  LD   (4523),A
+  2211  CALL NZ,2D83
+  2214
 #g0
 
 CP/M 3 SAVE - Version 3.1
 Enter file (type RETURN to exit): turboyes.com
 Beginning hex address 100
 Ending hex address    7900
+P>
