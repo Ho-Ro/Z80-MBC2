@@ -30,7 +30,9 @@ FONT_SIZE=12
 xterm \
     -fa LiberationMono -fs $FONT_SIZE \
     -g $SCREEN_SIZE -fg orange -bg black \
-    -title "Z80-MBC2" \
+    -title "Z80MBC2" \
+    -xrm \
+        "xterm*iconHint: $HOME/.local/share/icons/Z80MBC2.xpm" \
     -xrm \
         'xterm*VT100.translations: #override \n\
         Ctrl <Key>Prior:                string(0x11) string(0x12) \n\
@@ -64,5 +66,4 @@ xterm \
         ~@Num_Lock <Key>KP_Delete:      string(0x07) \n\
         <Key>KP_Separator:              string(0x2E)' \
     -e  "picocom --send-cmd 'sx -b' --receive-cmd 'rx -b' \
-                 -b 115200 $PORT" \
-    2>/dev/null
+                 -b 115200 $PORT"
