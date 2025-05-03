@@ -40,8 +40,14 @@
  * * https://gist.github.com/bwoods/a6a467430ed1c5f3fa35d01212146fe7
  */
 
-#ifndef z80
+#define VERSION "20250502"
+
+#ifndef CPM
 #define MTIME
+#else
+#ifdef __Z88DK
+#define MTIME
+#endif
 #endif
 
 #include <stdio.h>  /* FILE functions, getc(), putc(), etc. */
@@ -71,8 +77,8 @@ int16_t G[17];
 int16_t N[1998];
 uint8_t S[32768];  /* Dictionary == lookback buffer. */
 
-FILE *infile, *outfile;
-char *inname, *outname;
+FILE *infile = NULL, *outfile = NULL;
+char *inname = NULL, *outname = NULL;
 uint32_t bytecount;
 
 /* Table of CRCs of all 8-bit messages. */
@@ -257,6 +263,30 @@ void mc_write(int16_t arg) {
 }
 
 
+#ifdef __Z88DK
+/* hard coded: timezone = +1 (Europe/Berlin) */
+#define TIMEZONE (+1 + (time->tm_isdst ? 1 : 0))
+
+char *isotime( time_t *t )
+{
+  /* Creates time string in ISO format: */
+  /* e.g. "2025-04-30 13:34\0"          */
+  static char time_buf[17];
+  struct tm *time;
+  time = gmtime( t );
+  memset(time_buf,' ',16);
+  sprintf( time_buf, "%04d-%02d-%02d %02d:%02d",
+            1900+time->tm_year,
+            time->tm_mon+1, /* 0..11 */
+            time->tm_mday,
+            time->tm_hour + TIMEZONE,
+            time->tm_min );
+
+  return (time_buf);
+}
+#endif
+
+
 /* open gzip and show archive info */
 /* do not use time functions due to too big CP/M program size */
 FILE *gzip_open() {
@@ -284,8 +314,10 @@ FILE *gzip_open() {
     fprintf( stderr, "%s: File too short, no GZIP format\n", inname );
     exit( 2 );
   }
-  lrpos = (bytecount - 1) & (-RECSIZE); /* pos of last record */
-  /* fprintf( stderr, "len: %lu, lrpos: %lu\n", len, lrpos ); */
+  lrpos = (bytecount - 1) & (uint32_t)(-RECSIZE); /* pos of last record */
+
+  /* fprintf( stderr, "bytecount: %u\n", bytecount ); */
+  /* fprintf( stderr, "lrpos: %u\n", lrpos ); */
   fseek( fp, lrpos, SEEK_SET ); /* go to last record */
   n = fread( S, 1, RECSIZE, fp ); /* read this record */
   if ( n == RECSIZE ) { /* search backwards for char != ^Z */
@@ -306,7 +338,7 @@ FILE *gzip_open() {
     exit( 2 );
   }
   /* fprintf( stderr, "XFL: %d, OS: %d - ", S[8], S[9] ); */
-  fprintf( stderr, "compressed: %lu - uncompressed: ", bytecount );
+  fprintf( stderr, "compressed: %u - uncompressed: ", bytecount );
   if ( S[ 3 ] == 0x08 ) {
     outname = (char *)(S+10);
     fprintf( stderr, "%s ", outname);
@@ -319,10 +351,15 @@ FILE *gzip_open() {
 #ifdef MTIME
   /* get modification time of archive content and display in ISO 8601 format */
   mtime = *(uint32_t*)(S+4);
-  strftime( timestr, sizeof timestr, "%Y-%m-%d %H:%M", localtime( &mtime ) );
-  fprintf( stderr, "%lu %s\n", ISIZE, timestr );
+#ifdef __Z88DK
+  /* use local isotime function */
+  fprintf( stderr, "%lu %s\n", ISIZE, isotime( &mtime ) );
 #else
-  /* no time functions b/c they blow up the com file too much */
+  strftime( timestr, sizeof timestr, "%Y-%m-%d %H:%M", localtime( &mtime ) );
+  fprintf( stderr, "%u %s\n", ISIZE, timestr );
+#endif
+#else
+  /* HiTech C: no time functions b/c they blow up the com file too much */
   fprintf( stderr, "%lu\n", ISIZE );
 #endif
 
@@ -336,7 +373,8 @@ int main(int argc, char **argv) {
   int16_t o, q, ty, oo, ooo, oooo, f, p, x, v, h, g;
 
   if ( argc < 2 || argc > 3 ) {
-#ifdef z80
+    fprintf( stderr, "Tiny GUNZIP tool version %s\n", VERSION );
+#ifdef CPM
 /* CPM cannot access argv[0], args are converted to upper case */
 #define OPTION_O "-O"
     fprintf( stderr, "usage: gunzip <infile> [-o | <outfile>]\n" );
@@ -565,7 +603,7 @@ int main(int argc, char **argv) {
   fprintf( stderr, "\n" );
 
   if ( get_crc() != CRC32_gz )
-    fprintf( stderr, "CRC of archive (%lu) and calculated CRC (%lu) differ\n",
+    fprintf( stderr, "CRC of archive (%u) and calculated CRC (%u) differ\n",
              get_crc(), CRC32_gz );
   return 0;
 }
