@@ -99,7 +99,7 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
 S220718-D260225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS - finetuning FIFO level
 --------------------------------------------------------------------------------- */
 
-#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D260225\r\n"
+#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D230525\r\n"
 #define BUILD_STRING "      " __DATE__ "  " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -561,7 +561,7 @@ void setup()
     Serial.print(" (CTS, RTS used as BANK2, BANK3 signal, CE2 inverted)");
   Serial.println();
 
-  // Print RTC and GPIO informations if found
+  // Print RTC, GPIO, SIO informations if found
   foundRTC = autoSetRTC();                        // Check if RTC is present and initialize it as needed
   if (moduleGPIO) Serial.println(F("IOS: Found GPE Option"));
   if (moduleSIO) Serial.println(F("IOS: Found SIOA / SIOB Option"));
@@ -2678,11 +2678,12 @@ void printDateTime(byte readSourceFlag)
 //    If readSourceFlag = 1 the RTC read is done (global variables are updated)
 {
   if (readSourceFlag) readRTC(&seconds, &minutes, &hours, &day,  &month,  &year, &tempC);
-  print2digit(day);
-  Serial.print("/");
-  print2digit(month);
-  Serial.print("/");
+  Serial.print("20");
   print2digit(year);
+  Serial.print("-");
+  print2digit(month);
+  Serial.print("-");
+  print2digit(day);
   Serial.print(" ");
   print2digit(hours);
   Serial.print(":");
