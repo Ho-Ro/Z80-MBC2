@@ -4,8 +4,9 @@ The zipped disk drive image `DS2N13.DSK.zip` (CP/M3 drive `N:`) contains the
 source code, all build tools, and the binaries for a banked CP/M3 BIOS with
 two additional SIO interfaces `SIOA` and `SIOB`, connected to the `I2C` bus.
 The SIOs allow all original CP/M baud rates that can be set with `DEVICE.COM`
-and the additional speeds 14400, 38400, 57600 and 115200 Bd.
-The tool `DEVMODE.COM` can be used to set all possible baud rates.
+and the additional speeds 14400, 28800, 38400, 57600 and 115200 Bd.
+The tool `DEVMODE.COM` can be used to set all possible baud rates
+and enable or disable HW handshake via RTS/CTS.
 
 ## HW preparation
 Obtain an SC16IS752 I2C/SPI Bus Interface to UART Module (or UART expander),
@@ -18,25 +19,30 @@ Attach the module to the Z80-MBC2, directly connecting the 4 lines:
 - SDA
 No need for external pullup resistors. The SC16IS752 operates on 3.3 V,
 but all inputs tolerate the 5 V signals coming from the Z80-MBC2.
-Currently both SIOs do not use any handshake, so it is sufficient to perform
-a voltage conversion of RxD and TxD of each channel for RS232 connections,
+The BIOS supports automatic HW handshake via RTS/CTS, therefore it is
+recommended to route the signals to TxD, RxD, RTS, and CTS
+(with correct RS232 level) to the interface connector(s),
 e.g. using a MAX3232 RS-232 line driver and receiver module.
+
 The level shifter is available as a cheap small module, even with a DB9
 connector (Converter RS232 - UART with connector DB9 - SP3232 3.3V/5V).
 
 ## System preparation
 
 ### CP/M update
-Unzip the drive image `DS2N13.DSK.zip`.
+Unzip the drive image [`DS2N13.DSK.zip`](DS2N13.DSK.zip).
 Take out the SD-card and copy the file `DS2N13.DSK` to the root directory,
 replacing the old (previously) empty CP/M3 disk image for drive `N:`.
 You can also use any other CP/M3 drive except `A:` aka `DS2N00.DSK`, just
 rename the `DS2N??.DSK` file accordingly.
 
+You shold also make a copy of your working drive `A:` image `DS2N00.DSK`,
+e.g. as `DS2N00.SAV`. In case of trouble you can always go back.
+
 ### IOS update
 The new BIOS requires an updated IOS, ver. S220718-R290823-D260125 or later.
 Program one of the `S220718-D??????-IOS-Z80-MBC2-SIO_??MHz.hex` files on your
-AVR, using programmer HW with a tool like e.g. `avrdude`. Chose the correct
+AVR, using a programmer HW with a tool like e.g. `avrdude`. Chose the correct
 clock frequency 16MHz or 20 MHz, depending on your XTAL.
 
 #### Update IOS using a bootloader
@@ -95,8 +101,8 @@ If you want a quick fallback-solution w/o SD-card handling keep your
 original `A:CPM3.SYS` and copy the file `N:CPMX.SYS` to `A:CPMX.SYS`.
 This can be done with `PIP A:=N:CPMX.SYS` or `MAKE INSTALL` from `N:`.
 To boot either the original `CPM3.SYS` or the new `CPMX.SYS`, rename
-the provided file `CPMXLDR.COM` to `CPMLDR.COM` and put it on the root
-directory of the Z80-MBC2 SD card.
+the provided file [`cpmxldr.com`](bios_devel.linux/cpmxldr.com) to
+`CPMLDR.COM` and put it on the root directory of the Z80-MBC2 SD card.
 Depending on the status of the IOS `AUTOEXEC` bit it will load either
 `A:CPM3.SYS` (`AUTOEXEC==OFF`) or `A:CPMX.SYS` (`AUTOEXEC==ON`).
 When it doesn't find the `A:CPMX.SYS` file then it loads `A:CPM3.SYS`.
