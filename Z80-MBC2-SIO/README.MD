@@ -10,8 +10,10 @@ and enable or disable HW handshake via RTS/CTS.
 
 ## HW preparation
 Obtain an SC16IS752 I2C/SPI Bus Interface to UART Module (or UART expander),
-select I2C mode and address `90h` - connect `A0` and `A1` to `Vdd` (3.3V).
-The datasheet uses 8 bit addressing, while IOS uses the 7 bit address `48h`.
+select I2C mode and address `0x90` - connect `A0` and `A1` to `Vdd` (3.3V).
+Don't be confused, the data sheet uses the 8-bit address `0x90`, while
+IOS uses the 7-bit address `0x48h` (i.e. 0x90 >> 1), both are identical.
+
 Attach the module to the Z80-MBC2, directly connecting the 4 lines:
 - Vcc
 - GND
@@ -19,20 +21,24 @@ Attach the module to the Z80-MBC2, directly connecting the 4 lines:
 - SDA
 No need for external pullup resistors. The SC16IS752 operates on 3.3 V,
 but all inputs tolerate the 5 V signals coming from the Z80-MBC2.
-The BIOS supports automatic HW handshake via RTS/CTS, therefore it is
-recommended to route the signals to TxD, RxD, RTS, and CTS
-(with correct RS232 level) to the interface connector(s),
-e.g. using a MAX3232 RS-232 line driver and receiver module.
 
-The level shifter is available as a cheap small module, even with a DB9
-connector (Converter RS232 - UART with connector DB9 - SP3232 3.3V/5V).
+The BIOS supports automatic HW handshake via RTS/CTS, therefore it is
+recommended to route the signals [TxD, RxD, RTS, and CTS]((DOC/RS232_bottom_mod.jpeg)
+with correct RS232 level to the interface connector(s), e.g. using two
+MAX3232 RS-232 line driver and receiver modules for both SIO channels.
+
+These level shifters are available as a cheap small module, even with a
+DB9 connector (Converter RS232 - UART with connector DB9 - SP3232 3.3V/5V).
+I decided to use the DCE (female) connector b/c this allows the direct
+connection of an USB-RS232 interface or a real PC serial I/O.
 
 ## System preparation
 
 ### CP/M update
-Unzip the drive image [`DS2N13.DSK.zip`](DS2N13.DSK.zip).
+Unzip the drive `N:` image [`DS2N13.DSK.zip`](DS2N13.DSK.zip).
 Take out the SD-card and copy the file `DS2N13.DSK` to the root directory,
 replacing the old (previously) empty CP/M3 disk image for drive `N:`.
+Make a backup of the old disk image if you like.
 You can also use any other CP/M3 drive except `A:` aka `DS2N00.DSK`, just
 rename the `DS2N??.DSK` file accordingly.
 
@@ -46,14 +52,17 @@ AVR, using a programmer HW with a tool like e.g. `avrdude`. Chose the correct
 clock frequency 16MHz or 20 MHz, depending on your XTAL.
 
 #### Update IOS using a bootloader
-If you want to update via the serial bootloader then load one of the
+1. If you want to update via the serial bootloader then load one of the
 `S220718-D??????-IOS-Z80-MBC2-SIO_BL_??MHz.hex` files initially (unless you
-have already installed a bootloader). Check/set the correct AVR fuse values
+have already installed a bootloader, in which case you can proceed directly to 2.).
+Check/set the correct AVR fuse values
 lfuse = 0xAF, hfuse = 0xD6 (avrdude: `-U lfuse:w:0xAF:m -U hfuse:w:0xD6:m`)
 and program the hex file with your programmer.
-Later updates can be done via the serial interface using the `urboot` loader
-(`avrdude -p m32 -c urclock -U S22...-SIO_xxMHz.hex`), no need to attach the
-HW programmer again. The bootloader option depends on the serial DTR-Reset.
+
+2. Later updates can be done via the serial interface using the Arduino IDE
+or the `urboot` loader (`avrdude -p m32 -c urclock -U S22...-SIO_xxMHz.hex`),
+no need to attach the HW programmer again.
+The bootloader option depends on the serial DTR-Reset.
 
 #### Extended RX buffer for CP/M XMODEM
 Instead of 'hijacking' the LTO linker option of the MightyCore library
@@ -115,6 +124,8 @@ assignment of physical devices to the logical devices `CRT:`, `AUX:`, `PRN:`
 and `VERBOSE.PAS` / `VERBOSE.COM` to support debugging of the IOS functions.
 
 ## Build your own CP/M3 BIOS
+
+### Using the CP/M toolchain
 Building and installing is controlled by `MAKE.COM` and the `MAKEFILE`.
 Implement your modifications with your editor of choice, e.g. `WS.COM` or
 `TURBO.COM`; enter `MAKE` and the new system will be created.
