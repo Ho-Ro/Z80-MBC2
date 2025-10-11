@@ -97,9 +97,10 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
                    the Z80-MBC2, possible "strange" printer behaviors are avoided. This makes the STROBE and
                    INIT lines of the parallel port not active after a power on/reset.
 S220718-D260225   DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS - finetuning FIFO level
+S220718-D080825   corrected handling for ram extension
 --------------------------------------------------------------------------------- */
 
-#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D230525\r\n"
+#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D080825\r\n"
 #define BUILD_STRING "      " __DATE__ "  " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -1518,7 +1519,6 @@ void loop()
                 digitalWrite(BANK1, HIGH);
                 if (ramCfg > 0) digitalWrite(BANK2, HIGH);
                 if (ramCfg > 1) digitalWrite(BANK3, LOW);
-                if (ramCfg > 1) digitalWrite(BANK3, LOW);
               break;
 
               case 6:                             // Os bank 7
@@ -1526,7 +1526,7 @@ void loop()
                 digitalWrite(BANK0, LOW);
                 digitalWrite(BANK1, LOW);
                 if (ramCfg > 0) digitalWrite(BANK2, HIGH);
-                if (ramCfg > 1) digitalWrite(BANK3, HIGH);
+                if (ramCfg > 1) digitalWrite(BANK3, LOW);
               break;
 
               case 7:                             // Os bank 8
@@ -2047,11 +2047,15 @@ void loop()
               //                              X  X  X  0  X  X  X  X    CP/M warm boot message disabled
               //                              X  X  X  1  X  X  X  X    CP/M warm boot message enabled
               //
-              // NOTE 1: Currently only D0-D4 are used
+              // NOTE 1: Currently only D0-D4,D6,D7 are used
               // NOTE 2: The D4 flag is set/reset using the D0 bit of the SETOPT Opcode (see SETOPT for more info)
+	      //                              0  0  X  X  X  X  X  X    RAM: 128kBytes
+	      //                              0  1  X  X  X  X  X  X    RAM: 256kBytes
+	      //                              1  0  X  X  X  X  X  X    RAM: 512kBytes
+	      // Note 3: D6-D7 assigned to represent RAM-size
 
               ioData = autoexecFlag | (foundRTC << 1) | ((Serial.available() > 0) << 2) | ((LastRxIsEmpty > 0) << 3)
-                       | (cpmWarmBootFlg << 4);
+		| (cpmWarmBootFlg << 4 | (ramCfg << 6));
             break;
 
             case  0x84:
