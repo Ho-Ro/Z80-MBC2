@@ -13,23 +13,15 @@ but I'll implement it gapless into the BIOS as AUX device.
 I edit the source code on my Debian Linux and build directly on the CP/M system via `MAKE.COM`.
 Files are transfered between Linux and CP/M with `lrzsz` and `XM.COM`, using the xmodem protocol.
 
-Current status:
+The current status is documented in an own [README](Z80-MBC2-SIO/README.MD) document, Highlights:
 
 - Original BIOS source code in Z80 syntax (`*.MAC`) builds a working `CPM3.SYS`.
 - `MAKEFILE` allows the faster build that translates only changed parts.
-- `CHARIO.MAC` provides a dummy `AUXIN` (returns `EOF`) and `AUXOUT` (kind of `/dev/null`).
-- `S220718-R290823_IOS-Z80-MBC2.ino` provides I/O commands for `AUXIN`, `AUXOUT`, `AUXSTAT` and `AUXCTRL`.
+- `CHARIO.MAC` provides two new physical devices `SIOA` and `SIOB`.
+- `S220718-R290823_IOS-Z80-MBC2.ino` provides I/O commands for communication and controlling.
 - `Makefile` allows the compiling of the `*.ino` via `arduino-cli` tool.
 
-Next goal:
-
-- Implementation of a simple I2C target on an Arduino Nano to test the signal flow,
-  initially as bufferless AUXOUT without handshake signals.
-
-Further steps:
-
-- Add a serial buffer and handshake signals on the target.
-- AUXIN ...
+The development process is discussed in detail in this (German) forum thread [Z80 MBC 2 - Aufbau und Inbetriebnahme](https://forum.classic-computing.de/forum/index.php?thread/19422-z80-mbc-2-aufbau-und-inbetriebnahme/).
 
 ## Original README file from [upstream](https://github.com/SuperFabius/Z80-MBC2)
 
