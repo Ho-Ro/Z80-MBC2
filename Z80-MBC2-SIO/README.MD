@@ -5,12 +5,6 @@ source code, all build tools, and the binaries for a banked CP/M3 BIOS with
 two additional SIO interfaces `SIOA` and `SIOB`, connected to the `I2C` bus.
 The SIOs allow all original CP/M baud rates that can be set with `DEVICE.COM`
 and the additional speeds 14400, 28800, 38400, 57600 and 115200 Bd.
-The tool `DEVMODE.COM` (located in [`cpm_tools`](cpm_tools)) can be used
-to set all possible baud rates 50 Bd .. 115200 Bd and disable (`NONE`)
-or enable HW handshake (`RTSCTS`) for a physical device `PD`
-or attach one or more physical device(s) `PD` to a logical device `LD`.
-
-    Usage: DEVMODE [ PD [BAUD] [HDSH] | LD [PD [PD] ... ] | /H[ELP] ]
 
 ## HW preparation
 
@@ -143,6 +137,33 @@ Also included are source and binaries of utility programs for these SIOs,
 i.e. `DEVMODE.PAS` / `DEVMODE.COM` to handle all supported baud rates and the
 assignment of physical devices to the logical devices `CRT:`, `AUX:`, `PRN:`
 and `VERBOSE.PAS` / `VERBOSE.COM` to support debugging of the IOS functions.
+
+### Device configuration
+
+The tool `DEVMODE.COM` (located in [`cpm_tools`](cpm_tools)) can be used
+to set all possible baud rates 50 Bd .. 115200 Bd and disable (`NONE`)
+or enable HW handshake (`RTSCTS`) for a physical device `PD`
+or attach one or more physical device(s) `PD` to a logical device `LD`.
+
+```
+DEVMODE v.0.6
+Usage: DEVMODE [ PD [BAUD] [HDSH] | LD [PD [PD] ... ] | /H[ELP] ]
+
+  - Set the baud rate or handshake mode of a physical device
+    PD:   Physical Device Name, one of:
+          CRT LPT SIOA SIOB
+    BAUD: Baud rate, one of:
+             50     75    110    134    150    300    600   1200
+           1800   2400   3600   4800   7200   9600  19200  14400
+          28800  38400  57600 115200
+    HDSH: Handshake mode, one of:
+          NONE, RTSCTS, XONXOFF
+
+  - Display or set logical to physical device assignment
+    LD:   Logical Device Name, one of:
+          CONIN: CONOUT: AUXIN: AUXOUT: LSTOUT: CON: AUX: LST:
+    PD:   Physical Device Name, as above
+```
 
 ## Build your own CP/M3 BIOS
 
