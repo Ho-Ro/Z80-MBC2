@@ -23,6 +23,7 @@
 ; S220918           First release
 ; S220918-R090319   Changed system sign-on message
 ; S220918-R180319   Changed system sign-on message
+; S220918-R141025   Dynamic system memory size message
 ;
 ;******************************************************************************
 
@@ -107,6 +108,36 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 	ld	hl,2000h	; SIGNIFIES PHYS. DEVICE 2 (SIOA)
 	ld	(@aivec),hl	; AUX INPUT VECTOR
 	ld	(@aovec),hl	; AUX OUTPUT VECTOR
+
+	ld	hl,signon$size	; -> '128'
+	ld	a,sysflag$opc
+	out	(sto$opcd),A
+	in	A,(exc$rd$opcd)
+	and	0c0h		; $00: 128K, $40: 256K, $80: 512K
+	jp	nz,ram$256	; > 128K
+ram$128:			; $00: 128K
+	ld	(hl),'1'
+	inc	hl
+	ld	(hl),'2'
+	inc	hl
+	ld	(hl),'8'
+	jp	ram$size
+ram$256:
+	cp	40h
+	jp	nz,ram$512	; $80 -> 512K (or $C0 -> n/a)
+	ld	(hl),'2'
+	inc	hl
+	ld	(hl),'5'
+	inc	hl
+	ld	(hl),'6'
+	jp	ram$size
+ram$512:
+	ld	(hl),'5'
+	inc	hl
+	ld	(hl),'1'
+	inc	hl
+	ld	(hl),'2'
+ram$size:
 
 	ld	hl,signon$msg1	; Sign-on message part1
 	call	?pmsg
@@ -400,8 +431,13 @@ fcb$nr:	defb	0,0,0
 
 				; SYSTEM SIGN-ON MESSAGE:
 signon$msg1:
-	defb	cr,lf,'Z80-MBC2 128KB '
-	defb	'(Banked) CP/M V3.0'
+	defb	cr,lf,'Z80-MBC2 '
+signon$size:
+	defb	'128 KB'	; DEFAULT: changed according SYSFLAGS
+  if	banked
+	defb	' (Banked)'
+  endif
+	defb	' CP/M Plus'
   ifdef zpm3
 	defb	' with ZPM3'
   endif
@@ -409,15 +445,15 @@ signon$msg1:
 	defb	' (DEBUG)'
   endif
 				; BIOSKRNL	S170319 (stable)
-				; BOOT		S220918-R180319 (stable)
+				; BOOT		S220918-R141025 (stable)
 				; CHARIO	S210918-R210923-Dxxxx25 (WIP)
 				; MOVE		S290918 (stable)
 				; SCB		- (stable)
 				; VDISK		S200918 (stable)
 	defb	cr,lf
-;	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf
+;	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R141025',cr,lf
 ;	defb	'CHARIO S210918-R210923-D160125, MOVE S290918, SCB -, VDISK S200918'
-	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319',cr,lf,0
+	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R141025',cr,lf,0
 		; CHARIO.MAC is WIP, it provides its own version string in ?chario$ver
 		; No need to touch BOOT.MAC if CHARIO.MAC is changed
 signon$msg2:
