@@ -81,8 +81,8 @@ bioskrnl.rel:	bioskrnl.mac
 		@$(ZSM4) bioskrnl,bioskrnl.lis=bioskrnl | tee /dev/tty | grep -q "Errors: 0"
 
 boot.rel:	boot.mac
-		@echo -e \\n$(ZSM4) boot,boot.lis=boot /DZPM=1
-		@$(ZSM4) boot,boot.lis=boot /DZPM=1 | tee /dev/tty | grep -q "Errors: 0"
+		@echo -e \\n$(ZSM4) boot,boot.lis=boot /dzpm3
+		@$(ZSM4) boot,boot.lis=boot /dzpm3 | tee /dev/tty | grep -q "Errors: 0"
 
 chario.rel:	chario.mac
 		@echo -e \\n$(ZSM4) chario,chario.lis=chario
