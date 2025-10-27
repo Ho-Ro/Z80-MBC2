@@ -20,6 +20,15 @@
 ;
 ;******************************************************************************
 
+cr	equ	0dh
+lf	equ	0ah
+
+	dseg
+?vdisk$ver:
+	defb	'VDISK S200918-D261025',cr,lf,0
+
+	public	?vdisk$ver
+
 				;  DEFINE LOGICAL VALUES:
 true	equ	-1
 false	equ	not true
@@ -34,8 +43,6 @@ DBG	equ	false
 banked	equ	true		; <------ BANKED/NON-BANKED SWITCH
 
 bell	equ	07h
-cr	equ	0dh
-lf	equ	0ah
 
 ; -----------------------------------------------------------------------------
 ;

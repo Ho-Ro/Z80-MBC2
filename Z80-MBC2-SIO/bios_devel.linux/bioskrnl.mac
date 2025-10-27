@@ -31,6 +31,15 @@
 ;******************************************************************************
 
 				; version 1.0 15 Sept 82
+cr	equ	0dh
+lf	equ	0ah
+
+	dseg
+?bioskrnl$ver:
+	defb	'BIOSKRNL S170319',cr,lf,0
+
+	public	?bioskrnl$ver
+
 
 true	equ	-1
 false	equ	not true

@@ -27,7 +27,15 @@
 ;
 ;******************************************************************************
 
-				; DEFINE LOGICAL VALUES:
+cr	equ	0dh
+lf	equ	0ah
+
+	dseg
+?boot$ver:
+	defb	'BOOT S220918-R141025',cr,lf,0
+
+
+; DEFINE LOGICAL VALUES:
 true	equ	-1
 false	equ	not true
 				; DETERMINE IF FOR BANK SELECT OR NOT:
@@ -44,7 +52,11 @@ DBG	equ     false
 				; PUBLIC  OUT$BLOCKS
 
 				; EXTERNALLY DEFINED ENTRY POINTS AND LABELS:
-	extrn	?chario$ver	; CHARIO version changes during development
+	extrn	?bioskrnl$ver
+	extrn	?chario$ver
+	extrn	?move$ver
+	extrn	?scb$ver
+	extrn	?vdisk$ver
 	extrn   ?pmsg,?conin,?cinit
 	extrn   @civec,@covec,@aivec,@aovec,@lovec
 	extrn   @cbnk,?bnksl
@@ -141,11 +153,28 @@ ram$size:
 
 	ld	hl,signon$msg1	; Sign-on message part1
 	call	?pmsg
-	ld	hl,?chario$ver	; CHARIO version changes during development
+
+	; Every module provides its own version string
+	; No need to touch this file if a module is changed
+	; BIOSKRNL	S170319 (stable)
+	; BOOT		S220918-R141025 (stable)
+	; CHARIO	S210918-R210923-Dxxxx25 (WIP)
+	; MOVE		S290918 (stable)
+	; SCB		- (stable)
+	; VDISK		S200918-Dxxxx25 (WIP)
+
+	ld	hl,?bioskrnl$ver
 	call	?pmsg
-	ld	hl,signon$msg2	; Sign-on message part2
-	jp	?pmsg		; AND PRINT IT
-				; Note: "RET" here is not needed because we use the that one at the end of 
+	ld	hl,?boot$ver
+	call	?pmsg
+	ld	hl,?chario$ver
+	call	?pmsg
+	ld	hl,?move$ver
+	call	?pmsg
+	ld	hl,?scb$ver
+	call	?pmsg
+	ld	hl,?vdisk$ver
+	jp	?pmsg
 
 	 if	banked
 				; --------------------------
@@ -191,7 +220,7 @@ ccp$found:
 				;  DISK IF NON-BANKED VERSION
 	
 ; -----------------------------------------------------------------------------
-;    
+;
 ; SETS/GETS TIME (Z80-MBC2)
 ;
 ; The time of day is kept as four fields. 
@@ -438,26 +467,12 @@ signon$size:
 	defb	' (Banked)'
   endif
 	defb	' CP/M Plus'
-  ifdef zpm3
+  if ZPM3
 	defb	' with ZPM3'
   endif
   if	DBG			;AGN - debugging version
 	defb	' (DEBUG)'
   endif
-				; BIOSKRNL	S170319 (stable)
-				; BOOT		S220918-R141025 (stable)
-				; CHARIO	S210918-R210923-Dxxxx25 (WIP)
-				; MOVE		S290918 (stable)
-				; SCB		- (stable)
-				; VDISK		S200918 (stable)
-	defb	cr,lf
-;	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R141025',cr,lf
-;	defb	'CHARIO S210918-R210923-D160125, MOVE S290918, SCB -, VDISK S200918'
-	defb	'Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R141025',cr,lf,0
-		; CHARIO.MAC is WIP, it provides its own version string in ?chario$ver
-		; No need to touch BOOT.MAC if CHARIO.MAC is changed
-signon$msg2:
-	defb	', MOVE S290918, SCB -, VDISK S200918'
-	defb	cr,lf,0
+	defb	' - BIOS:',cr,lf,0
 	end
 

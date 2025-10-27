@@ -24,11 +24,14 @@
 ;
 ;******************************************************************************
 
+cr	equ	0dh
+lf	equ	0ah
 
 	dseg
 ?chario$ver:
-	defb	'CHARIO S210918-R210923-D150225',0
+	defb	'CHARIO S210918-R210923-D150225',cr,lf,0
 
+	public	?chario$ver
 
 				; DEFINE LOGICAL VALUES:
 true	equ	-1
@@ -57,7 +60,6 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 ; -------------------------------------------------------------------
 
 				; DEFINE PUBLIC LABELS:
-	public	?chario$ver
 	public	?cinit,?ci,?co,?cist,?cost
 	public	@ctbl
 	public 	?cnstflg	; CONST mode flag (Z80-MBC2) ***
@@ -68,9 +70,6 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 	extrn	?bnksl
     endif
 	extrn	?pmsg
-
-cr	equ	0dh
-lf	equ	0ah
 
 	include modebaud.lib	; EQUATES FOR MODE BYTE BIT FIELDS
 

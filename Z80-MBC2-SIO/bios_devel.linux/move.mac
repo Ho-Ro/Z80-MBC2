@@ -21,6 +21,15 @@
 ;
 ;******************************************************************************
 	
+cr	equ	0dh
+lf	equ	0ah
+
+	dseg
+?move$ver:
+	defb	'MOVE S290918',cr,lf,0
+
+	public	?move$ver
+
 				; DEFINE LOGICAL VALUES
 true	equ	-1
 false	equ	not true
@@ -129,13 +138,13 @@ xmov$buf: defs	128		; 128 byte bounce buffer
 	ld	a,e
 	call	?phex
 	ld	hl,comma$msg
-	call	?pmsg
+	call	?pmsg		; after call: HL -> end$msg
 	ex	(sp),hl		; dest
 	ld	a,h
 	call	?phex
 	ld	a,l
 	call	?phex
-	ex	(sp),hl
+	ex	(sp),hl		; HL -> end$msg
 	call	?pmsg
 	pop	hl
 	ld	sp,(dbgstk)
@@ -200,15 +209,13 @@ cmnstk:	defs	2
 	defs	24		; debugging stack in common
 dbgstk:	defs	2
 
-cr	equ	13
-lf	equ	10
-
 xmove$msg:
 	defb	cr,lf,'X'
 move$msg:
 	defb	'MOVE(',0
 comma$msg:
 	defb	',',0
+end$msg:
 	defb	')',cr,lf,0
     endif
 

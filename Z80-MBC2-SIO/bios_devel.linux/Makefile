@@ -75,14 +75,15 @@ bnkbios3.spr:	bioskrnl.rel boot.rel chario.rel move.rel scb.rel vdisk.rel
 		@echo
 		$(LINK) bnkbios3[B]=bioskrnl,boot,chario,move,scb,vdisk
 
-# BIOS components, enable debugging with /DDBG=1 on ZSM4 cmd line #
+# BIOS components, enable debugging with /dDBG=1 on ZSM4 cmd line #
 bioskrnl.rel:	bioskrnl.mac
 		@echo -e \\n$(ZSM4) bioskrnl,bioskrnl.lis=bioskrnl
 		@$(ZSM4) bioskrnl,bioskrnl.lis=bioskrnl | tee /dev/tty | grep -q "Errors: 0"
 
+# enable ZPM3 message with /dZPM3=1
 boot.rel:	boot.mac
-		@echo -e \\n$(ZSM4) boot,boot.lis=boot /dzpm3
-		@$(ZSM4) boot,boot.lis=boot /dzpm3 | tee /dev/tty | grep -q "Errors: 0"
+		@echo -e \\n$(ZSM4) boot,boot.lis=boot /dZPM3=1
+		@$(ZSM4) boot,boot.lis=boot /dZPM3=1 | tee /dev/tty | grep -q "Errors: 0"
 
 chario.rel:	chario.mac
 		@echo -e \\n$(ZSM4) chario,chario.lis=chario
