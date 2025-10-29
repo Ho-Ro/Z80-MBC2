@@ -1,18 +1,22 @@
 # memtest
 
-Warning, this memtest assumes a IOS version which is reporting the RAM size via 0x83 aka SYSFLAGS, else it only tests the first 128kBytes.
+- memtest - tests all banks and stops (HALT, 0x76)
+- memloop - tests all banks and starts again (can be used for stability tests, e.g. for overclocking)
+
+Warning, both tests require a current IOS version that supports the RAM modification and reports the RAM size via 0x83 alias SYSFLAGS, otherwise only the first 128 kB will be tested.
 
 ## how to build
 
 * install zasm from https://github.com/Megatokio/zasm/releases
-* zasm -x memtest.asm
+* make
 
 (tested with zasm 4.4.17 for linux amd64)
 
 ## how to start
 
-Use the IOS option 5 `iload` and paste the contents of the `memtest.hex` file into the terminal.
+Use the IOS option 5 `iload` and paste the contents of the `memtest.hex` or `memloop.hex` file into the terminal.
 Note that you must send the file in small blocks of 5 to 10 ihex lines or slow down your terminal if checksum errors occur during pasting.
+
 Under Linux, the `iload.py` tool can be used, which performs the upload in parallel with the open terminal with sufficient delays at the end of each line.
 
 ```
