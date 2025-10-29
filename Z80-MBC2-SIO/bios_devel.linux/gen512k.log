@@ -1,0 +1,293 @@
+
+
+CP/M 3.0 System Generation
+Copyright (C) 1982, Digital Research
+
+Default entries are shown in (parens).
+Default base is Hex, precede entry with # for decimal
+
+Use GENCPM.DAT for defaults (Y) ? 
+
+Create a new GENCPM.DAT file (N) ? 
+
+Display Load Map at Cold Boot (Y) ? 
+
+Number of console columns (#120) ? 
+Number of lines in console page (#40) ? 
+Backspace echoes erased character (N) ? 
+Rubout echoes erased character (Y) ? 
+
+Initial default drive (A:) ? 
+
+Top page of memory (FF) ? 
+Bank switched memory (Y) ? 
+Common memory base page (80) ? 
+
+Long error messages (Y) ? 
+
+Accept new system definition (Y) ? 
+
+Setting up Allocation vector for drive A:
+Setting up Allocation vector for drive B:
+Setting up Allocation vector for drive C:
+Setting up Allocation vector for drive D:
+Setting up Allocation vector for drive E:
+Setting up Allocation vector for drive F:
+Setting up Allocation vector for drive G:
+Setting up Allocation vector for drive H:
+Setting up Allocation vector for drive I:
+Setting up Allocation vector for drive J:
+Setting up Allocation vector for drive K:
+Setting up Allocation vector for drive L:
+Setting up Allocation vector for drive M:
+Setting up Allocation vector for drive N:
+Setting up Allocation vector for drive O:
+Setting up Allocation vector for drive P:
+
+*** Bank 1 and Common are not included ***
+*** in the memory segment table.       ***
+
+Number of memory segments (#5) ? 
+
+CP/M 3 Base,size,bank (2D,53,00)
+
+Enter memory segment table:
+ Base,size,bank (00,2D,00) ? 
+ Base,size,bank (00,80,02) ? 
+ Base,size,bank (00,80,03) ? 
+ Base,size,bank (00,80,04) ? 
+ Base,size,bank (00,80,05) ? 
+
+ CP/M 3 Sys    2D00H 5300H  Bank 00
+ Memseg No. 00 0000H 2D00H  Bank 00
+ Memseg No. 01 0000H 8000H  Bank 02
+ Memseg No. 02 0000H 8000H  Bank 03
+ Memseg No. 03 0000H 8000H  Bank 04
+ Memseg No. 04 0000H 8000H  Bank 05
+
+Accept new memory segment table entries (Y) ? 
+
+Setting up directory hash tables:
+ Enable hashing for drive A: (Y) ? 
+ Enable hashing for drive B: (Y) ? 
+ Enable hashing for drive C: (Y) ? 
+ Enable hashing for drive D: (Y) ? 
+ Enable hashing for drive E: (Y) ? 
+ Enable hashing for drive F: (Y) ? 
+ Enable hashing for drive G: (Y) ? 
+ Enable hashing for drive H: (Y) ? 
+ Enable hashing for drive I: (Y) ? 
+ Enable hashing for drive J: (Y) ? 
+ Enable hashing for drive K: (Y) ? 
+ Enable hashing for drive L: (Y) ? 
+ Enable hashing for drive M: (Y) ? 
+ Enable hashing for drive N: (Y) ? 
+ Enable hashing for drive O: (Y) ? 
+ Enable hashing for drive P: (Y) ? 
+
+Setting up Blocking/Deblocking buffers:
+
+The physical record size is 0200H:
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 002DH, Other banks = 0180H
+
+               Number of directory buffers for drive A: (#8) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 001CH, Other banks = 0180H
+
+               Number of data buffers for drive A: (#80) ? 
+               Allocate buffers outside of Common (Y) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0018H, Other banks = 00E0H
+
+               Number of directory buffers for drive B: (#8) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0007H, Other banks = 00E0H
+
+               Number of data buffers for drive B: (#80) ? 
+               Allocate buffers outside of Common (Y) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive C: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive C: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive D: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive D: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive E: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive E: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive F: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive F: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive G: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive G: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive H: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive H: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive I: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive I: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive J: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive J: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive K: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive K: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive L: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive L: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive M: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive M: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive N: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive N: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive O: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive O: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of directory buffers for drive P: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+               Number of data buffers for drive P: (#0) ? 
+               Share buffer(s) with which drive (B:) ? 
+
+     Available space in 256 byte pages:
+     TPA = 00F3H, Bank 0 = 0003H, Other banks = 0040H
+
+
+Accept new buffer definitions (Y) ? 
+
+ RESBIOS3 SPR  F900H  0700H
+ BNKBIOS3 SPR  5000H  3000H
+ RESBDOS3 SPR  F300H  0600H
+ BNKBDOS3 SPR  2200H  2E00H
+
+*** CP/M 3.0 SYSTEM GENERATION DONE ***
