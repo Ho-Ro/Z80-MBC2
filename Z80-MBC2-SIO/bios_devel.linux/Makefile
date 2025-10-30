@@ -41,7 +41,7 @@ testcpmx.com:	bootsys.bin cpmx.sys
 # renamed to cpmx.sys, put it on A: and boot with the modified cpmldr3.com
 cpmx.sys:	bnkbios3.spr bnkbdos3.spr resbdos3.spr gencpm.dat
 		@echo
-		$(GENCPM3) auto
+		$(GENCPM3) auto display > gencpm.log
 		mv cpm3.sys cpmx.sys
 
 bootsys.bin:	bootsys.rel
