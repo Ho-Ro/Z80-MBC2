@@ -15,9 +15,11 @@ MAC =     $(TNYLPO) ../CPM.COM/mac
 PIP =     $(TNYLPO) ../CPM.COM/pip
 ZSM4 =    $(TNYLPO) ../CPM.COM/zsm4
 
+BIOS = ../bios_devel.linux
+
 
 .PHONY: all
-all: bnkbdos3.spr resbdos3.spr
+all: bnkbdos3.spr resbdos3.spr autotog.com clrhist.com
 
 
 bnkbdos3.spr: bnkbdos3.rel
@@ -34,9 +36,32 @@ resbdos3.rel: rzpm0.z80
 	$(ZSM4) resbdos3=rzpm0.z80
 
 
+autotog.com: autotog.rel
+	$(LINK) autotog
+
+autotog.rel: autotog.z80
+	$(ZSM4) =autotog.z80
+
+
+clrhist.com: clrhist.rel
+	$(LINK) clrhist
+
+clrhist.rel: clrhist.z80
+	$(ZSM4) =clrhist.z80
+
+
+.PHONY: install
+install: $(BIOS)/bnkbdos3.spr $(BIOS)/resbdos3.spr
+
+$(BIOS)/bnkbdos3.spr: bnkbdos3.spr
+	cp $< $@
+
+$(BIOS)/resbdos3.spr: resbdos3.spr
+	cp $< $@
+
 .PHONY: clean
 clean:
-	rm -f *~ bnkbdos3.rel bnkbdos3.sym resbdos3.rel resbdos3.sym
+	rm -f *~ *.rel *.sym *.lis
 
 .PHONY: distclean
 distclean: clean

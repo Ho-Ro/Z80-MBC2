@@ -1,0 +1,1110 @@
+;*****************************************************************
+;**								**
+;**	Resident Portion of ZPM3 (Release N10) by Simeon Cran	**
+;**								**
+;*****************************************************************
+;**								**
+;**	Disassembly via DazzleStar, text processing with	**
+;**	WordStar Release 4, and assembly with SLR180 by 	**
+;**	Tilmann Reh, on the self-designed and self-built	**
+;**	CP/M-Plus Workstation based upon the CPU280		**
+;**	single-board-computer (featuring a 12.3 MHz Z280).	**
+;**								**
+;**	Disassembled on 06. December 1994, and commented	**
+;**	from 09. July 1995 to 25. November 1995.		**
+;**								**
+;**	Labels may be copyright to Digital Research (maker	**
+;**	of CP/M-3).						**
+;**								**
+;*****************************************************************
+
+; Some features were added compared to CP/M-3. For details,
+; see the document files that come with the ZPM3 binaries.
+
+; However, there is a detail not mentioned in the documents:
+; ZPM3 uses the IX and IY registers as pointers to the SCB and
+; the BDOS input parameters, and since they're not saved and
+; restored throughout the whole ZPM3 BDOS, it is necessary that
+; those registers aren't affected by *any* BIOS function. Problems
+; which were caused by this were one of the stronger reasons to
+; disassemble ZPM3.
+
+; I really tried hard to get in contact with Simeon, to discuss
+; such details and to solve the problems together. After that
+; failed, I finally started disassembly. During this, I found
+; some more strange (buggy?) details, which I marked with double
+; question marks ("??") in the comments.
+
+; There surely is much more room for improvements. Simeon's main
+; job obviously was changing all jump instructions to relative
+; jumps where this was possible. Only few routines were further
+; optimized by rewriting them for the Z80.
+		.z80
+		cseg
+
+; The first six bytes contain the "Serial Number".
+; ResBdos is the (relocatible) base address of the resident BDOS.
+
+ResBdos:	DB	'SIMEON'
+
+; Main entry points for BDOS calls from application programs,
+; and for the interface between the resident and banked portions
+; of the BDOS.
+
+Entry:		JP	Start		; "official" BDOS entry
+		JP	MoveA		; block move from bank A
+		JP	Move1		; block move from bank 1 (TPA)
+		JP	Search		; search hash tables
+
+; Global variables for interface between both BDOS portions.
+
+SrchLim:	DW	0
+SrchFlag:	DB	0,0
+PwdEnable:	DB	0
+AltDir: 	DW	0
+		DW	Buffer
+DmaAdr: 	DW	0
+FcbCopyFlag:	DB	0
+UserFcbAdr:	DW	0
+ConInBuf:	DB	0
+		JP	GetBnk1
+		JP	CallUsrRSX
+
+; Handling of BDOS calls from application programs starts here.
+; First, the register contents are saved and some pointers are
+; set for further BDOS operations.
+
+Start:		LD	A,C		; get function code into C
+		LD	HL,0
+		LD	B,H		; (into BC, more detailed)
+		LD	(ReturnVal),HL	; clear return value
+		LD	(UserIX),IX	; save user's IX
+		LD	IX,ScbBase	; let IX point to the SCB
+		LD	(UserIY),IY
+		LD	(UserSP),SP	; save user's IY and stack
+		LD	SP,ResStack	; use our own (resident) stack
+		LD	HL,BdosReturn
+		PUSH	HL		; push internal return address
+		CP	12
+		JP	NC,FuncDist2	; function above 11: use 2nd table
+
+; BDOS functions 0 to 11 are handled here. Besides basic character
+; I/O, this also contains the warm boot function.
+
+		LD	(@FX),A		; store function code in SCB
+		LD	HL,ConFuncTab
+		ADD	HL,BC
+		ADD	HL,BC		; point to function routine address
+		LD	A,(HL)
+		INC	HL
+		LD	H,(HL)
+		LD	L,A		; get address into HL
+JmpHL:		JP	(HL)		; ...and jump into func. routine
+
+; Address table for BDOS functions 0 to 11 (basic character I/O).
+; Only function 1 (Console Status) is handled within the banked
+; portion since it is rather complex (considering XON/XOFF etc.).
+
+ConFuncTab:	DW	?WBoot
+		DW	BankedFunc
+		DW	ConOut
+		DW	AuxIn
+		DW	AuxOut
+		DW	ListOut
+		DW	DirectCon
+		DW	AuxInSt
+		DW	AuxOutSt
+		DW	PrintStr
+		DW	ReadConBuf
+		DW	BankedFunc
+
+; This are the basic character I/O functions. Most routines simply
+; pass control to the BIOS, after moving the character from the E
+; register (BDOS parameters) to the C register (BIOS parameters).
+
+AuxOut: 	LD	C,E
+		JP	?AuxOut
+
+ListOut:	LD	C,E
+		JP	?LstOut
+
+; Check keyboard input status. If there's anything in the buffer,
+; return "character available".
+
+GetKeyStat:	LD	A,(ConInBuf)	; check input buffer first
+		OR	A		; is there anything?
+		LD	A,0FFh
+		RET	NZ		; yes: return with A=FF
+		JP	?ConSt		; no: check current physical status
+
+; Get a character from the keyboard. Again, check input buffer first
+; and return its contents if not empty.
+
+GetKeyBuf:	LD	HL,ConInBuf
+		LD	A,(HL)		; get previous buffer contents
+		LD	(HL),0		; now reset buffer anyway
+		OR	A		; was anything in buffer?
+		RET	NZ		; yes: return that character
+		JP	?ConIn		; no: get (wait for) physical input
+
+; Print a string on the console up to the delimiter defined in the SCB.
+
+PrintStr:	LD	A,(DE)		; get character from string
+		CP	(IX+37H)	; compare to @DELIM
+		RET	Z		; equal: end of string
+		INC	DE		; bump pointer to next char
+		PUSH	DE
+		LD	C,A		; move character into C
+		CALL	ConsoleOut	; ...and output to console
+		POP	DE
+		JR	PrintStr	; loop until delimiter found
+
+; Read console buffer. The function of this routine is to move the
+; user's buffer data into common memory, then call the banked BDOS
+; portion to perform the function, and move the result back into the
+; user's buffer upon return.
+
+ReadConBuf:	LD	A,D
+		OR	E		; given buffer address zero?
+		JR	NZ,ReadConBufDE	; no: use it
+		LD	HL,InputBuffer
+		LD	(@BufPtr),HL	; otherwise set internal pointer
+		LD	DE,(@CrDma)	; and assume current DMA address
+
+ReadConBufDE:	EX	DE,HL		; get buffer address into HL
+		PUSH	HL		; ...and save it
+		LD	B,0
+		LD	C,(HL)		; get buffer size into BC
+		INC	BC
+		INC	BC
+		INC	BC		; add 3 for size, length, delimiter
+		LD	DE,InpBufLength	; target: resident buffer (base)
+		LDIR			; copy user buffer into resident one
+		EX	DE,HL		; get target address into HL
+		LD	(HL),0		; set delimiter (for safety)
+		LD	DE,InpBufLength
+		LD	C,10
+		CALL	BankedFunc	; call banked BDOS with resident buf.
+		LD	A,(InpBufUsed)
+		LD	C,A
+		LD	B,0		; get used length into BC now
+		INC	BC
+		INC	BC		; add 2 for size & length
+		LD	HL,InpBufLength	; source: resident buffer
+		POP	DE		; target: user's buffer
+		LDIR			; copy new contents into user's buf.
+		RET
+
+; Table of console output codes which are handled by the banked BDOS
+; portion only.
+
+CtlCodes:	DB	BS,TAB,XON,XOFF,DEL
+CtlCodeNum	equ	$-CtlCodes
+
+; Output the character in C (or E, resp.) to the console. Check if this
+; has to be handled in the banked BDOS portion or if it can be output
+; directly with a BIOS call.
+; The more complex functions like XON/XOFF and ^C handling are supported
+; by the banked routine only. For simple character outputs, which are
+; assumed to be the most, this routine however will do the work - speeding
+; it all up significantly since there is no need for bank switching.
+
+ConOutC:	LD	E,C
+ConOut: 	LD	A,E
+		LD	(OutputChar),A	; store output char (in-code variable)
+		BIT	3,(IX+33H)	; ^C termination disabled?
+		JR	NZ,ConOut1	; yes: don't check keyboard input now
+		BIT	0,(IX+38H)	; printer echo enabled?
+		JR	NZ,ConOut3	; yes: use banked output routine
+
+		LD	HL,CtlCodes	; get address and count of ctl chars
+		LD	B,CtlCodeNum
+ChkCtlLoop:	CP	(HL)		; check output character
+		JR	Z,ConOutCtl	; control character: use banked routine
+		INC	HL
+		DJNZ	ChkCtlLoop	; check against all ctl chars in table
+
+		LD	A,(ConInBuf)	; get keyboard input buffer
+		CP	13H		; was XOFF (^S) pressed?
+		JR	Z,ConOut3	; yes: let the banked BDOS work
+		CALL	?ConSt		; no: check current input status
+		OR	A
+		JR	NZ,ConOut3	; any key pressed: use banked BDOS
+
+ConOut1:	LD	C,0		; load the output char into C
+OutputChar	EQU	$-1
+		LD	HL,@Column
+		INC	(HL)		; increment current column
+		LD	A,C
+		CP	' '
+		JP	NC,?ConOut	; visible character: output via BIOS
+		CP	CR
+		JR	NZ,ConOut2	; any ctl char: don't inc. column
+		LD	(HL),1		; CR: set column to 1 (will be 0)
+ConOut2:	DEC	(HL)		; ctl char: restore previous column
+		JP	?ConOut		; output ctl char's too
+
+; Call the banked BDOS for doing a specific console character output.
+
+ConOut3:	LD	A,(OutputChar)
+ConOutCtl:	LD	E,A		; get the character back into E
+		LD	C,2		; ...and the function code into C
+
+; General entry for calling the banked BDOS portion. The bank is switched
+; to the system bank before and to the TPA after the banked BDOS call.
+; The return value from the banked BDOS is stored and later returned to
+; the calling program.
+
+BankedFunc:	XOR	A
+		CALL	?SelMem		; select system bank (0)
+		CALL	?Banked		; call banked BDOS
+		LD	(ReturnVal),HL	; store result
+		LD	A,1
+		JP	?SelMem		; select TPA bank (1)
+
+; Block output functions. There are two BDOS functions (111 and 112)
+; which are similar but use different targets (console resp. printer).
+; Since all other details are equal, there is only one routine, which
+; checks for the output device for every character being processed.
+
+BlockFunc:	LD	(BlockFX),A	; store function (for device selection)
+		EX	DE,HL		; get address of CCB into HL
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get block start address into DE
+		INC	HL
+		LD	C,(HL)
+		INC	HL
+		LD	B,(HL)		; get block length into BC
+		EX	DE,HL		; move start address into HL
+BlockLoop:	LD	A,B
+		OR	C
+		RET	Z		; return if we're done
+		PUSH	BC
+		PUSH	HL		; save address and count
+		LD	C,(HL)		; get output character
+		LD	DE,BlockLoopRet
+		PUSH	DE		; push internal return address
+		LD	A,0		; get function code (in-code variable)
+BlockFX 	EQU	$-1
+		CP	112		; List block ?
+		JP	Z,?LstOut	; yes: use BIOS list output routine
+
+; Console output routine. This routine will send a character (C) to the
+; console and also take care of the current console mode. It is also
+; used by other functions than the block output routine.
+
+ConsoleOut:	LD	A,(@ConMod)	; get current console mode
+		LD	B,A
+		AND	2		; XON/XOFF supported?
+		JR	Z,ConOutC	; yes: use more complex routine
+		LD	A,B
+		AND	14h		; raw mode?
+		JR	Z,ConOutC	; no: use complex routine
+		JP	?ConOut		; raw mode: use BIOS directly
+
+; Block output routine loop: restore & bump pointers and count,
+; and jump back to the remaining length check.
+
+BlockLoopRet:	POP	HL
+		POP	BC		; get back address and count
+		INC	HL
+		DEC	BC		; bump pointers
+		JR	BlockLoop	; loop until block is done
+
+; Get a byte at (HL) from bank 1 (TPA). If the desired address is
+; within common memory, the bank switching is avoided and the byte
+; is taken directly.
+
+GetBnk1:	LD	A,(CommonBasePg)
+		DEC	A		; get highest banked page into A
+		CP	H		; compare against given address
+		LD	A,1
+		JR	C,Get1Direct	; we're above: get directly (common)
+		CALL	?SelMem		; banked: select bank 1 (TPA)
+		LD	B,(HL)		; get byte into B first
+		XOR	A
+		CALL	?SelMem		; select bank 0 again
+		LD	A,B		; return byte in A now
+		RET
+
+Get1Direct:	LD	A,(HL)
+		RET
+
+; This routine is to call an RSX in the TPA (below common memory).
+; For this, the TPA bank must be selected before the RSX is called.
+; The address of the RSX entry is given in HL.
+
+CallUsrRSX:	LD	A,1
+		CALL	?SelMem		; select TPA bank
+		CALL	JmpHL		; call RSX at (HL)
+		LD	B,A		; save return value
+		XOR	A
+		CALL	?SelMem		; select system bank
+		LD	A,B		; restore return value
+		RET
+
+; Second function distribution routine. This one handles all the
+; BDOS functions from 12 up.
+
+FuncDist2:	CP	51
+		JR	C,FuncDist3	; below function 51: another routine
+		CP	98
+		JP	C,FuncDist4	; below 98: Z80DOS stamp call?
+		CP	113
+		JP	NC,FuncDist4	; above 112: Parse Filename?
+		CP	111
+		JR	Z,BlockFunc	; func. 111: Print Block (console)
+		CP	112
+		JR	Z,BlockFunc	; func. 112: List Block (printer)
+		JP	FileFunct	; anything else: more file I/O
+
+; Third function distribution routine, handling BDOS functions
+; between 12 and 51 (file I/O functions).
+; Function 26 (Set DMA) is handled immediately by simply storing the
+; given value.
+
+FuncDist3:	CP	17
+		JR	Z,SearchFirst	; Search First: handle separately
+		CP	18
+		JR	Z,SearchNext	; Search Next: too
+		CP	32
+		JR	Z,GetSetUser	; Get/Set User code: no file I/O
+		CP	26
+		JR	NZ,FileFunct	; not "Set DMA": file I/O
+
+		LD	(@CrDma),DE
+		LD	(DmaAdr),DE	; Func. 26: Set DMA address
+		RET
+
+; Get/Set user code. This is handled at once.
+
+GetSetUser:	LD	A,E		; get parameter into A
+		INC	E		; check if it is FFh (get user)
+		JR	NZ,SetUser	; no: set the user code
+		LD	A,(@UsrCd)	; otherwise get current user
+		AND	0FH		; mask off unused/invalid bits
+		JP	BdosReturnA	; return value in A
+
+SetUser:	AND	0FH		; mask off unused/invalid bits
+		LD	(@UsrCd),A	; store new user code
+		RET
+
+; File I/O functions, calling the banked BDOS. Search First and
+; Search Next are handled separately since they store/recall the
+; address of the search FCB.
+
+SearchFirst:	LD	(@SrFcb),DE	; store search FCB address
+		JR	FileFunct	; proceed like other file I/O
+
+SearchNext:	LD	DE,(@SrFcb)	; recall search FCB address
+
+; File I/O function calls. Before calling the banked BDOS, buffers
+; are prepared if necessary. This is handled via a flag table at
+; the end of the resident BDOS which contains bit flags for the
+; different data move operations:
+; Bit 0 : copy 16 bytes from current DMA, and user's FCB (36 byte)
+;         to resident buffer before BDOS call.
+; Bit 1 : copy user FCB (36 byte) to resident FCB buffer before BDOS call.
+; Bit 2 : copy 6 byte to user's XCB after BDOS call.
+; Bit 3 : copy 3 byte to current DMA after BDOS call.
+; Bit 4 : copy 4 byte to user's XCB after BDOS call.
+; Bit 5 : copy 128 data bytes to current DMA after BDOS call.
+; Bit 6 : update user's FCB (36 byte) after BDOS call.
+; Bit 7 : update user's FCB (33 byte) after BDOS call.
+
+FileFunct:	LD	HL,FcbFuncTable1-12 ; table offset for func. 12..50
+		LD	A,C
+		CP	98
+		JR	C,FileFunc1	; below 98: ok
+		LD	HL,FcbFuncTable2-98 ; otherwise: different offset
+FileFunc1:	LD	B,0
+		ADD	HL,BC		; compute pointer into flag table
+		LD	A,(HL)
+		LD	B,A		; get bit flags into A and B
+		PUSH	BC
+		PUSH	DE		; save flags, function code, parameters
+		RRA
+		JR	C,PreserveDMA	; bit 0 set: preserve 16 DMA bytes
+		RRA
+		JR	C,PreserveFCB	; bit 1 set: copy user's FCB
+		JR	BankedFileIO	; otherwise do banked I/O directly
+
+; Copy 16 bytes from the current DMA, and the current FCB (36 byte) to the
+; resident buffer before calling the BDOS. This applies to the functions:
+; 15 (Open), 19 (Delete), 22 (Make), 23 (Rename), 30 (Set Attr),
+; 99 (Trunc), 100 (Set DirLbl), 102 (Read Stamps), 103 (Write XFCB).
+
+PreserveDMA:	LD	HL,(@CrDma)	; source: current DMA
+		LD	DE,Buffer
+		LD	BC,16
+		LDIR			; copy 16 bytes to resident buffer
+		POP	DE
+		PUSH	DE		; restore DE containing user's param.
+
+; Copy the user's FCB to the resident buffer before calling the BDOS.
+; This applies to the functions above plus the following ones:
+; 16 (Close), 17 (First), 18 (Next), 20 (Read), 21 (Write), 33 (Read R),
+; 34 (Write R), 35 (Size), 36 (Set Rand), (40 Write R 0), 41 (Test+Write),
+; 49 (G/S SCB), 50 (BIOS), 104 (Set Date), 105 (Get Date), 106 (Set Pwd),
+; 107 (Serial).
+
+PreserveFCB:	XOR	A
+		LD	(FcbCopyFlag),A ; clear FCB copy flag
+		LD	HL,ResFcbBuf
+		LD	BC,36
+		EX	DE,HL
+		LDIR			; copy user's FCB to resident buffer
+		LD	DE,ResFcbBuf	; use this as parameter for banked DOS
+		POP	HL
+		POP	BC
+		PUSH	BC		; restore bit flags in B
+		PUSH	HL
+		LD	(UserFcbAdr),HL	; store original FCB address
+
+; Perform file I/O functions without preparing buffers.
+
+BankedFileIO:	CALL	BankedFunc	; call banked BDOS portion
+		POP	DE		; address of user's FCB
+		POP	BC		; bit flags in B
+		LD	A,B
+		AND	0FCH		; any bits 2..7 set?
+		RET	Z		; no: return without copying data
+		LD	HL,ResFcbBuf
+		EX	DE,HL		; get source/target in HL/DE
+		LD	BC,33		; assume 33-byte FCB copy
+		RLA
+		JR	C,UpdateFCB	; bit 7 set: copy 33 byte FCB data
+		LD	C,36
+		RLA
+		JR	C,UpdateFCB	; bit 6 set: copy 36 byte FCB data
+		RLA
+		JR	C,MoveDmaRec	; bit 5 set: copy 128 byte DMA data
+		LD	C,4
+		RLA
+		JR	C,FileIOmove	; bit 4 set: copy 4 byte XCB data
+		RLA
+		JR	C,Move3DMA	; bit 3 set: copy 3 byte DMA data
+		LD	C,6		; (bit 2 set:) copy 6 byte XCB data
+FileIOmove:	EX	DE,HL
+MoveEx: 	LDIR			; copy data back, then return
+		EX	DE,HL
+		RET
+
+; Update user's FCB after file I/O functions. If we copied the complete
+; FCB to the resident buffer before calling the BDOS, we simply copy it
+; back now. Otherwise, only the S2, RC, and CR fields are updated.
+
+UpdateFCB:	LD	A,(FcbCopyFlag)
+		OR	A		; did we copy the user's FCB before?
+		JR	Z,FileIOmove	; yes: copy back completely
+		LD	BC,14
+		ADD	HL,BC		; otherwise compute pointer to S2
+		EX	DE,HL
+		ADD	HL,BC		; ...in resident FCB also
+		LDI
+		LDI			; update S2 and RC of user's FCB
+		LD	BC,16
+		ADD	HL,BC
+		EX	DE,HL
+		ADD	HL,BC		; point to CR byte in both FCB's
+		LD	A,(DE)
+		LD	(HL),A		; update CR byte in user's FCB
+		RET
+
+; Move 3, 128, or BC data bytes from the resident buffer to the current DMA.
+
+Move3DMA:	LD	BC,3		; count
+MoveDMA:	LD	DE,(@CrDma)	; target
+		LD	HL,Buffer	; source
+		JR	MoveEx
+
+MoveDmaRec:	LD	BC,128		; count: 1 complete data record
+		JR	MoveDMA
+
+; BDOS function 152: Parse FileName. Though the parsing is completely
+; done in the banked BDOS, we must prepare our buffers here before
+; calling the banked portion and update them afterwards.
+
+Parse:		EX	DE,HL		; get PFCB address into HL
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get input string address into DE
+		INC	HL
+		LD	C,(HL)
+		INC	HL
+		LD	B,(HL)		; ...and target FCB address into BC
+		LD	HL,Buffer+97	; set address for resident FCB buffer
+		PUSH	HL
+		PUSH	BC
+		PUSH	DE		; save buffer, target, and string addr.
+		LD	(InputBuffer),HL ; store resident FCB buffer's address
+		LD	HL,ParseStringAdr
+		LD	(InpBufLength),HL ; set res. string buffer as target 
+		LD	BC,128		; set string buffer length for copy
+		LD	A,D
+		OR	E
+		JR	Z,ParseCopy1	; user's string addr. 0000: empty (??)
+		LD	A,D
+		AND	E
+		INC	A
+		JR	NZ,ParseCopy2	; FFFF: ??
+ParseCopy1:	LD	(InpBufLength),DE ; 0000 or FFFF: store as size&length
+ParseCopy2:	EX	DE,HL
+		LDIR			; copy user's string to res. buffer
+		EX	DE,HL
+		LD	(HL),C		; terminate with zero delimiter
+		LD	C,152
+		LD	DE,InpBufLength
+		CALL	BankedFunc	; call banked "Parse" function
+		POP	BC		; get back user's string address
+		LD	A,L
+		OR	H
+		JR	Z,ParseExit	; BDOS returned 0000: empty string
+		LD	A,L
+		AND	H
+		INC	A
+		JR	Z,ParseExit	; BDOS returned FFFF: error
+		LD	DE,ParseStringAdr ; other values: address of delimiter
+		SBC	HL,DE
+		ADD	HL,BC		; compute related address in user FCB
+		LD	(ReturnVal),HL	; store as final return value
+ParseExit:	POP	DE		; target FCB (user)
+		POP	HL		; resident FCB buffer
+		LD	BC,36
+		LDIR			; copy new FCB data to user's FCB
+		RET
+
+; Some more character I/O functions... Here comes auxiliary input,
+; simply passed to the equivalent BIOS function.
+
+AuxIn:		CALL	?AuxIn
+		JR	BdosReturnA	;$+46
+
+; Direct console output. Depending on the value of register E,
+; different functions are performed.
+
+DirectCon:	LD	A,E		; get parameter into A
+		INC	A
+		JR	Z,DirectInpStat ; FF: get input data or status
+		INC	A
+		JR	Z,DirectStatus	; FE: get input status
+		INC	A
+		JR	Z,DirectInput	; FD: get input data
+		LD	C,E
+		JP	?ConOut		; all others: output character E
+
+DirectStatus:	CALL	GetKeyStat	; just get current input status
+		JR	BdosReturnA	; ...and return
+
+DirectInpStat:	CALL	GetKeyStat	; get input status
+		OR	A
+		RET	Z		; nothing there: return zero value
+DirectInput:	CALL	GetKeyBuf	; get input (wait if necessary)
+		JR	BdosReturnA	; ...and return input character
+
+; Some more auxiliary device support routines:
+
+AuxInSt:	CALL	?AuxIst
+		JR	BdosReturnA
+
+AuxOutSt:	CALL	?AuxOst
+		JR	BdosReturnA
+
+; Yet another function distribution routine... This one handles only
+; the "Parse" function and the (newly added) Z80DOS date stamp routines.
+; The "Get Stamp" function is implemented in the banked BDOS portion,
+; while the "Use Stamp" function simply sets a flag in the (extended)
+; SCB and returns.
+
+FuncDist4:	CP	152
+		JR	Z,Parse 	; 152: Parse Filename
+		CP	54
+		JP	Z,BankedFunc	; 54: Get Stamp (Z80DOS)
+		CP	55
+		JR	NZ,BdosRetErr?	; 55: Use Stamp (Z80DOS); others: err
+		SET	4,(IX-17H)	; set "Use Stamp" SCB flag
+		XOR	A
+		LD	(ReturnVal),A	; clear return status
+		JR	BdosReturn1	; ...and return to calling program
+
+; Main BDOS return routine. The values of all registers are restored
+; for the user's program, while HL and BA hold the return values of
+; the processed BDOS function.
+
+; On illegal BDOS function calls, the value returned in A is FF for
+; functions below 128, and 00 for functions from 128 up. This is to
+; maintain compatibility with MP/M-II.
+
+BdosRetErr?:	RLA			; function code below 128?
+		LD	A,0
+		JR	C,BdosReturnA	; no: return 00 for illegals
+		DEC	A		; otherwise return FF
+
+BdosReturnA:	LD	(ReturnVal),A	; save return value in A
+BdosReturn:	RES	4,(IX-17H)	; reset "Use Stamp" flag anyway
+BdosReturn1:	LD	IX,0		; restore IX (in-code variable)
+UserIX		EQU	$-2
+		LD	IY,0		; restore IY (in-code variable)
+UserIY		EQU	$-2
+		LD	SP,0		; restore SP (in-code variable)
+UserSP		EQU	$-2
+		LD	HL,0		; get return value in HL (in-code var.)
+ReturnVal	EQU	$-2
+		LD	A,L
+		LD	B,H		; return values in both HL and BA
+		RET
+
+; Move a memory block into/from bank A. The system bank (0) is selected
+; when this routine is called. If A also contains 0, no bank switching
+; is necessary. These routines are only usable for moves between
+; resident memory and the particular bank.
+
+MoveA:		OR	A
+		JR	NZ,XmoveA	; bank not 0: switch banks
+		EX	DE,HL
+		LDIR			; direct move within bank 0
+		EX	DE,HL
+		RET
+
+XmoveA: 	CALL	?SelMem		; select desired memory bank
+		EX	DE,HL
+		LDIR			; do the block move
+		EX	DE,HL
+		XOR	A
+		JP	?SelMem		; select system bank again
+
+; Move a memory block into/from bank 1 (TPA).
+
+Move1:		LD	A,1		; select bank 1
+		JR	XmoveA		; use routine above
+
+; Search the hash table at HL in bank A for a matching entry.
+
+Search: 	PUSH	HL
+		CALL	?SelMem		; select particular hash bank
+		POP	BC		; get table base address into BC
+		LD	HL,Select0
+		PUSH	HL		; push "return" address
+		XOR	A
+		LD	(SrchFlag),A	; clear search flag
+		LD	HL,(SrchLim)
+		LD	DE,(@Entry)
+		SBC	HL,DE		; check search limit
+		LD	A,H
+		OR	L
+		RET	Z		; we're at the end: return to system
+		PUSH	HL		; push remaining entries to check
+		INC	DE		; point to next entry
+		EX	DE,HL		; entry in HL, count in DE
+		PUSH	HL		; push next entry number
+		DEC	HL		; then return to current entry
+		ADD	HL,HL
+		ADD	HL,HL		; multiply entry no. by four,
+		ADD	HL,BC		; then add table base to get pointer
+
+SearchLoop:	LD	DE,4
+		ADD	HL,DE		; compute pointer to next table entry
+		LD	DE,@HshUsr	; DE points to hash data in SCB
+		LD	A,(DE)
+		XOR	(HL)		; compare user/password code
+		AND	1FH		; mask off other bits
+		JR	NZ,HashChkAlt	; different: check alternate entry?
+		CALL	CompHash	; equal: compare hash data
+		JR	Z,HashFound	; if equal: return found entry
+
+HashNext:	EX	DE,HL		; move table pointer into DE
+		POP	HL		; get former next entry no. from stack
+HashNext1:	INC	HL		; increase number
+		EX	(SP),HL		; put on stack, get remaining entries
+		DEC	HL		; count them down...
+		LD	A,L
+		OR	H		; ... and check for zero
+		EX	(SP),HL		; put counter on stack again,
+		PUSH	HL		; and next entry number too
+		EX	DE,HL		; move table pointer back into HL
+		JR	NZ,SearchLoop	; ... and continue searching
+		INC	A		; if we're done: reset Z flag
+		POP	HL
+		POP	HL		; and clean stack, that's all...
+		RET
+
+; We found a hash table entry whose user/password is different from
+; what we're looking for. Now check if we have to compare the entry though
+; (this is used for checking alternate entries during directory searches).
+
+HashChkAlt:	LD	A,(AltDir+1)	; get alternate search/found flag
+		INC	A		; is it FF?
+		JR	Z,HashFree	; yes: if entry is free, save as AltDir
+		INC	A		; is it FE?
+		JR	NZ,HashNext	; no: skip this, it's really different
+		PUSH	DE
+		CALL	CompHash	; yes: check this entry though
+		POP	DE
+		JR	NZ,HashNext	; it proved different: skip it now
+		LD	A,(PwdEnable)	; get "password entry enable" flag
+		INC	A
+		JR	Z,HshChkPwd	; FF: check password flag
+		INC	A
+		JR	Z,HshChkCode	; FE: check user code alone
+		LD	A,(HL)		; all others:
+		AND	1FH		; mask user/pwd in hash table
+		JR	NZ,HashNext	; password or user>0 : cont. search
+		JR	HashFound	;?? user 0, no pwd: store found entry
+
+HshChkCode:	LD	A,(DE)
+		XOR	(HL)		; compare hash bytes
+		AND	0FH		; check user bits only
+		JR	NZ,HashNext	; different: skip this entry
+		LD	A,(HL)		; get hash table data
+		AND	30h		; mask password and extent MSB
+		CP	30h		; both bits set?
+		JR	Z,HashNext	; yes: skip this entry
+
+; A matching hash table entry was found. Now save its number for
+; further reference, then check if we're still within the sectore
+; for which the buffers are valid. Set "SrchFlag" if we must read
+; a new sector into the directory buffer.
+; The routine always exits with zero-flag set to indicate a success-
+; full hash table search.
+
+HashFound:	LD	DE,(@Entry)	; get previous entry into DE
+		POP	HL
+		DEC	HL		; (we used entry+1 before)
+		LD	(@Entry),HL	; store newly found entry
+		POP	BC		; clean stack (remaining count)
+		LD	A,L
+		AND	3		; get inner-sector position
+		CP	3
+		RET	Z		; at sector end: ok
+		LD	A,E
+		AND	0FCH
+		LD	E,A		; mask off two LSB's of DE
+		LD	A,L
+		AND	0FCH
+		LD	L,A		; ... and of HL
+		EX	DE,HL		; (unnecessary)
+		SBC	HL,DE		; compare previous and current sector
+		LD	A,H
+		OR	L
+		RET	Z		; equal: buffers still valid
+		LD	A,0FFh
+		LD	(SrchFlag),A	; set flag: read new directory data
+		XOR	A		; set zero flag (search successful)
+		RET
+
+; Password entry enable flag was FFh: Check password bit in hash table,
+; and return this entry as found if it is a password entry of the right
+; user.
+
+HshChkPwd:	LD	A,(HL)		; get user/password byte from table
+		AND	10H		; mask password bit
+		JR	Z,HashNext	; not set: skip this entry
+		LD	A,(DE)
+		XOR	(HL)		; otherwise compare against SCB
+		AND	0FH		; but check user bits only
+		JR	NZ,HashNext	; user not equal: skip this entry
+		JR	HashSave	; password entry found: save as alt.
+
+; Check if the current table entry is free. If yes, save it as the
+; alternate entry.
+
+HashFree:	LD	A,(HL)		; get user/password code byte
+		CP	0F5H		; free entry?
+		JR	NZ,HashNext	; no: skip it
+
+HashSave:	EX	DE,HL		; move table pointer into DE
+		POP	HL		; get entry number from stack
+		LD	(AltDir),HL	; save as alternate entry number
+		JR	HashNext1	; continue search
+
+; Compare the current hash table entry of the hash table to the given
+; values calculated from the user's FCB. Depending on the desired compare
+; level, the number of bytes compared varies. The compare level can have
+; the following values:
+; 0 : check user/pwd byte only (this has already been done when we get here),
+; 2 : check user/pwd byte and encoded name field,
+; 3 : check user/pwd, name, and extent byte.
+; According to the different byte fields, the related bits in the usr/pwd
+; code byte are checked, too, depending on the compare level.
+
+CompHash:	LD	A,(@HshCk)	; get compare level (0,2,3)
+		OR	A
+		RET	Z		; return if user/pwd only, we're done
+		LD	B,A		; save no. of bytes to compare in B
+		RRCA			; -> x0000001
+		RRCA			; -> 1x000000  (carry set)
+		RRA			; -> 11x00000
+		LD	C,A		; save compare bit mask in C
+		LD	A,(DE)
+		XOR	(HL)		; compare usr/pwd code once more
+		AND	C		; but check only valid name/ext bits
+		RET	NZ		; different: return this (NZ)
+		PUSH	HL		; save pointer to table entry start
+		INC	DE		; point to name field in SCB
+HashCompLoop:	INC	HL		; bump table entry pointer
+		LD	A,(DE)
+		CP	(HL)		; compare table against SCB
+		JR	NZ,HashCompDiff ; different: no match, return NZ
+		INC	DE		; bump SCB pointer
+		DJNZ	HashCompLoop	; compare given number of bytes (2/3)
+HashCompDiff:	POP	HL		; restore HL as table entry pointer
+		RET			; return with Z/NZ (match/no match)
+
+; Select memory bank 0 (system), without affecting AF (status/result).
+
+Select0:	PUSH	AF
+		XOR	A
+		CALL	?SelMem		; select system bank
+		POP	AF
+		RET
+
+; Bitflag table for file I/O function handling. Each bit represents
+; a particular action before/after calling the banked BDOS portion.
+; For details, see the comments before the "FileFunct" routine.
+
+FcbFuncTable1:	DEFB	0		; 12 : Return Version Number
+		DEFB	0		; 13 : Reset Disk System
+		DEFB	0		; 14 : Select Disk
+		DEFB	83H		; 15 : Open File
+		DEFB	82H		; 16 : Close File
+		DEFB	22H		; 17 : Search for First
+		DEFB	22H		; 18 : Search for Next
+		DEFB	3		; 19 : Delete File
+		DEFB	82H		; 20 : Read Sequential
+		DEFB	82H		; 21 : Write Sequential
+		DEFB	83H		; 22 : Make File
+		DEFB	3		; 23 : Rename File
+		DEFB	0		; 24 : Return Login Vector
+		DEFB	0		; 25 : Return Current Disk
+		DEFB	0		; 26 : Set DMA Adress
+		DEFB	0		; 27 : Get Alloc. Vector Address
+		DEFB	0		; 28 : Write Protect Disk
+		DEFB	0		; 29 : Get R/O Vector
+		DEFB	83H		; 30 : Set File Attributes
+		DEFB	0		; 31 : Get DPB Adress
+		DEFB	0		; 32 : Set/Get User Code
+		DEFB	82H		; 33 : Read Random
+		DEFB	82H		; 34 : Write Random
+		DEFB	42H		; 35 : Compute File Size
+		DEFB	42H		; 36 : Set Random Record
+		DEFB	0		; 37 : Reset Drive
+		DEFB	0
+		DEFB	0
+		DEFB	82H		; 40 : Write Random with Zero Fill
+		DEFB	82H		; 41 : Test and Write Record
+		DEFB	0		; 42 : Lock Record
+		DEFB	0		; 43 : Unlock Record
+		DEFB	0		; 44 : Set Multisector Count
+		DEFB	0		; 45 : Set BDOS Error Mode
+		DEFB	8		; 46 : Get Disk Free Space
+		DEFB	0		; 47 : Chain to Program
+		DEFB	0		; 48 : Flush Buffers
+		DEFB	2		; 49 : Get/Set System Control Block
+		DEFB	2		; 50 : Direct BIOS Calls
+
+FcbFuncTable2:	DEFB	0		; 98 : Free Blocks
+		DEFB	3		; 99 : Truncate File
+		DEFB	3		; 100 : Set Directory Label
+		DEFB	0		; 101 : Return DIRLBL Data
+		DEFB	83H		; 102 : Read File Stamp and Pwd Mode
+		DEFB	3		; 103 : Write File XFCB
+		DEFB	2		; 104 : Set Date and Time
+		DEFB	12H		; 105 : Get Date and Time
+		DEFB	2		; 106 : Set Default Password
+		DEFB	6		; 107 : Return Serial Number
+		DEFB	0		; 108 : Get/Set Program Return Code
+		DEFB	0		; 109 : Get/Set Console Mode
+		DEFB	0		; 110 : Get/Set Output Delimiter
+		DEFB	0		; 111 : Print Block
+		DEFB	0		; 112 : List Block
+
+		DEFS	4
+
+; Global, resident variables. Some of the areas have double duty!
+
+ResFcbBuf:
+InpBufLength:	DB	0
+InpBufUsed:	DB	0
+InputBuffer:	DB	0,0
+ParseStringAdr: DS	32
+Buffer: 	DS	128
+
+		DS	40
+		DB	'####'
+		DS	104
+ResStack	equ	$
+
+; The unofficial SCB starts here. The following instruction pairs
+; are used by CP/M-3 for I/O redirection within RSXs (i.e. GET/PUT).
+; With ZPM3, these instructions are not needed anymore, but for
+; compatibility reasons, they're still there (those RSXs will patch
+; the "JP xxxx" instructions to "LD HL,xxxx" and back).
+
+		JP	?WBoot
+		JP	CallUsrRSX
+		JP	?ConSt
+		JP	CallUsrRSX
+		JP	?ConIn
+		JP	CallUsrRSX
+		JP	?ConOut
+		JP	CallUsrRSX
+
+; With the original CP/M-3, the following 6 bytes contain jump instructions
+; to ?List and CallUsrRSX for redirection of the List output device. ZPM3
+; uses these for other purposes - see SCB.TXT.
+
+		db	0C3h		; for compatibility (RSXs might patch)
+		db	0		; not used
+		db	0		; User number for func. 59 "Load Ovl"
+		dw	0		; addr. of Z3 environment (0 if none)
+		db	0		; internal ZPM3 BDOS flags
+
+; further unofficial SCB data...
+
+		defs	16
+		defb	7,0
+		defw	Entry
+		defw	0
+
+; The official SCB starts here. It consists of 100 bytes of data
+; which contain various system parameters and status and are partly
+; allowed to be directly accessed by application programs.
+; There are only a few fields that are initialized with data, most
+; of the variables are simply zero after the system is booted.
+; RSU in the comment field means "Reserved for system use" (or unknown).
+
+ScbBase:
+@HshCk:		DEFS	1		;    00 : RSU (Hash Compare Level)
+@HshUsr:	DEFS	1		;    01 : RSU (Hash Usr/Pwd Code Byte)
+		DEFS	2		; 02-03 : RSU (Hash Name)
+		DEFS	1		;    04 : RSU (Hash Extent)
+		DEFB	31H		;    05 : BDOS Version Number
+		DEFS	4		; 06-09 : Reserved for User Use
+		DEFS	6		; 0A-0F : RSU
+		DEFS	2		; 10-11 : Program Error Return Code
+		DEFS	8		; 12-19 : RSU (18:Search Order)
+		DEFS	1		;    1A : Console Width
+@Column:	DEFS	1		;    1B : Console Column Position
+		DEFS	1		;    1C : Console Page Length
+		DEFS	1		;    1D : RSU
+@BufPtr:	DEFS	2		; 1E-1F : Zeiger auf Textbeginn im Puffer (F10)
+		DEFS	2		; 20-21 : RSU
+		DEFS	2		; 22-23 : CONIN Redirection Flag
+		DEFS	2		; 24-25 : CONOUT Redirection Flag
+		DEFS	2		; 26-27 : AUXIN Redirection Flag
+		DEFS	2		; 28-29 : AUXOUT Redirection Flag
+		DEFS	2		; 2A-2B : LSTOUT Redirection Flag
+		DEFS	1		;    2C : Page Mode
+		DEFS	1		;    2D : RSU
+		DEFS	1		;    2E : Echo Character if ^H (BS)
+		DEFS	1		;    2F : Echo Character if DEL
+		DEFS	3		; 30-32 : RSU
+@ConMod:	DEFS	2		; 33-34 : Console Mode
+		DEFW Buffer+28		; 35-36 : Address of 128 Byte Buffer (res.)
+@Delim:		DEFB	'$'		;    37 : Output Delimiter (F9)
+		DEFS	1		;    38 : List Output Flag
+		DEFS	1		;    39 : RSU
+		DEFW	ScbBase		; 3A-3B : official SCB base address
+@CrDma:		DEFW	80H		; 3C-3D : current DMA address
+		DEFS	1		;    3E : current disk
+		DEFS	2		; 3F-40 : BDOS Variable 'INFO' (^FCB)
+		DEFS	1		;    41 : FCB Flag (INFO valid)
+		DEFS	1		;    42 : RSU
+@FX:		DEFS	1		;    43 : BDOS Function, for Error Messages
+@UsrCd:		DEFS	1		;    44 : Current User Number
+@Entry:		DEFS	2		; 45-46 : RSU
+@SrFcb:		DEFS	2		; 47-48 : FCB address for Search F/N
+		DEFS	1		;    49 : RSU
+@MltIO:		DEFB	1		;    4A : BDOS Multi-Sector Count
+@ErMde:		DEFS	1		;    4B : BDOS Error Mode
+		DEFB 0,-1,-1,-1 	; 4C-4F : Drive Search Chain
+		DEFS	1		;    50 : Temporary File Drive
+@ErDsk:		DEFS	1		;    51 : BDOS Error Disk
+		DEFS	2		; 52-53 : RSU
+@Media:		DEFS	1		;    54 : Media Flag (Set by BIOS)
+		DEFS	2		; 55-56 : RSU
+		DEFB	80H		;    57 : BDOS Flags (Message Size)
+@Date:		DEFW	-1		; 58-59 : Date, in Days since 1.1.78
+@Hour:		DEFB	-1		;    5A : Hour in BCD
+@Min:		DEFB	-1		;    5B : Minute in BCD
+@Sec:		DEFB	-1		;    5C : Second in BCD
+CommonBase:	DEFS	1		; 5D-5E : Common Memory Base Adress
+CommonBasePg:	DEFS	1
+?ErJmp: 	JP	?ErMsg		; 60-61 : BDOS Error Message Jump
+@MxTpa: 	DW	Entry		; 62-63 : Top of User TPA
+
+; Entry addresses of the banked BDOS portion are defined as relocatable
+; addresses in page FCh. GENCPM will replace the page byte with the real
+; value.
+
+BankedBdos	equ	ResBdos+0FC00h
+
+?Banked 	EQU	BankedBdos+06H
+?ErMsg		EQU	BankedBdos+7CH
+
+; Entry addresses of the BIOS are defined as relocatable addresses
+; in page FFh. GENCPM will replace the page byte with the real value.
+; Only few BIOS routines are called by the resident BDOS portion
+; directly.
+
+Bios		equ	ResBdos+0FF00h
+
+?WBoot		EQU	Bios+03H
+?ConSt		EQU	Bios+06H
+?ConIn		EQU	Bios+09H
+?ConOut 	EQU	Bios+0CH
+?LstOut 	EQU	Bios+0FH
+?AuxOut 	EQU	Bios+12H
+?AuxIn		EQU	Bios+15H
+?AuxIst 	EQU	Bios+36H
+?AuxOst 	EQU	Bios+39H
+?Move		EQU	Bios+4BH
+?SelMem 	EQU	Bios+51H
+
+; ASCII characters and control codes:
+
+BS		equ	8
+TAB		equ	9
+LF		equ	0Ah
+CR		equ	0Dh
+XON		equ	11h
+XOFF		equ	13h
+DEL		equ	7Fh
+
+		END
+
+fxcodp:	DEFS	1		; Funktionsnummer bei Print/List Block
+hshtbl:	DEFS	2		; Zeiger auf Hash-Tabelle
+	defs	1
+RETCOD:	DEFS	2		; Return-Code (HL bzw. BA) des DOS
+RESBUF:	DEFS	36		; residenter Puffer f}r FCB-Operationen
+DMABUF:	DEFS	128		; Puffer f}r Daten oder 128-Byte-Record
+
+	DEFS	152
+DSTACK	EQU	$		; DOS-interner Stack
+
+USTACK:	DEFW	0		; Stackpointer des aufrufenden Programms
+
+?Home		EQU	Bios+18H
+?SelDsk 	EQU	Bios+1BH
+?SetTrk 	EQU	Bios+1EH
+?SetSec 	EQU	Bios+21H
+?SetDma 	EQU	Bios+24H
+?Read		EQU	Bios+27H
+?Write		EQU	Bios+2AH
+?ListSt 	EQU	Bios+2DH
+?SecTrn 	EQU	Bios+30H
+?ConOst 	EQU	Bios+33H
+?DevTbl 	EQU	Bios+3CH
+?DevIni 	EQU	Bios+3FH
+?DrvTbl 	EQU	Bios+42H
+?MultIO 	EQU	Bios+45H
+?Flush		EQU	Bios+48H
+?Time		EQU	Bios+4EH
+?SetBnk 	EQU	Bios+54H
+?XMove		EQU	Bios+57H
+?UserF		EQU	Bios+5AH
+?Reserv1	EQU	Bios+5DH
+?Reserv2	EQU	Bios+60H
+

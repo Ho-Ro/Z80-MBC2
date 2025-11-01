@@ -1,0 +1,1377 @@
+;*****************************************************************
+;**	First portion of banked ZPM3 (N10) BDOS.		**
+;**	Disassembly by Tilmann Reh (950327).			**
+;**								**
+;**	This portion contains:					**
+;**	- main entry and BDOS function distribution		**
+;**	- main error entry, error handling routines		**
+;**	- parse filename BDOS function				**
+;**	- multi-sector processing loop				**
+;**	- basic character I/O routines				**
+;*****************************************************************
+
+; Relocatable base address of banked BDOS portion.
+; First six bytes contain "Serial Number".
+
+		cseg
+
+BankedBdos:	DB	'SIMEON'
+
+; Main Entry to the resident BDOS at relative address 0006.
+; Function is in C, Parameter or Pointer is in E or DE.
+; IX already points to the (official) SCB base address, so
+; all SCB variables can be directly accessed using IX.
+
+Entry:		EX	DE,HL
+		LD	(@VInfo),HL	; save parameter value
+		EX	DE,HL
+		LD	A,C
+		LD	(@FX),A 	; save function code
+		CP	14
+		JR	C,NormalIO	; character I/O etc.
+		LD	HL,0
+		LD	(MultiSecPhys),HL ; clear M/S variables (two bytes!)
+		LD	A,(@CrDisk)
+		LD	(Drive),A	; set current drive
+		DEC	A
+		LD	(MovFlag),A	; ??
+		LD	A,(@MltIO)
+		DEC	A
+		JR	Z,NormalIO	; do normal I/O if MS count is 0
+		LD	A,C
+		LD	HL,MultiIO
+		PUSH	HL		; push "return" address
+		CP	20
+		RET	Z		; read sequential -> multi-I/O
+		CP	21
+		RET	Z		; write sequential
+		CP	33
+		RET	Z		; read random
+		CP	34
+		RET	Z		; write random
+		CP	40
+		RET	Z		; write random with zero fill
+		POP	HL		; clean stack, continue normally
+
+; Normal function processing. Function distribution is done via
+; function/address tables, except for function 152 (Parse) which
+; is the only one with a function code above 127. All other
+; functions above 127 (MP/M function calls) are rejected.
+; Caused by the gaps in function codes between 54 and 98, there
+; are two tables and two distribution routines. Functions 59 and
+; 60 (Load Overlay, Call RSX) are handled within RSX's only, thus
+; aren't implemented here. Functions 54 and 55 were added to the
+; CP/M-3 definition to also support Z80DOS time stamp functions.
+; Function 55 is processed in the resident BDOS part, it just sets
+; an internal flag there (bit 4 of SCB-23).
+
+NormalIO:	LD	IY,(@VInfo)	; IY always points to user's FCB
+		LD	A,E
+		LD	(SaveE),A	; save single-byte parameter
+		LD	HL,0
+		LD	(RetStat),HL	; preset return status
+		LD	(@Resel),HL
+		LD	D,H		; set D=0 (for addition below)
+		LD	(UserSP),SP	; save user's SP
+		LD	HL,MainReturn
+		PUSH	HL		; set main return address
+		LD	A,C
+		CP	55
+		JR	NC,FuncGt54	; function >54: separate distr.
+		LD	C,E		; char. param in C now (for char I/O)
+		LD	HL,FuncTab1
+		ADD	A,A
+		LD	E,A		; doubled function in DE
+		ADD	HL,DE		; point to table entry
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get routine address to DE
+		LD	HL,(@VInfo)	; ... user's parameters to HL
+		EX	DE,HL		; now flip
+		JP	(HL)		; ... and jump to particular routine
+
+; BDOS Error Processing Routine.
+; Public Entry at relative address 007C.
+; Enter with error number in C (starting with 1).
+; Called only by resident BDOS.
+
+		org	7Ch
+
+ErrorEntry:	LD	B,0		; expand to 16 bits
+		PUSH	BC		; save error number
+		LD	HL,ErrMsgTable-2 ; (virtual) table base
+		ADD	HL,BC
+		ADD	HL,BC		; add error number twice
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get adress of error message
+		CALL	PrintErrMsg	; ... and print it
+		POP	BC		; get error number back in BC
+		LD	A,(@ErMde)
+		OR	A		; check SCB error mode byte
+		RET	NZ		; return error to calling program
+		JP	RebootFFFD	; ... or abort on error (warm boot)
+
+; Second BDOS function distribution routine handles function codes
+; greater than 54 (in fact, greater than 97).
+
+FuncGt54:	CP	80H
+		JP	NC,Parse	; Parse is the only function >127
+		SUB	98		; subtract offset of further codes
+		JP	C,ReturnError	; function below 98: error
+		CP	112-98+1
+		JP	NC,ReturnError	; function above 112: error
+		LD	HL,FuncTab2
+		ADD	A,A
+		LD	E,A
+		ADD	HL,DE		; create pointer into second table
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get address of routine into DE
+		LD	HL,(@VInfo)	; ... and parameter into HL
+		EX	DE,HL		; again flip
+		JP	(HL)		; ... and jump to routine
+
+		ds	2		; ?? unused/senseless?
+
+; BDOS function address tables. First table is for function
+; codes 0 to 54, second table handles codes 98 to 112.
+; (Remaining code 152 is handled separately.)
+
+FuncTab1:	DW	WarmBoot
+		DW	ConIn
+		DW	ConOut
+		DW	AuxIn
+		DW	?AuxOut
+		DW	ListOut
+		DW	DirectCon
+		DW	AuxInStat
+		DW	AuxOutStat
+		DW	PrintString
+		DW	BufferInput
+		DW	ConStat
+		DW	GetVersion
+		DW	ResetFileSys
+		DW	SelectDrive
+		DW	OpenFile
+		DW	CloseFile
+		DW	SearchFirst
+		DW	SearchNext
+		DW	DeleteFile
+		DW	ReadSeq
+		DW	WriteSeq
+		DW	MakeFile
+		DW	RenameFile
+		DW	GetLoginVec
+		DW	GetDisk
+		DW	SetDMA
+		DW	GetALV
+		DW	WriteProtect
+		DW	GetROvec
+		DW	SetFileAttr
+		DW	GetDPB
+		DW	GetSetUser
+		DW	ReadRandom
+		DW	WriteRandom
+		DW	ComputeSize
+		DW	SetRandRec
+		DW	ResetDrive
+		DW	Ignore		; 38 not defined
+		DW	Ignore		; 39 not defined
+		DW	WriteRandom
+		DW	ReturnError
+		DW	Ignore		; 42 (Lock Record) not implemented
+		DW	Ignore		; 43 (Unlock Record) not implemented
+		DW	SetMulti
+		DW	SetErrMode
+		DW	GetDiskSpace
+		DW	Chain
+		DW	Flush
+		DW	GetSetSCB
+		DW	DirectBIOS
+		DW	Ignore		; 51 not defined
+		DW	Ignore		; 52 not defined
+		DW	Ignore		; 53 not defined
+		DW	ZD_GetStamp	; 54: Z80DOS Get File Stamp
+
+FuncTab2:	DW	FreeBlocks
+		DW	Truncate
+		DW	SetDirLabel
+		DW	GetDirLblData
+		DW	ReadStamps
+		DW	WriteXFCB
+		DW	SetDateTime
+		DW	GetDateTime
+		DW	SetDefPasswd
+		DW	GetSerialNo
+		DW	GetSetRetCod
+		DW	GetSetConMod
+		DW	GetSetDelim
+		DW	BlockOutput
+		DW	BlockOutput
+
+; Table of system error messages (numbering used by resident BDOS).
+
+ErrMsgTable:	DW	DiskIoMsg
+		DW	ROdisk
+		DW	ROfile
+		DW	InvalidDrive
+		DW	0		; #5 neither used nor defined
+		DW	WhlProtFile
+		DW	PasswdErr
+		DW	FileExists
+		DW	IllegalWild
+
+; Error message texts. Messages are terminated with nul char.
+; Details of the messages like drive, user, filename and function
+; are set by the error processing routine before the message
+; is displayed.
+
+ErrorMsg:	DB	'ZPM3 Error On '
+ErrDisk:	DB	' '
+ErrUser:	DB	'    ',0
+DiskIoMsg:	DB	'Disk I/O',0
+InvalidDrive:	DB	'Invalid Drive',0
+ROfile: 	DB	'Read/Only File',0
+ROdisk: 	DB	'Read/Only Disk',0
+PasswdErr:	DB	'Password Error',0
+FileExists:	DB	'File Exists',0
+IllegalWild:	DB	'? in Filename',0
+WhlProtFile:	DB	'Wheel Protected File',0
+FunctionMsg:	DB	'Function = '
+ErrFunc:	DB	'    File = '
+ErrFile:	ds	13
+
+; Entry for BDOS functions above 127. The only one implemented is
+; function 152 "Parse File Name".  All other functions (MP/M specific
+; functions) are ignored.
+
+; This function was almost completely new written.  It offers several
+; features beyond those of standard CP/M-3 such as like DU: and DIR:
+; specification support and password support.  For details see the
+; documents that come with ZPM3.
+;
+; Unlike CP/M-3, drive *and* user number of the parsed string are stored
+; in the target FCB. For this purpose, ZPM3 uses two fields (S1 and S2)
+; which CP/M-3 sets to zero.  Although unlikely, this might eventually
+; cause some compatibility problems.
+
+LocalDU:	defs	2
+.u		equ	0		; Offset for user
+.d		equ	1		; Offset for drive
+
+Parse:
+		cp	152
+		RET	NZ		; ignore any other function code
+
+		ld	hl,0
+		ld	(LocalDU),hl
+
+		LD	HL,StoreHL
+		PUSH	HL		; setup return address
+
+		LD	A,63
+		CALL	GetZ3EnvVar	; Env. 63 = ZCPR CCP start
+		JR	Z,Parse1	; no Z3: skip this (A is 0 then)
+		CALL	GetTpaWord	; get CCP start address from env.
+		LD	DE,10
+		ADD	HL,DE		; add 10...
+		CALL	GetBank1	; ...and get "AltColon" from there
+Parse1:
+	 	LD	(AltColon),A	; store it (0 if no Z3 or no AltColon)
+		LD	L,(IY+2)
+		LD	H,(IY+3)	; get address of target FCB
+		INC	HL
+		LD	(FcbNameAdr),HL ; store address of name field
+		RES	5,(IX-17H)	; clear DU: flag
+		RES	3,(IX-17H)	; clear DIR: flag
+		CALL	ClearFcb	; initialize the target FCB
+		LD	E,(IY+0)
+		LD	D,(IY+1)	; get address of string to parse
+		LD	A,D
+		OR	E
+		JR	Z,Parse2	; check if it's 0000...
+		LD	A,D
+		AND	E
+		INC	A		; and check if it's FFFF...
+Parse2: 	LD	HL,0FFFFh
+		RET	Z		; return an error if 0000 or FFFF
+		CALL	NonBlank	; move to first non-blank character
+
+; Now the target FCB is initialized, and the source pointer is addressing
+; the first non-blank input character to be parsed.
+;
+; First check is if the input string is empty, and if the string starts
+; with the AltColon character (Z3 only).  If the string is empty (first
+; char is NUL), the function is aborted and returns a zero result, indi-
+; cating the end-of-string condition.  When the AltColon character is
+; detected, the following characters are parsed as a directory name
+; instead of a filename.
+
+		LD	HL,(FcbNameAdr)
+		LD	A,(DE)		; get first char of input string
+		OR	A
+		JR	Z,ParseExt 	;?? NUL char: (finally) return HL=0
+		CP	0		; compare first char to AltColon
+AltColon	EQU	$-1		; (in-code variable)
+		JR	Z,Parse3 	; if AltColon: parse directory
+
+; There is a real input string. Parse it as a filename.  However if it is
+; followed by a colon then it surely is a directory name.
+
+		LD	B,8
+		CALL	ParseExpand	; expand file or directory name
+		CP	':'		; trailing colon: was DIR: name
+		JR	NZ,ParseExt	; no colon: continue with extension
+
+; The input string started with the AltColon character or there was
+; a DIR: type specification in the input string.  Now check the "Named
+; Dir Buffer" in the Z3 system environment for a matching entry.
+
+Parse3:		PUSH	DE		; save source pointer
+		CALL	ParseDir	; parse (and use) directory name
+		CALL	FillSpace8	; clear FCB name field again
+		POP	DE		; restore source pointer
+		INC	DE		; bump it to char after colon/altc.
+		LD	B,8
+		CALL	ParseExpand	; ... and parse the filename now
+
+; The file name is completed, now check for optional extension...
+
+ParseExt:
+		; Before dealing with the extension, set the user number and
+		; and drive number in the FCB's S1 and S2 fields.  Where
+		; drive and/or user numbers were parsed from the input string
+		; then use those, otherwise use the current drive/user numbers
+		; as defaults.
+
+		push	iy
+		ld	iy,(FcbNameAdr)
+		push	af
+		ld	a,(LocalDU+.d)	; Was a drive letter parsed?
+		or	a
+		jr	nz,pe1		; Yes, use parsed drive letter
+		ld	a,(ix+3Eh)	; No, load current drive
+		inc	a		; Convert to 1-origin
+pe1:
+		ld	(iy+13),a	; Set S2 field
+		ld	a,(LocalDU+.u)	; Was a user number parsed?
+		or	a
+		jr	nz,pe2		; Yes, use parsed user number
+		ld	a,(ix+44h)	; No, get current user number
+pe2:
+		and	7Fh
+		ld	(iy+12),a	; Set S1 field
+
+		pop	af		; Restore registers
+		pop	iy
+		
+		CP	'.'		; extension lead-in character?
+		JR	NZ,ParsePassword ; no: skip extension parsing
+		INC	DE		; bump input pointer
+		LD	HL,(FcbNameAdr)	; get target name pointer 
+		LD	BC,8
+		ADD	HL,BC		; add 8 to get extension pointer
+
+		LD	B,3
+		CALL	ParseExpand	; parse 3 char's filename extension
+
+; ... and optional password. This seems really strange, there seems to be
+; something missing: The code in A which is passed as the Z3 environment
+; address, still is the input character (semicolon, 3Bh, 59) - but the Z3
+; environment variable with address 59 is the "Free User Space" variable
+; which doesn't make any sense here. In fact, this is just used to check
+; for the presence of Z3, and the returned value is discarded anyway!
+; (With Z3, the passwords are related to specific directories, not to
+; single files, so they are handled during directory parsing.)
+
+; This routine seemingly also contains a true bug. With CP/M-3, the
+; password is stored at FCB+16, so there are four bytes left cleared
+; between the extension field and the password field. This routine
+; stores the password immediately following the extension, thus over-
+; writing the drive and user codes which are stored in two of those four
+; bytes (which also is not CP/M-3 conformant). So this obviously was a
+; mistake by Simeon.
+
+ParsePassword:	CP	';'		; check for password lead-in
+		JR	NZ,ParseExit	; nope: skip password parsing
+		CALL	GetZ3EnvVar	; check if Z3 is present
+		JR	NZ,ParseExit	; yes: passwords handled differently
+		INC	DE		; point to first password char
+		LD	HL,(FcbNameAdr)
+;		LD	BC,11		;?? Wrong.  Should be 15.
+		ld	bc,15		; Correction as above
+		ADD	HL,BC		; calc pointer to pwd field in FCB
+		LD	B,8
+		CALL	ParseExpand	; parse 8-char password from input
+
+; Concrete parsing is finished now. After that, the remaining input string
+; is checked. If the string end is detected, the function returns with
+; HL=0, otherwise the address of the next non-blank character is returned.
+
+ParseExit:	OR	A
+		JR	Z,ReturnHL0	; terminating 0: end of string
+		CP	CR
+		JR	Z,ReturnHL0	; CR also means end of string
+		PUSH	DE
+		CALL	NonBlank	; search next non-blank char
+		LD	A,(DE)		; and get it into A
+		POP	DE
+		OR	A
+		JR	Z,ReturnHL0	; this is the NUL terminator: ok, EOS
+		CP	CR
+		JR	NZ,ReturnDE	; this is no CR: return address
+ReturnHL0:	LD	DE,0		; otherwise return EOS indicator
+ReturnDE:	EX	DE,HL
+		RET
+
+; Subroutine used to parse the directory name of a DIR: type file spec.,
+; get the appropriate drive and user number and store them into the
+; target FCB. This routine is called with the FCB name field already set
+; (containing a DU: or DIR: type specifier), or with a fresh FCB (if the
+; first input character was the AltColon character).
+
+ParseDir:	LD	HL,(FcbNameAdr)	; get pointer to FCB name field
+		LD	A,(HL)
+		CP	' '		; check first character
+		JR	NZ,ParseDir1	; no space: DU: or DIR: spec.
+
+; On AltColon input, use the current disk and indicate that a DIR: type
+; specification was parsed.
+
+		LD	A,(@CrDisk)
+		INC	A		; get current disk (1..16)
+		DEC	HL		; point to FCB drive field
+		LD	(HL),A		; and store drive in it
+		SET	3,(IX-17H)	; flag "DIR: type parsed"
+		RET
+
+; Parse DU: or DIR: inputs. First check for Z3 presence - with pure CP/M-3,
+; only DU: specifications are valid.
+
+ParseDir1:	LD	A,21		; "address of Named Dir Buffer"
+		CALL	GetZ3EnvVar	; check for Z3 (and calc addr)
+		jp	Z,ParseDrvLtr	; no Z3: parse DU: spec directly
+		CALL	GetTpaWord	; get Named Dir Buffer address
+		LD	A,H
+		OR	L
+		JR	Z,ParseDrvLtr	; no dir buffer: parse DU: only
+
+; Parse DIR: input strings. Loop through all names in the Dir Buffer
+; until the buffer end is reached or a matching entry is found.
+
+ParseDirLoop:	CALL	GetBank1	; get next byte from dir buffer
+		OR	A
+		JR	Z,ParseDrvLtr	; zero (buffer end): parse DU:
+		PUSH	HL		; save D/U pointer
+		INC	HL
+		INC	HL		; point to directory name (in buffer)
+		CALL	CompNameTPA	; compare to input string
+		JR	NZ,ParseDirNext	; not matching: check next entry
+
+; We found a matching directory name. Now check if we're allowed to
+; access this directory. If it is password protected, query the password.
+; There is an interesting detail (another bug?): the validity of the
+; given drive and user is checked only if the directory is password
+; protected.
+
+		LD	(ParseDirBufPtr),HL ; save pointer behind dir name
+		LD	HL,ZPM3flags	; (same as IX-17h)
+		LD	A,28H
+		OR	(HL)		; set bits 3&5, indicating DU:/DIR:
+		LD	(HL),A		; store new flags
+
+		; Not sure if these two instructions are needed ...
+;		set	3,(ix-17h)
+;		set	5,(ix-17h)
+
+		POP	HL		; get pointer to D/U get in HL
+		CALL	GetTpaWord	; get drive and user from dir buffer
+		LD	B,L		; move drive into B
+		LD	C,H		; ... and user into C
+		CALL	ParseSetDU	; copy drive/user into target FCB
+		PUSH	BC
+		LD	HL,(ParseDirBufPtr) ; pointer behind dir name
+		CALL	GetBank1	; get next character from there
+		CP	' '		; is there anything ?
+		POP	BC		; (drive/user)
+		CALL	NZ,CheckDU	;?? yes: check DU range (and password)
+		RET	Z		; no: return, we're done
+
+; We found a matching directory name entry in the "named dir buffer",
+; but it is followed by a password (thus being protected). Now query
+; for the password and compare the input to the string stored in the
+; directory buffer. During password input, a '*' is echoed for each
+; character typed in.
+
+		CALL	CRLF		; move to a new line on screen
+		LD	HL,(FcbNameAdr)	; get pointer to directory name
+		LD	A,' '
+		LD	(OutStrDelim),A	; set output delimiter as blank
+		CALL	OutputString	; and display the dir name
+		LD	HL,PasswordMsg
+		CALL	OutStrEnd0	; print the password query message
+		CALL	FillSpace8	; clear the FCB's name field
+		LD	BC,8*100h+'*'	; B=8 (loop counter), C='*' (echo)
+ParseDirPwd:	PUSH	HL
+		PUSH	BC
+		CALL	InputCon	; get keyboard character
+		CALL	ToUpper		; convert to upper case
+		POP	BC
+		POP	HL
+		CP	CR
+		JR	Z,ParseDirCmpPwd ; CR terminates input
+		CP	LF
+		JR	Z,ParseDirCmpPwd ; LF also does
+		LD	(HL),A		; store input character in FCB
+		CALL	CO		; echo '*' to console
+		INC	HL		; bump pointer
+		DJNZ	ParseDirPwd	; and loop for all 8 char's
+
+ParseDirCmpPwd:	LD	HL,0		; get pointer behind dir name again
+ParseDirBufPtr	EQU	$-2		; (in-code variable)
+		CALL	CompNameTPA	; compare entered pwd against dir buf
+		RET	Z		; matching: return 'good'
+		jp	ParseError2	; incorrect password: error return
+
+; Move to the next entry in the named dir buffer. The pointer is simply
+; incremented by 18 (each entry occupies 18 bytes: 2 bytes drive and user,
+; 8 bytes directory name, and 8 byte optional password).
+
+ParseDirNext:	POP	HL		; get pointer to D/U from stack
+		LD	DE,18
+		ADD	HL,DE		; calculate new pointer
+		JR	ParseDirLoop	; loop until match found or table end
+
+; Parse DU: specifications. This routine is used if no Z3 is active,
+; or if the entered directory name can't be found in the named dir buffer.
+; Unlike the CCP, this routine needs the drive first, it can't handle
+; UD: inputs.
+;
+; Yes it can.  Jon Saxton, 2012.09.15
+
+ParseDrvLtr:
+		; We're expecting a drive letter or a user number or both.
+		;
+		; We need to guard against silly prefixes like 1C4: and A5E:
+
+		ld	hl,0		; Clear the local drive and user flags
+		ld	(LocalDU),hl
+		LD	HL,(FcbNameAdr) ; get pointer to input characters
+ParseDU:
+		ld	a,(hl)		; Which comes first, D or U?
+		call	CheckNumber	; Test for digit
+		jr	nc,ParseUser	; Number: user number comes back in C
+DriveLetter:
+		LD	B,0		; preset drive (0=current default)
+		LD	A,(HL)		; get first character (drive letter)
+		CP	'A'
+		JR	C,ParseError2	; not a valid drive letter
+		CP	'P'+1
+		JR	NC,ParseError2	; not a valid drive letter
+
+		; Have we already processed a drive letter?
+		ld	b,a		; Store drive momentarily
+		ld	a,(LocalDU+.d)	; Check local flag for drive
+		or	a
+		jr	nz,ParseError2	; Error if we have seen one before
+		ld	a,b		; Restore drive
+
+		SUB	'A'-1		; subtract offset
+		LD	B,A		; save drive code (1..16)
+		ld	(LocalDU+.d),a
+		INC	HL
+		LD	A,(HL)		; get next char of target
+		CP	' '		; space? (then no user given)
+;		LD	C,(IX+44h)	; get current user (default)
+		JR	Z,ParseChkSetDU ; jump if no user given
+
+ParseUser:	SET	5,(IX-17H)	; flag that a DU: spec was used
+		LD	C,0		; preset user = 0
+		LD	A,(HL)		; get next input char
+		CALL	CheckNumber
+		JR	C,ParseError2 	; it's no number: error abort
+
+		ld	c,a		; Save user number for a moment
+		ld	a,(LocalDU+.u)	; Have we already seen a user number?
+		or	a
+		ld	a,c
+		jr	nz,ParseError2	; Error if so
+
+		SUB	'0'		; normalize from ASCII
+ParseUsrLoop:	LD	C,A		; preliminarily move user to C
+		or	80h		; .. and save a local copy for later
+		ld	(LocalDU+.u),a	;    referemce
+
+		INC	HL
+		LD	A,(HL)		; get next input char
+		CP	' '
+		JR	Z,ParseChkSetDU	; space: end of input string
+
+		cp	'A'		; Allow a drive letter after a
+		jr	c,pu2		;   user number
+		cp	'Q'
+		jr	c,DriveLetter
+pu2:
+		CALL	CheckNumber
+		JR	C,ParseError2 	; no number: error abort
+		SUB	'0'		; subtract ASCII offset
+		LD	E,A		; save new binary digit to E
+		LD	A,C
+		ADD	A,A
+		ADD	A,A
+		ADD	A,C
+		ADD	A,A		; multiply previous user by 10
+		ADD	A,E		; and add new digit
+		JR	ParseUsrLoop	; loop here until input ends
+
+; Check the entered DU: values for validity and store them in the
+; target FCB if they are valid.
+; ParseSetDU directly sets drive and user, without check (for named dir's).
+
+ParseChkSetDU:
+		ld	de,(LocalDU)	; Did we parse drive and/or user
+		ld	b,d		;  from input string?
+		ld	a,e
+		or	a		; Check user
+		jr	nz,psdu1
+		ld	a,(ix+44h)
+psdu1:
+		and	7Fh		; Parsed a user ... put it in C
+		ld	c,a
+
+		CALL	CheckDU
+		JR	NZ,ParseError2	; drive/user out of range: error!
+ParseSetDU:	LD	HL,(FcbNameAdr)	; get pointer into target FCB
+		DEC	HL		; point to drive field
+		LD	(HL),B		; store the drive
+
+		ld	a,b		; Is it a zero?
+		or	a
+		jr	nz,psdu3	; No ... carry on
+		ld	a,(ix+3Eh)	; Yes .. get current drive
+		inc	a		; 1=A, 2=B, .... 16=P
+		ld	b,a
+psdu3:
+		LD	DE,14
+		ADD	HL,DE		; calc pointer to 2nd drive field
+		LD	(HL),B		; store drive here, too
+		DEC	HL
+		LD	(HL),C		; store user in user field
+		RET
+
+; Errors during parsing result in the value FFFF returned in register HL.
+; Before we can return, we must clean the stack from the subroutine
+; return address(es) - all error checks are in subroutines. The error
+; condition is also flagged in the target FCB at location FCB+15.
+
+ParseError2:	POP	HL
+ParseError1:	POP	HL		; clean stack
+		CALL	ClearFcb	; clear FCB from input fragments
+		LD	HL,(FcbNameAdr)
+		LD	DE,14
+		ADD	HL,DE		; point to FCB record count
+		LD	(HL),0FFH	; set RC to 0FFh (why?)
+		LD	HL,0FFFFh	; return with HL=FFFF
+		RET
+
+; Expand a field of the target FCB (pointer in HL) from the input string
+; (pointer in DE). The maximum number of characters (size of target field)
+; is in register B when this routine is called.
+
+ParseExpand:	CALL	CheckDelimiter	; did we reach a delimiter?
+		RET	Z		; yes: this field completed
+		CP	' '
+		JR	C,ParseExpandErr ; invisible control char: error
+		CP	7FH
+		JR	NC,ParseExpandErr ; too high (grafics) char: error
+		LD	(HL),A		; copy char from input to FCB
+		CP	'*'
+		JR	Z,ParseExpWild 	; '*' found: expand to end of field
+		INC	HL
+		INC	DE		; bump pointers
+		DJNZ	ParseExpand	; continue until field completed
+ParseExpExit:	CALL	CheckDelimiter	; after that must follow a delimiter!
+		RET	Z		; yes it does: ok, return 'good'
+ParseExpandErr:	RES	5,(IX-17H)	; clear DU: flag for safety
+		JR	ParseError1	; abort parsing with error code
+
+ParseExpWild:	LD	(HL),'?'	; expand '*' by question marks in FCB
+		INC	HL		; bump target pointer
+		DJNZ	ParseExpWild	; repeat until field completed
+		INC	DE		; bump source pointer (behind '*')
+		JR	ParseExpExit	; check for delimiter and exit
+
+; Check if given drive (B) and user (C) are within the allowed range.
+; If Z-System is running, addititional tests are made if the drive and
+; user are within the limits specified in the System Environment.
+
+CheckDU:	LD	HL,0F10h	; H = max user (15), L = max drive (16)
+		CALL	CheckDUlimit	; compare given values with maximums
+		RET	c		; return if outside limits
+		PUSH	BC
+		CALL	GetWheelByte	; get wheel byte (Z3 protection flag)
+		POP	BC
+		JR	NZ,ReturnA0	; no Z3 or wheel not set: return (good)
+		PUSH	BC
+		LD	A,44
+		CALL	GetZ3EnvVar
+		CALL	GetTpaWord	; get Z3 maximum drive/user into HL
+		POP	BC
+
+; Do the actual compare. Return with carry set (and Z cleared) if outside
+; given limits. If all ok, return with carry cleared, Z set, and A=0.
+
+CheckDUlimit:
+		ld	a,b
+		and	7Fh
+		ld	b,a
+
+		LD	A,L		; get drive limit
+		CP	B
+		RET	C		; return if drive above limit
+		LD	A,H		; get user limit
+		CP	C
+		RET	C		; return if user above limit
+ReturnA0:	XOR	A
+		RET			; return "good": A=0, zero flag set
+
+; Check value in A for a valid ASCII number.
+; Returns with carry set if not.
+
+CheckNumber:	CP	'0'
+		RET	C		; below '0' : invalid
+		CP	'9'+1
+		CCF			; above '9' : invalid
+		RET
+
+; Table of delimiter characters.
+; Null code is not terminator, but valid delimiter code. This might
+; be a bug compared to CP/M-3 where the null code terminates the table.
+; When searching through this table, the search end varies: it might
+; be 14 to search up to the null code, or 15 to search up to the "!".
+
+DelimTable:	DB	CR,TAB,' .,:;[]=<>|',0,'!'
+
+; Check character for being a delimiter. If not, translate
+; to upper case and mask off MSB. These last two functions
+; also used separately.
+; Caution: ToUpper contains a logical bug for lower-case
+; characters with MSB set (this bug is also in CP/M-3).
+
+CheckDelimiter: LD	A,(DE)		; get character from input string
+		PUSH	BC
+CheckDelimLtr:	PUSH	HL
+		LD	HL,DelimTable
+		LD	BC,14
+		CPIR			; check if character is delimiter
+		POP	HL
+		POP	BC
+		RET	Z		; return if it is...
+
+ToUpper:	CP	'a'
+		RET	C		; below lower-case letters: ok
+		CP	'z'+1
+		JR	NC,MaskMSB	; above lower-case: mask MSB only
+		AND	5FH		; mask lower-case to upper case
+MaskMSB:	AND	7FH		; mask MSB
+		RET
+
+; Search for next non-blank char in string at (DE).
+; Return with char in A and valid pointer in DE.
+
+NonBlankLp:	INC	DE
+NonBlank:	LD	A,(DE)
+		CALL	CheckSpace
+		JR	Z,NonBlankLp
+		RET
+
+; Initialize FCB fields. The name and extension fields are set to
+; all spaces, and other fields are set to their initial values.
+
+ClearFcb:	LD	HL,(FcbNameAdr) ; get address of FCB name field
+		DEC	HL
+		LD	(HL),0		; clear drive code byte
+		INC	HL
+		LD	BC,11*100h+' '
+		CALL	FillMemory	; fill in 11 spaces (name + ext.)
+		LD	(HL),B		; clear extent byte (B=0)
+		INC	HL
+		LD	A,(@UsrCd)
+		LD	(HL),A		; set S1 to user number
+		INC	HL
+		LD	BC,2*100h+0
+		CALL	FillMemory	; set S2 and RC to null
+		LD	BC,8*100h+' '
+		CALL	FillMemory	; set D0..D7 to spaces (why?)
+		LD	BC,12*100h+0	; ... and D8..D15 to null (why?)
+					; ... also, cr and record number
+
+; Fill memory at (HL) with B bytes of constant value C.
+
+FillMemory:	LD	(HL),C
+		INC	HL
+		DJNZ	FillMemory
+		RET
+FillNull8:
+		ld	bc,0800h
+		jr	FillMemory
+
+; Fill memory at predefined address or at (HL) with 8 space characters.
+
+FillSpace8:	LD	HL,0		; load target address into HL
+FcbNameAdr	EQU	$-2		; (target address put in here)
+FillSpace8HL:	PUSH	HL
+		LD	BC,8*100h+' '
+		CALL	FillMemory	; fill in eight spaces
+		POP	HL
+		RET
+
+; Compare internal filename to that at (HL) in the user bank (TPA).
+; Return with NZ if different, Z if equal. All eight chars checked.
+
+CompNameTPA:	LD	DE,(FcbNameAdr)
+		LD	C,8
+CompNameLoop:	CALL	GetBank1	; get char from TPA
+		EX	DE,HL
+		CP	(HL)		; compare with internal name
+		EX	DE,HL
+		RET	NZ		; return if different
+		INC	HL
+		INC	DE		; bump pointers
+		DEC	C
+		JR	NZ,CompNameLoop ; compare all eight chars
+		RET			; return with Z if equal
+
+; Message for password query if protected file is tried to access.
+
+PasswordMsg:	DB	': Password? ',0
+
+; Get a byte from the Z3 system environment data. When called, the value
+; in A defines the position (index/offset) of which environment byte to
+; get. If there is no environment, the routine will return with zero flag
+; set, otherwise the value of the particular environment variable will be
+; in A, its address in HL, and the Z flag cleared.
+
+GetZ3EnvVar:	LD	B,A
+		LD	HL,(Z3EnvAdr)	; get address of Z3 environment
+		LD	A,H
+		OR	L
+		RET	Z		; return with A=0 and Z if none
+		LD	A,B		; get offset (index) back into A
+		CALL	AddAtoHL	; calculate address of env. variable
+		CALL	GetBank1	; get value from environment in TPA
+		LD	B,A
+		OR	0FFH		; clear Z flag
+		LD	A,B
+		RET			; return with environment value in A
+
+; Get a word from address (HL) in the TPA. The word value is returned in HL.
+; Used to get word values from the Z3 system environment.
+
+GetTpaWord:	CALL	GetBank1	; get LSB
+		INC	HL		; increment pointer
+		PUSH	AF
+		CALL	GetBank1	; get MSB
+		LD	H,A
+		POP	AF
+		LD	L,A		; move word value into HL
+		RET
+
+; Get the Wheel Byte from the Z3PLUS system environment.
+; Return with A=FF if there is no Z3 environment, otherwise return
+; with the value of the wheel byte in A (Z always set accordingly).
+
+GetWheelByte:	LD	A,41
+		CALL	GetZ3EnvVar	; try to get wheel byte address
+		LD	A,0FFH
+		JR	Z,GetWheel1	; no Z3: return as if wheel is set
+		CALL	GetTpaWord	; get wheel byte address into HL
+		CALL	GetBank1	; get wheel byte into A
+GetWheel1:	OR	A		; set/reset Z flag accordingly
+		RET
+
+; Display the complete BDOS error message. Length and details of this
+; message depend on function which was performed. Pointer to error
+; type message is contained in DE when this routine is called.
+; First action: print basic error message with DU: and error type.
+
+PrintErrMsg:	PUSH	DE		; save message pointer
+		CALL	CRLF		; start a new line
+		LD	A,(CurDrive)
+		ADD	A,'A'
+		LD	(ErrDisk),A	; store drive letter into message
+		LD	HL,ErrUser	; pointer to user field (target)
+		LD	A,(@UsrCd)	; get current user number
+		AND	0FH		; mask lower nibble
+		CP	10
+		JR	C,PrintErrUsr1	; below 10: direct conv. to digit
+		LD	(HL),'1'	; above 10:
+		INC	HL		; ... set ten's digit to '1'
+		SUB	10		; ... and correct for one's digit
+PrintErrUsr1:	ADD	A,'0'		; make user (one's) to ASCII digit
+		LD	(HL),A		; store into message
+		INC	HL
+		LD	(HL),':'	; set colon after DU: information
+		INC	HL
+		LD	(HL),' '	; ... followed by a space
+		LD	HL,ErrorMsg
+		CALL	OutStrEnd0	; print this first part of error msg.
+		POP	HL		; get type message pointer back
+		LD	A,(@MsgSize)	; now check error mode first
+		RLA
+		JR	NC,OutStrEnd0	; short messages: output this and end
+
+; Long error messages: add function code and eventually file name
+; to the "short" error message printed before. Function code first
+; has to be converted to decimal.
+
+		CALL	OutStrEnd0	; long messages: output short msg...
+		LD	A,(@FX) 	; ... then get BDOS function code
+		LD	B,'0'		; init counter for ten's digit (below)
+		LD	HL,ErrFunc	; HL is target (string) pointer
+		CP	100		; check for hundred's
+		JR	C,PrtErrFunc1	; below 100: no hundred's digit
+		LD	(HL),'1'
+		INC	HL		; else set hundred's digit to '1'
+		SUB	100		; ... and correct value
+PrtErrFunc1:	SUB	10
+		JR	C,PrtErrFunc2	; value was below 10: digits fixed
+		INC	B		; increment ten's counter
+		JR	PrtErrFunc1	; ... and loop until all ten's gone
+PrtErrFunc2:	LD	(HL),B		; save ten's digit in output string
+		INC	HL
+		ADD	A,'0'+10	; correct last subtr., add ASCII ofs.
+		LD	(HL),A		; store one's digit into string
+		INC	HL
+		LD	(HL),' '	; ... followed by space separator
+		LD	HL,ErrFunc+3
+		LD	(HL),0		; term. string behind function code
+		LD	A,(@Resel)
+		OR	A
+		JR	Z,PrtErrMsgDo	; print function code only
+		LD	(HL),' '	; delete string termination
+		LD	HL,(@VInfo)
+		INC	HL		; HL points to filename in FCB
+		LD	DE,ErrFile	; target address for output string
+		CALL	DispFileName	; copy name+ext. in "dot" form
+		EX	DE,HL
+		LD	(HL),0		; terminate this string
+PrtErrMsgDo:	CALL	CRLF		; start a new line
+		LD	HL,FunctionMsg	; ... and finally print long msg.
+
+; Print a string (at HL) which is terminated by a Null character.
+
+OutStrEnd0:	XOR	A
+		LD	(OutStrDelim),A ; set string output delimiter to 0
+		JP	OutputString	; print the string on the console
+
+; "Display" a file name (at HL). In fact, it is only copied to a target
+; string at which DE is pointing. Only used characters are copied, i.e.
+; copying is stopped at the first blank character in the file name field
+; of the FCB.
+
+DispFileName:	LD	BC,8		; copy up to eight characters
+		CALL	CopyNameExt	; do it!
+		EX	DE,HL
+		LD	(HL),'.'	; there is a period after the name...
+		INC	HL
+		EX	DE,HL
+		ADD	HL,BC		; set source pointer to start of ext.
+		LD	C,3		; copy up to three chars now
+CopyNameExt:	LD	A,(HL)		; get source character
+		CP	' '
+		RET	Z		; if it's a space: return, end loop
+		LDI			; else copy character
+		RET	PO		; return if all characters done
+		JR	CopyNameExt	; else continue
+
+; Reboot the system with a return value of FFFDh.
+
+RebootFFFD:	LD	HL,0FFFDH
+		JR	ErrorReturn	; store return value and reboot CCP
+
+; Reboot the system with a return value of FFFEh. Two internal pointers
+; are cleared before. There is no error message - just a quiet return
+; to the CCP.
+
+RebootFFFE:	LD	HL,0
+		LD	(@BufPtr),HL
+		LD	(@Neu31??),HL	;?? (write-only)
+		DEC	HL
+		DEC	HL
+ErrorReturn:	LD	(@RetCode),HL	; store Return code
+WarmBoot:	LD	HL,?WBoot+2
+		JP	JumpToBios	; jump to BIOS warm boot routine
+
+; Routines for handling multi-sector I/O. MultiIO is only called when
+; the m/s count is not zero and the BDOS is called to perform a function
+; for which m/s I/O is supported. It loops and performs the requested
+; function several times until the m/s count becomes zero or there is
+; any error condition.
+
+MultiIO:	LD	(StackSave),SP	; save the current stack pointer
+		LD	HL,MultiReturn
+		PUSH	HL		; push return address
+		CALL	GetRecNumAdr	; get address of record number
+		LD	A,(HL)
+		LD	(MultiRecLSB),A
+		INC	HL
+		LD	A,(HL)
+		LD	(MultiRecNSB),A
+		INC	HL
+		LD	A,(HL)
+		LD	(MultiRecMSB),A ; save current record number
+		LD	HL,(@CrDma)
+		LD	(MultiDMA),HL	; set internal DMA starting address
+		LD	A,(@MltIO)	; get m/s count into A
+
+MultiIoLoop:	PUSH	AF		; save count
+		LD	(MultiRemain),A ; save remaining count
+		LD	C,(IX+43H)	; get @FX from SCB back into C
+		LD	DE,(@VInfo)	; get FCB pointer back into DE
+		LD	IX,ScbBase	; get SCB pointer into IX (again...)
+		CALL	NormalIO	; and perform normal I/O once
+		OR	A
+		JR	NZ,MultiErr	; on error abort...
+		LD	A,(@FX)
+		CP	33
+		CALL	NC,IncRecNum	; if random r/w: increment rec. num.
+		LD	HL,(@CrDma)	; get current DMA address
+		LD	DE,128
+		ADD	HL,DE		; increment by one record
+		LD	(@CrDma),HL
+		LD	(DmaAdr),HL	; and store as new DMA address
+		POP	AF		; get loop counter again
+		DEC	A
+		JR	NZ,MultiIoLoop	; and loop until counter becomes 0
+		LD	H,A
+		LD	L,A		; set HL=0: error-free return
+		RET
+
+; Return on error during Multi-Sector I/O: return with number of
+; error-free processed records in H. On physical errors, H is unchanged.
+
+MultiErr:	POP	BC		; clean stack (remaining count to B)
+		INC	A		; physical error (H=FF)?
+		RET	Z		; yes: return
+		LD	A,(@MltIO)	; get original m/s count
+		SUB	B		; subtract remaining count
+		LD	H,A		; store processed count in H
+		RET
+
+; Return entry for Multi-Sector I/O functions. On random I/O functions,
+; the previous record number is restored. For all functions, the DMA
+; addresses and the stack pointer are restored to their previous values.
+
+MultiReturn:	PUSH	HL		; save return code
+		LD	A,(@FX)
+		CP	33
+		JR	C,MultiReturn1	; seq. I/O: don't restore recnum
+		CALL	GetRecNumAdr	; else get address of recnum again
+		LD	(HL),0
+MultiRecLSB	EQU	$-1
+		INC	HL
+		LD	(HL),0
+MultiRecNSB	EQU	$-1
+		INC	HL
+		LD	(HL),0		; restore all three bytes
+MultiRecMSB	EQU	$-1
+MultiReturn1:	LD	HL,0		; get "original" DMA address again
+MultiDMA	EQU	$-2
+		LD	(@CrDma),HL
+		LD	(DmaAdr),HL	; and restore old pointers
+		POP	HL		; get return code again
+		LD	SP,0		; restore stack pointer
+StackSave	EQU	$-2
+		LD	A,L
+		LD	B,H		; move return code to BA also
+		RET			; and return: m/s I/O completed
+
+; Get input character from the console. Before calling the appropriate
+; BIOS routine, first check if there is a character stored in the internal
+; key buffer (required for software handshake capability!).
+
+InputCon:	LD	HL,ConInBuf	; get address of key buffer
+		LD	A,(HL)		; get char from buffer
+		LD	(HL),0		; clear buffer anyway
+		OR	A
+		RET	NZ		; return now if buffer wasn't empty
+		LD	HL,?ConIn+2
+		JP	JumpToBios	; else get char from BIOS routine
+
+; Get input character from console, with echo, TAB expansion and
+; XON/XOFF recognition. All other control chars (except ^P) are passed
+; to the calling program.
+
+ConIn:		LD	HL,SaveStatA
+		PUSH	HL		; push return address
+ConInAgain:	CALL	InputCon	; get keyboard character
+		CALL	CheckCtlChar
+		JR	C,ConInCtlChar	; it's a special ctl char: interpret
+		PUSH	AF		; save char
+		LD	C,A		; put char in C for echo
+		CP	9
+		JR	NZ,ConInNoTab	; no TAB: just echo and return
+		LD	A,(@ConWidth)	; for TABs: calculate no. of spaces
+		LD	B,A		; maximum column to B
+		LD	A,(@Column)
+		CP	B		; compare with current column
+		JR	NC,ConInNoTab	; already behind right margin: no exp.
+		AND	7
+		SUB	7
+		NEG
+		LD	B,A		; no. of spaces to move in B (1..8)
+		LD	C,' '		; echo spaces instead
+ConInTabLoop:	PUSH	BC
+		CALL	OutCon		; output space char
+		POP	BC
+		DJNZ	ConInTabLoop	; loop until next TAB position reached
+
+ConInNoTab:	CALL	OutCon		; just echo character,
+		POP	AF		; ... get it back into A
+		RET			; ... and return with it
+
+; Interpret special control characters (no delimiters like CR, LF, or TAB)
+; which are typed in during console input.
+; Only keys accepted here are XON, XOFF, and ^P. All other control chars
+; are passed to the calling program.
+
+ConInCtlChar:	CALL	CheckXoffEna	; check if XON/XOFF enabled
+		RET	NZ		; return if not...
+		CP	XOFF
+		JR	NZ,ConInCtl1
+		CALL	WaitCtlQ	; if it's XOFF: wait for XON
+		JR	ConInAgain	; then get next char
+
+ConInCtl1:	CP	XON
+		JR	Z,ConInAgain	; ignore XON and get next char
+		CP	CtlP
+		JR	Z,ConInAgain	; ignore ^P and get next char
+		RET
+
+; Check character in A for control characters. If the character is a
+; standard delimiting control character (CR, LF, BS, TAB, SPC) the routine
+; returns with zero flag set. Otherwise, it returns with carry flag set
+; if it's another control character.
+; Second entry "CheckSpace" is used for checking against space delimiters
+; (only TAB and SPC).
+
+CheckCtlChar:	CP	CR
+		RET	Z
+		CP	LF
+		RET	Z
+		CP	BS
+		RET	Z
+CheckSpace:	CP	TAB
+		RET	Z
+		CP	' '
+		RET
+
+; Get current console input status. Returns with A=1 if character
+; available, otherwise A=0.
+
+GetConStatus:	LD	A,(ConInBuf)	; check key buffer first...
+		OR	A
+		JP	NZ,ReturnA1	; not empty: return with A=1
+		LD	HL,?ConSt+2
+		CALL	JumpToBios	; call BIOS if key buffer is empty
+		AND	1
+		RET			; and return with BIOS status in A
+
+; Set the keyboard lock flag so all subsequent input is taken from the
+; physical keyboard. This is necessary to prevent SUBMIT from aborting
+; a running job.
+; This routine leaves the address of the keyboard lock flag on stack!
+
+KeyLock:	LD	HL,@KeyLock	; get flag address
+		LD	(HL),40H	; set bit 6 (clear all others, BTW)
+		EX	(SP),HL 	; put addr on stack, return addr in HL
+		JP	(HL)		; return to calling program
+
+; Check if XON/XOFF handling is enabled in the SCB Console Mode byte.
+; Result is returned in zero flag (set if enabled, cleared if disabled).
+
+CheckXoffEna:	LD	B,A
+		LD	A,(@ConMod)
+		AND	2
+		LD	A,B
+		RET
+
+; Check keyboard status. If XON/XOFF is enabled, this is checked also.
+; Otherwise just the physical status is returned.
+; (This routine is referenced only once.)
+
+CheckKeyboard:	CALL	CheckXoffEna	; XON/OFF enabled?
+		JR	NZ,GetConStatus ; no: get status directly
+		LD	A,(ConInBuf)
+		OR	A		; anything in buffer?
+		JR	NZ,CheckXonXoff1 ; yes: check for control keys
+		LD	A,(@KeyStat)	; no: check key status (SUBMIT)
+		INC	A
+		JR	Z,GetConStatus	; is FF: go get status directly
+
+; Check for scroll halt (XOFF). If one is found, wait for XON to continue.
+; During this time, only XON and ^C are allowed. For getting the keyboard
+; status and character without irritating SUBMIT, the keyboard is locked
+; during those actions.
+
+CheckXOnOff:	CALL	CheckXoffEna
+		RET	NZ		; XON/XOFF disabled: return
+		LD	A,(ConInBuf)
+		CP	XOFF
+		JR	Z,CheckXonXoff1 ; XOFF key: wait for XON or abort
+		CALL	KeyLock 	; any other key: lock keyboard
+		LD	HL,?ConSt+2
+		CALL	JumpToBios	; get BIOS keyboard status
+		POP	HL
+		LD	(HL),0		; unlock keyboard
+		AND	1
+		RET	Z		; nothing available: return
+		CALL	KeyLock 	; else lock keyboard again
+		LD	HL,?ConIn+2
+		CALL	JumpToBios	; get key from BIOS
+		POP	HL
+		LD	(HL),0		; unlock keyboard again
+
+; Check for XOFF and wait for XON if found. The only other keys accepted
+; then are XON, ^P (printer echo), and ^C (abort). All other keys just beep.
+; On enter, keys are in A.
+
+CheckXonXoff1:	CP	XOFF
+		JR	NZ,ConChkBreak	; no XOFF: perhaps its a ^C
+		LD	HL,ConInBuf
+		CP	(HL)		; did we get XOFF from the buffer?
+		JR	NZ,WaitCtlQ	; no...
+		LD	(HL),0		; yes: clear buffer then
+
+; Wait for XON to be typed at the keyboard. This will unlock scrolling.
+
+WaitCtlQ:	CALL	KeyLock 	; lock keyboard
+		LD	HL,?ConIn+2
+		CALL	JumpToBios	; get key from BIOS directly
+		POP	HL
+		LD	(HL),0		; unlock keyboard
+		CP	CtlC
+		JR	NZ,WaitCtlQ1	; no ^C: check for XON
+		LD	A,(@ConMod)	; ^C: can we accept this?
+		AND	8
+		JP	Z,RebootFFFE	; if ^C abort enabled: reboot
+		XOR	A		; else continue waiting
+
+WaitCtlQ1:	SUB	XON
+		RET	Z		; finally an XON appeared... return
+		INC	A
+		CALL	TogglePrnIfZ	; toggle printer flag if ^P
+		JR	WaitCtlQ	; anyway, continue waiting for XON
+
+; Processing of console input status.
+; If console mode is set to ^C-status only, all other keys are ignored.
+; Routine returns with Z-flag set if a ^C is found in the key buffer.
+; If console mode is set to standard status, the XON and ^P keys are
+; filtered to not cause a "char available" status; all other keys are
+; passed (written into key buffer), and the routine returns with A=1
+; and zero flag cleared.
+
+ConChkBreak:	LD	HL,ConInBuf	; get address of keyboard buffer
+		LD	B,A		; save character to check
+		LD	A,(@ConMod)
+		RRA			; b0=1 : ^C-only-status for fun. 11
+		JR	NC,ConChkBreak1 ; jump if normal status function
+		LD	A,CtlC
+		CP	(HL)		; else compare byte buffer with ^C
+		RET	Z		; return with Z only if matches
+ConChkBreak1:	LD	A,B		; get character back in A
+		CP	XON
+		JR	Z,ReturnAM0	; if XON char, return with Z
+		CP	CtlP
+		JR	Z,ReturnAM0	; if printer toggle, ret. with Z
+		LD	(HL),A		; else store new char in buffer
+ReturnA1:	LD	A,1		; ... and return with A=1 & NZ
+		RET
+
+ReturnAM0:	XOR	A
+		LD	(HL),A		; clear key buffer (now empty)
+		RET			; and return with A=0 & Z
+
+; Toggle printer echo. First label additionally beeps if zero flag is
+; not set (and toggles printer echo only if zero flag is set).
+
+TogglePrnIfZ:	JR	NZ,Beep 	; invalid key: just beep
+TogglePrinter:	LD	A,(@ConMod)	; get console mode byte
+		AND	14H		; ?? meaning of bit 4?
+		RET	NZ		; raw output mode: printer disabled
+		LD	HL,@LstOutFlag	; point to printer echo flag
+		INC	A		; A is now 1
+		XOR	(HL)		; toggle bit 0 of flag
+		AND	1		; mask off all other bits
+		LD	(HL),A		; and store new flag
+		RET	Z		; return without beep if echo off now
+Beep:		LD	C,BEL		; invalid key or printer echo on: beep
+		LD	HL,?ConOut+2
+		JP	JumpToBios	; output bell char directly
+
+; Output CR and LF to start a new line.
+
+CRLF:		LD	C,CR
+		CALL	OutCon
+		LD	C,LF
+
+; Output a character (in C) to the console. The current column position
+; (SCB variable) is updated according to the output character.
+
+OutCon: 	LD	A,(@ConMod)
+		AND	14H		; raw mode ?
+		LD	B,A		; store "flag" in B (<>0 for raw)
+		PUSH	BC
+		LD	A,(@FX)
+		DEC	A		; function 1 (console input) ?
+		CALL	NZ,CheckXOnOff	; no: check XON/OFF status
+		POP	BC
+		PUSH	BC
+		LD	HL,?ConOut+2
+		CALL	JumpToBios	; call BIOS output routine
+		POP	BC
+		LD	A,1
+		AND	(IX+38H)	; check list output flag (prn. echo)
+		DEC	A		; set Z if printer echo on
+		OR	B		; set Z if echo on and not raw mode
+		CALL	Z,ListOutX	; if echo and no raw mode: print char
+		LD	A,C		; get char into A
+		LD	HL,@Column	; point to current console column (SCB)
+		CP	DEL
+		RET	Z		; rubout char: don't change column
+		INC	(HL)		; normal chars: increment column
+		CP	' '
+		RET	NC		; return for visible ASCII chars
+		DEC	(HL)		; undo increment for ctl. chars
+		LD	A,(HL)
+		OR	A
+		RET	Z		; return if column already is 0
+		LD	A,C
+		CP	BS		; else check for backspace char
+		JR	NZ,OutCon1	; no... check for CR then
+		DEC	(HL)		; backspace: decrement column
+		RET
+
+OutCon1:	CP	CR
+		RET	NZ		; no CR: leave column unchanged
+		LD	(HL),0		; Carriage return: set column to 0
+		RET
+
+; Output a character to the console with TAB expansion.
+
+ConOut: 	LD	A,(@ConMod)
+		AND	14H
+		JR	NZ,OutCon	; raw mode: no expansion
+		LD	A,C
+		CP	TAB
+		JR	NZ,OutCon	; no TAB character: just output
+ConOutTabExp:	LD	C,' '
+		CALL	OutCon		; TAB expansion: output spaces...
+		LD	A,(@Column)
+		AND	7
+		JR	NZ,ConOutTabExp ; ...until column is multiple of 8
+		RET
+
+; ***** End of portion 1 *****

@@ -1,0 +1,1230 @@
+;*****************************************************************
+;**	Fifth portion of banked ZPM3 (N10) BDOS.		**
+;**	Disassembly by Tilmann Reh (950327).			**
+;**								**
+;**	This portion contains:					**
+;**	- data buffer content check				**
+;**	- FCB operation: write					**
+;**	- random access file position handling			**
+;**	- drive selection, reactions on media changes		**
+;**	- password handling					**
+;*****************************************************************
+
+; Check if the needed sector is already in memory. This routine returns
+; with carry flag set if the sector is contained in the current data
+; buffer, or with zero flag cleared if the sector is in the cache.
+; Returning with NC and Z means that the sector is nowhere in memory.
+; (This routine really is not easy to understand...)
+
+SectorInMem?:	LD	A,(RecInBlock)
+		LD	B,A		; get relative sector into B
+		LD	A,(PHM)		; get physical sector deblocking mask
+		LD	C,A		; (save it in C)
+		AND	B		; get relative sector in block (?)
+		PUSH	AF		; save it
+		LD	A,(MultiSecPhys) ; get m/s count in phys. boundary
+		CP	2
+		JR	C,SectorInMem1 	; less than 2 (must be 1): continue
+		DEC	A
+		LD	(MultiSecPhys),A ; above 2 : decrement it (count I/O)
+		POP	AF		; get back relative sector
+		SCF			; flag "in current buffer"
+		RET	NZ		; not at block start: return
+		XOR	A		; at block start:
+		RET			; return Z/NC ("not in memory")
+
+SectorInMem1:	POP	AF		; get back relative sector
+		JR	Z,SectorInMem4 	; it's the start of a block: continue
+SectorInMem2:	LD	A,C		; get PHM
+		OR	A		; are we deblocking at all?
+		RET	Z		; no: Z/NC (not in memory)
+ORA1:		OR	1		; yes: NZ/NC (in cache)
+		RET
+
+SectorInMem4:	LD	A,C
+		CPL
+		LD	D,A		; save inverted PHM to D
+		LD	HL,RecInExt
+		LD	A,(MultiRemain)
+		CP	2		; more than 1 I/O's remaining?
+		JR	C,SectorInMem2 	; no: return deblocking information
+		ADD	A,(HL)		; yes: add to starting sector
+		CP	128
+		JR	C,SectorInMem5 	; still below 128: ok
+		LD	A,128		; otherwise limit this to 128
+SectorInMem5:	PUSH	BC
+		LD	B,(HL)		; get current record position into B
+		LD	(HL),127	; set RecInExt to 127 (last rec.)
+		PUSH	BC		; save current position
+		PUSH	HL		; save RecInExt pointer
+		PUSH	AF		; save computed sector number
+		LD	A,(BLM)
+		LD	E,A		; get block mask into E
+		INC	E		; inc to get no. of sectors in block
+		CPL			; invert to mask off inner-block bits
+		AND	B		; related block starting sector
+		LD	B,A		; ... into B
+		POP	HL		; get computed sector number into H
+		LD	A,(ReadFlag)
+		OR	A		; are we reading?
+		JR	Z,SectorInMem6 	; no: continue
+		LD	A,(CurRecCount)	; yes: get current record count
+		AND	D		; mask to related physical sector
+		CP	H		; compare against computed sector
+		JR	C,SectorInMem7 	; below: use it
+SectorInMem6:	LD	A,H		; above or writing: use computed sec.
+SectorInMem7:	SUB	B		; subtract block starting sector
+		LD	C,A		; save into C
+		CP	E		; compare against sectors per block
+		JR	C,SectorInMem13 ; all within one block: ok, cont.
+		PUSH	BC		; (#1) not within one block:
+		CALL	CalcExtBlock	; compute block in extent
+		LD	B,A
+		LD	A,(BlockInFcb)	; get block relative to FCB
+		CP	B		; compare against block in extent
+		LD	E,A		; save block in FCB into E
+		JR	Z,SectorInMem10 ; equal: ??
+		LD	C,A		; save FCB block into C too
+		PUSH	BC		; (#2)
+		CALL	GetFcbBlockC	; get that block number from the FCB
+
+; Look through the FCB to find the largest contiguous area, starting at HL.
+
+SectorInMem8:	PUSH	HL		; save starting block number
+		INC	BC		; increment block in FCB
+		CALL	GetFcbBlockBC	; get according block
+		POP	DE		; get starting block back, but into DE
+		INC	DE		; next block's number
+		LD	A,D
+		SUB	H
+		LD	D,A
+		LD	A,E
+		SUB	L
+		OR	D		; does this match next FCB block?
+		JR	Z,SectorInMem8 	; yes: continue until not matching
+
+		LD	A,H
+		OR	L		; did we find an empty block pos.?
+		JR	NZ,SectorInMem9	; no: continue (?)
+		LD	A,(ReadFlag)
+		OR	A		; are we reading?
+		JR	NZ,SectorInMem9	; yes: continue (?)
+		LD	HL,(DSM)	; writing: get max. block number
+		LD	A,L
+		SUB	E
+		LD	A,H
+		SBC	A,D		; did we reach the disk's end?
+		JR	C,SectorInMem9 	; yes: continue (?)
+		PUSH	BC
+		PUSH	DE
+		LD	B,D
+		LD	C,E		; move block number into BC
+		CALL	GetAllocBit	; to check if block is allocated
+		POP	HL
+		POP	BC
+		RRA			; shift alloc bit into carry
+		JR	NC,SectorInMem8	; not allocated: search on...
+
+SectorInMem9:	DEC	C		; decrement block in FCB
+		POP	DE		; (#2) get starting block pos. into E,
+		LD	A,D		;   ... and block in extent into D
+		CP	C		; compare this to ending block pos.
+		JR	C,SectorInMem10 ; it's below: continue...
+		LD	A,C		; it's above: use ending block instead
+SectorInMem10:	SUB	E		; subtract starting block pos.
+		LD	B,A		; move area size into B
+		INC	B		; (correct loop count)
+		LD	A,(BLM)
+		INC	A		; get no. of sectors per block
+		LD	C,A		; ... into C
+SectorInMem11:	DEC	B
+		JR	Z,SectorInMem12
+		ADD	A,C		; then compute A=C*B
+		JR	SectorInMem11	; ... to get area size in sectors
+
+SectorInMem12:	POP	BC		; (#1) get back relative sector into C
+		LD	B,C		; ... into B now
+		LD	C,A		; no. of sectors for I/O into C
+		LD	A,(ReadFlag)
+		OR	A
+		JR	Z,SectorInMem13 ; we are writing: use area size (C)
+		LD	A,B		; read:
+		CP	C		; comp. rel. sector to area size
+		JR	C,SectorInMem14 ; below: use rel. sector
+SectorInMem13:	LD	A,C		; above/write: use area size
+SectorInMem14:	POP	HL		; (RecInExt pointer)
+		POP	BC		; (its original contents)
+		LD	(HL),B		; restore RecInExt
+		POP	BC		; (B=RecInBlock, C=PHM)
+		LD	HL,MultiRemain
+		LD	D,(HL)		; get remaining I/O access count
+		SUB	B		; subtract RecInBlock (from A!)
+		CP	D
+		JR	NC,SectorInMem15
+		LD	D,A		; move into D if lower than D
+SectorInMem15:	LD	A,C
+		CPL			; get inverted PHM in A
+		AND	D		; mask off inner-sector bits
+		LD	(MultiSecPhys),A ; remaining records (phys. boundary)
+		JP	Z,ORA1		; None: or A with 1 & return (NZ then)
+		PUSH	AF
+		LD	A,(ReadFlag)
+		OR	A
+		JR	Z,SectorInMem16 ; writing: skip flushing buffers
+		CALL	FlushDataBufs1
+		CALL	RestoreUsrDMA
+SectorInMem16:	POP	AF
+		LD	H,A
+		CALL	CalcPhysSector	; shift right HL for PSH times
+		LD	A,H		; get remaining phys. sectors into A
+		CP	1
+		LD	C,A
+		CALL	NZ,?MultIO	; set BIOS m/s count if >1
+		XOR	A
+		RET			; return with Z/NC: not in memory
+
+; Clear the MSB of the S2 byte to indicate that the file has been written
+; to and the directory must be updated on disk.
+
+ClearS2bit7:	CALL	GetS2
+		AND	7FH
+		LD	(HL),A
+		RET
+
+; Write to a file. This routine handles all kinds of write operations,
+; sequential and random.
+
+WriteFile:	LD	A,0
+		LD	(ReadFlag),A	; flag that we are writing now
+		CALL	CheckDriveRO	; abort if drive is read-only
+		LD	A,(CurrentF7)
+		OR	A
+		LD	A,3
+		JP	NZ,ReturnErrorA	; return error 3 if F7' is set
+		LD	A,(CurrentF8)	; (3 means: write not allowed)
+		OR	A
+		LD	A,3
+		JP	NZ,ReturnErrorA	; return error 3 if F8' is set
+		LD	HL,(@VInfo)
+		CALL	CheckFileRO	; abort if file is read-only
+		CALL	ChkFcbValErr	; is the FCB valid?
+		CALL	StampUpdate	; set update stamp (if enabled)
+		CALL	GetFilePosition	; get file position variables from FCB
+		LD	A,(RecInExt)
+		CP	128		; have we completed the current extent?
+		JR	C,WriteFile1	; no: remain in this one
+		CALL	GotoNextExtent	; yes: move on to next extent
+		LD	A,(RetStat)
+		OR	A
+		RET	NZ		; return on errors
+WriteFile1:	CALL	CalcGetFcbBlk	; compute block number
+		JR	Z,WriteFile3	; unused: start with a new block
+		LD	HL,CurDrive
+		LD	DE,BufDrive
+		LD	C,3
+		CALL	CompMemC	; is the current buffer the right one?
+		JR	Z,WriteFile2	; yes: continue
+		LD	A,0FFH
+		LD	(BufPos),A	; no: indicate "we need another"
+WriteFile2:	LD	C,0		; indicate writing to used area
+		JR	WriteFile8	; continue within existing block
+
+; Start writing to a new block. If there already are used blocks in the
+; FCB, try to get a free block following the last used one. Otherwise,
+; find any free block (start searching at the beginning of the disk).
+; (This is intented to keep fractioning of files low.)
+
+WriteFile3:	CALL	ClearMovFlags	; clear FCB move flags
+		CALL	CalcExtBlock	; compute block number
+		LD	(BlockInFcb),A	; save as relative block in FCB
+		LD	BC,0		; (preset for searching new block)
+		OR	A		; first block of FCB?
+		JR	Z,WriteFile4	; yes: use any free one
+		LD	C,A		; no: try to get contiguous blocks
+		DEC	BC		; get previous block pos. in FCB
+		CALL	GetFcbBlockBC	; get previous block number
+		LD	B,H
+		LD	C,L		; ... into BC (instead of preset 0)
+WriteFile4:	CALL	FindFreeBlock	; find free block, starting at BC
+		LD	A,L
+		OR	H		; did we find a free block?
+		JR	NZ,WriteFile5	; yes: continue
+		LD	A,2
+		JP	SaveStatA	; no: return error 2 (disk r/o)
+WriteFile5:	LD	(AbsSector),HL	; (temp.) store block number
+		LD	(BufBlock),HL	; store as buffer block number too
+		XOR	A
+		LD	(BufPos),A	; indicate don't need another buffer
+		LD	A,(CurDrive)
+		LD	(BufDrive),A	; save current drive
+
+; Store new block number in FCB (at current position).
+
+		EX	DE,HL		; get block number into DE
+		LD	HL,(@VInfo)
+		LD	BC,16
+		ADD	HL,BC		; point to D0 byte in FCB
+		LD	A,(Blocks8bit)
+		OR	A		; are we using 8-bit block numbers?
+		LD	A,(BlockInFcb)	; get block position in A
+		JR	Z,WriteFile6	; 16-bit blocks: handle below
+		CALL	AddAtoHL
+		LD	(HL),E		; store new 8-bit block number
+		JR	WriteFile7	; continue
+WriteFile6:	LD	C,A		; 16-bit blocks: get A into BC
+		LD	B,0
+		ADD	HL,BC
+		ADD	HL,BC		; add twice to D0 address
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D		; store new 16-bit block number
+
+; We now know if we are writing to a new (freshly allocated) block, or
+; if we are modifying existing data. Now check if the other part of that
+; block has to be cleared (BDOS function 40: Write Random with Zero Fill).
+
+WriteFile7:	LD	C,2		; indicate writing to new area
+WriteFile8:	PUSH	BC		; save area flag
+		CALL	CalcAbsSect	; compute absolute sector number
+		LD	A,(@FX)		; get BDOS function number
+		CP	40		; Write Random with Zero Fill?
+		JR	NZ,WriteFile12	; no: skip zero-fill handling
+		LD	A,C		; get area flag
+		DEC	A
+		DEC	A		; are we writing to new area?
+		JR	NZ,WriteFile12	; skip zero-filling if in old data!
+
+; Now it's sure that we must clear the complete physical sector before
+; we start writing to it.
+
+		POP	BC		; get area flag back into C
+		PUSH	AF		; push A=0 and Z=1 (why?)
+		LD	HL,(AbsSector)
+		PUSH	HL		; save calculated absolute sector 
+		LD	HL,PHM
+		LD	E,(HL)
+		INC	E		; get records per phys. sector into E
+		LD	D,A		; clear D (A=D=0), expand to 16 bits
+		PUSH	DE		; save records per phys. sector
+
+; Go to the last BCB in the chain.
+; (This is the least recently used buffer, since all freshly allocated
+; buffers are inserted right at the head of the BCB list.)
+
+		LD	HL,(DIRBCB)	; get DIRBCB list header address
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get pointer to next DIRBCB
+		EX	DE,HL		; ...into HL
+		LD	BC,13		; set BC to offset of next BCB addr.
+WriteFile9:	PUSH	HL		; save BCB pointer
+		ADD	HL,BC		; point to next BCB address
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get next BCB address
+		EX	DE,HL		; ...into HL
+		LD	A,H
+		OR	L		; check if link field was 0
+		POP	DE		; get previous pointer back into DE
+		JR	NZ,WriteFile9	; loop until last BCB found.
+
+; Now save this buffer's address and bank and fill it completely with 0.
+
+		EX	DE,HL		; get last BCB address into HL again
+		DEC	A		; set A to FF (was 0 before)
+		LD	(BufPos),A	; indicate buffer is unused
+		LD	(HL),A		; ...in BCB too
+		LD	DE,10
+		ADD	HL,DE		; point to buffer address
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get buffer address into DE
+		INC	HL
+		LD	A,(HL)		; get bank of buffer
+		LD	(BufBank),A	; ...and store it for disk I/O
+		EX	DE,HL		; move buffer address into HL
+		LD	(DmaAdr),HL	; ...and store it as DMA address
+		POP	DE		; get records per phys. sector (E)
+		PUSH	DE		; (D is 0)
+		XOR	A		; set fill byte value: 0
+WriteFile10:	LD	(HL),A
+		INC	HL
+		INC	D
+		JP	P,WriteFile10	; fill record with 0
+		LD	D,A		; (clear D again)
+		DEC	E
+		JR	NZ,WriteFile10	; repeat for complete phys. sector
+
+; Now that the physical sector containing our current record has been
+; cleared, move on like writing into a used block. The freshly allocated
+; and cleared block is written to disk anyway.
+
+		LD	HL,(AbsSectLSW)	; get logical absolute sector
+		LD	C,2		; set area code: in used area
+WriteFile11:	LD	(AbsSector),HL	; store sector to process
+		PUSH	BC		; save area code
+		CALL	ClrDtaBcbSec	; clear related data BCB
+		CALL	CalcSetTrkSec	; compute and set track & sector
+		XOR	A
+		CALL	?SetBnk		; set DMA bank to system (0)
+		POP	BC		; restore area code
+		CALL	DiskWrite	; write the sector to disk now
+		LD	HL,(AbsSector)
+		POP	DE		; records per sector back in DE
+		PUSH	DE		; (and back on stack for loop)
+		ADD	HL,DE		; move on to next physical sector
+		LD	A,(BLM)
+		AND	L		; did we finish the complete block?
+		LD	C,0		; (now writing to new area)
+		JR	NZ,WriteFile11	; no: loop until block cleared
+		POP	HL		; (clean stack: records per sector)
+		POP	HL		; get original absolute sector back
+		LD	(AbsSector),HL	; and restore this variable
+		CALL	RestoreUsrDMA	; restore user's DMA address too
+
+; Here we are to perform the actual write of a record. For BDOS function
+; 40, any new block has been cleared on disk. A buffer has been defined
+; and eventually cleared which holds the current physical sector.
+
+WriteFile12:	POP	DE		; (get area code in E)
+		LD	A,(RecInExt)
+		LD	D,A		; get RecInExt into D
+		PUSH	DE		; save area code & RecInExt
+		CALL	SectorInMem?	; check if sector is in memory
+		JR	C,WriteFile15 	; in current buffer: just update size
+		JR	Z,WriteFile13 	; not in any buffer: create new one
+		LD	A,2		; in a buffer: set BCB access code
+		CALL	DataBufferIO	; ...and write data to BCB
+		JR	WriteFile15	; then update size (RC)
+
+WriteFile13:	CALL	RestoreUsrDMA
+		CALL	CalcSetTrkSec	; compute and set track & sector
+		LD	A,1
+		CALL	?SetBnk		; set DMA bank to 1 (TPA)
+		CALL	ClrDtaBcbSec	; clear related data BCB
+		POP	BC		; get area code back in C
+		PUSH	BC
+		LD	A,(AbsSector)
+		LD	HL,BLM
+		AND	(HL)		; are we at start of block?
+		JR	Z,WriteFile14 	; yes: use area code in C
+		LD	C,0		; no: flag "new area" (bug?)
+WriteFile14:	CALL	DiskWrite	; write sector to disk
+WriteFile15:	POP	BC		; get area code in C
+		LD	A,B		; get RecInExt in A
+		LD	HL,CurRecCount
+		CP	(HL)		; compare with current record count
+		JR	C,WriteFile16 	; below: ok, continue
+		LD	(HL),A		; above: set new RC
+		INC	(HL)		; bump to next record
+		LD	C,2		; flag "used area"
+WriteFile16:	DEC	C
+		DEC	C
+		JR	NZ,WriteFile17	; in used area: skip
+		CALL	ClearS2bit7	; new area: clear 7(S2)
+WriteFile17:	CALL	MarkFileChanged	; set 6(S2). Was it set before?
+		JR	NZ,WriteFile18	; yes: set move flags & return
+		CALL	ClearS2bit7	; no: clear 7(S2) once more (?)
+		CALL	ClearMovFlags	; clear move flags
+		JP	UpdateFcbCR	; update current record & return
+WriteFile18:	CALL	SetFcbCopyFlag
+		JP	UpdateFcbCR	; set move flags & update CR, return
+
+; For random I/O, set the FCB to match the desired record number in R0/1/2.
+; On entry, C is FFh if this is a read operation and we cannot access
+; unwritten data.
+
+SetFcbRandom:	PUSH	BC		; save read flag (C)
+		LD	DE,(@VInfo)
+		LD	HL,33
+		ADD	HL,DE		; point to R0 byte in FCB
+		LD	A,(HL)
+		AND	7FH		; calc record number
+		PUSH	AF		; ...and save it for later
+		LD	A,(HL)		; get R0 again
+		RLA			; shift MSB into carry flag
+		INC	HL
+		LD	A,(HL)		; get R1
+		RLA			; shift R0-MSB in
+		AND	1FH		; mask to 5 bits
+		LD	C,A		; save this as extent number
+		LD	A,(HL)
+		AND	0F0H		; get higher 4 bits of R1
+		INC	HL
+		OR	(HL)		; combine with R2 (bits 0-1 used)
+		RRCA
+		RRCA
+		RRCA
+		RRCA			; swap nibbles
+		LD	B,A		; save in B
+		LD	A,(HL)		; get R2 (18-bit no. means 2 bits here)
+		AND	0FCH		; check if more than 2 bits used
+		POP	HL		; get record number into H
+		LD	L,6		; error code (in case we need it)
+		LD	A,H		; get record into A
+		JP	NZ,SetFcbRndErr1 ; error, more than 18 bits used
+		LD	HL,32
+		ADD	HL,DE		; piont to CR field
+		LD	(HL),A		; store new record there
+		LD	A,(@FX)
+		CP	99		; is this "Truncate File" function?
+		JR	Z,SetFcbRandom4 ; yes: open new extent
+		PUSH	DE
+		CALL	CheckFcbValid	; check if FCB is invalid
+		POP	DE
+		JR	Z,SetFcbRandom3 ; not valid: close current extent
+		LD	HL,14
+		ADD	HL,DE		; point to S2 byte
+		LD	A,B
+		SUB	(HL)		; compare against computed value
+		AND	3FH		; (check only 6 bits)
+		JR	NZ,SetFcbRandom3 ; not matching: close this extent
+		LD	HL,12
+		ADD	HL,DE		; point to extent byte
+		LD	A,(HL)		; get current extent
+		CP	C		; are we already in the right extent?
+		JR	Z,SetFcbRandom7 ; yes: return successfull
+		CALL	ChkSameExtent	; check if within same entry
+		JR	NZ,SetFcbRandom3 ; no: close & open
+		PUSH	BC
+		CALL	GetLastExtent	; get last used extent number
+		POP	BC
+		CP	C		; are we trying to access new area?
+		JR	Z,SetFcbRandom1 ; in last extent: treat as new area!
+		JR	NC,SetFcbRandom2 ; in old area: open this extent
+		POP	DE
+		PUSH	DE		; get&save read flag (in E this time)
+		INC	E		; are we reading?
+		JR	NZ,SetFcbRandom2 ; no: ok, open this extent
+		INC	E		; yes: clear zero flag
+		POP	DE		; clean stack
+		JP	SaveStat1	; return error: read impossible here
+
+; The following routine was added to the CP/M-3 original. It seemingly
+; fixes the random-access bug described in Simeon's document files.
+
+SetFcbRandom1:	POP	DE
+		PUSH	DE		; get&save read flag (in E)
+		INC	E		; are we reading?
+		JR	NZ,SetFcbRandom2 ; no: ok, open this extent
+		LD	DE,(@VInfo)
+		JR	SetFcbRandom3	; yes: close extent and open new one
+
+; We found the right position within the currently opened entry.
+
+SetFcbRandom2:	LD	(HL),C		; store new extent number in entry
+		LD	C,A		; get last extent into A
+		CALL	CheckRecCnt	; check & correct RC range
+		CALL	UpdateFcbRC	; update RC in FCB
+		JR	SetFcbRandom6	; clear move flags, return successful
+
+; We will have to open a new entry. Before this, the current one must
+; be closed.
+
+SetFcbRandom3:	PUSH	BC
+		PUSH	DE
+		CALL	CloseUsrFcb	; close current entry
+		POP	DE
+		POP	BC
+		LD	L,3		; prepare error code
+		LD	A,(RetStat)
+		INC	A		; were there errors during close?
+		JR	Z,SetFcbRndErr1  ; yes: abort and report
+
+; Now open the new entry we computed before. The new extent is given
+; in C, and the new S2 value in B.
+
+SetFcbRandom4:	CALL	ClearAltDir	; clear AltDir contents
+		LD	HL,12
+		ADD	HL,DE		; point to extent byte
+		PUSH	HL		; save extent pointer
+		LD	D,(HL)		; get previous extent into D
+		LD	(HL),C		; and store new extent
+		INC	HL
+		INC	HL		; move on to S2
+		LD	A,(HL)		; get S2
+		LD	E,A
+		PUSH	DE		; save previous S2 value & extent
+		AND	40H		; keep bit 6
+		OR	B		; insert new S2
+		LD	(HL),A		; store back into FCB
+		CALL	OpenUsrFcb	; open this entry
+		LD	A,(RetStat)
+		INC	A
+		JR	NZ,SetFcbRandom5 ; no error: update S1, return succ.
+		POP	DE		; error:
+		POP	HL
+		POP	BC
+		PUSH	BC
+		PUSH	HL
+		PUSH	DE		; get&save old S2, ext.ptr., readflag
+		LD	L,4		; prepare error code
+		INC	C
+		JR	Z,SetFcbRndErr 	; abort if we are reading
+		CALL	GetEmptyEntry	; write: get empty entry
+		LD	L,5		; prepare error code
+		JR	Z,SetFcbRndErr 	; no empty entry found: abort
+SetFcbRandom5:	POP	BC
+		POP	BC		; clean stack
+		CALL	UpdateS1	; update S1 value
+SetFcbRandom6:	CALL	ClearMovFlags	; clear move flags
+SetFcbRandom7:	POP	BC		; get read flag back (clean stack)
+		XOR	A
+		JP	SaveStatA	; return successful
+
+; There was an error during positioning. The error code is contained in L.
+; The first label also restores the previous extent and S2 values in the FCB.
+
+SetFcbRndErr:	POP	DE		; get back old S2 and extent
+		EX	(SP),HL		; save error code, get extent pointer
+		LD	(HL),D		; restore extent
+		INC	HL
+		INC	HL
+		LD	(HL),E		; restore S2
+		POP	HL		; get error code back into L
+SetFcbRndErr1:	CALL	ClearMovFlags	; clear the move flags
+		INC	A		; clear zero flag
+		POP	BC		; clean stack (get read flag)
+		LD	A,L
+		JP	SaveStatA	; return error code
+
+; Compute random record number from extent and record count.
+; Enter with HL pointing to an FCB and DE containing the offset of the
+; record count field (15) resp. CR (32). The resulting record number
+; is returned in ABC.
+
+CalcRandomRec:	EX	DE,HL
+		ADD	HL,DE
+		LD	C,(HL)		; get RC byte
+		LD	B,0		; ...into BC
+		LD	HL,12
+		ADD	HL,DE
+		LD	A,(HL)		; get extent
+		RRCA
+		AND	80H		; use only bit 0 (in bit 7 position)
+		ADD	A,C
+		LD	C,A		; add this to RC
+		LD	A,0
+		ADC	A,B
+		LD	B,A		; (16-bit addition)
+		LD	A,(HL)		; get extent again
+		RRCA
+		AND	0FH		; ignore bit 0, mask to 4 bits
+		ADD	A,B
+		LD	B,A		; add this to B too
+		LD	HL,14
+		ADD	HL,DE
+		LD	A,(HL)		; get S2 byte
+		ADD	A,A
+		ADD	A,A
+		ADD	A,A
+		ADD	A,A		; move into higher nibble
+		OR	A		; (senseless!)
+		ADD	A,B
+		LD	B,A		; add this to B too
+		PUSH	AF		; save carry (overflow)
+		LD	A,(HL)
+		RRA
+		RRA
+		RRA
+		RRA
+		AND	3		; get bits 4&5 of S2
+		LD	L,A		; store into L (2 most sign. bits)
+		POP	AF		; get back overflow flag
+		LD	A,0
+		ADC	A,L		; add to 2 MSB's
+		RET
+
+; Compare record number given in ABC to the one stored at (HL).
+; Return with carry flag set if ABC is smaller.
+; On return, D contains the logical OR of the two lower bytes differences
+; (which is 0 if the lower two bytes were equal), the record number now
+; is in EBC, and HL points to the highest byte of the compare value.
+
+CompareRecHL:	LD	E,A		; save A into E (--> EBC)
+		LD	A,C
+		SUB	(HL)		; compare lowest byte
+		LD	D,A		; save difference in D
+		INC	HL
+		LD	A,B
+		SBC	A,(HL)		; compare middle byte
+		INC	HL
+		PUSH	AF		; save carry flag
+		OR	D
+		LD	D,A		; generate difference flag
+		POP	AF		; get back carry flag
+		LD	A,E
+		SBC	A,(HL)		; compare higher byte
+		RET			; return with valid carry flag
+
+; Store record number in EBC into memory at address (HL) backwards(!).
+
+StoreRecHLback:	LD	(HL),E
+		DEC	HL
+		LD	(HL),B
+		DEC	HL
+		LD	(HL),C
+		RET
+
+; Compute maximum file space used. This scans through all entries of the
+; file and gets the maximum record number used (this is returned in R0-2).
+; This routine is only called by the BDOS function "compute file size".
+
+CalcFileSize:	CALL	GetRecNumAdr	; get target address
+		PUSH	HL		; save it for later
+		LD	(HL),D
+		INC	HL
+		LD	(HL),D
+		INC	HL
+		LD	(HL),D		; clear R0-2 (D=0)
+		CALL	SrchFstName	; search first matching entry
+CalcFileSize1:	JR	Z,CalcFileSize2 ; no (more) matching entry: we're done
+		CALL	GetCurEntryAddr	; get address of entry
+		LD	DE,15		; offset of record count
+		CALL	CalcRandomRec	; compute last record of this entry
+		POP	HL
+		PUSH	HL		; get&save target address (R0)
+		CALL	CompareRecHL	; did we find a higher value?
+		CALL	NC,StoreRecHLback ; yes: store new maximum
+		CALL	SrchNextEntry	; move on to next matching entry
+		LD	A,0
+		LD	(RetStat),A	; set return status "successful"
+		JR	CalcFileSize1	; loop until no more entry found
+CalcFileSize2:	POP	HL		; clean stack (target address)
+		RET
+
+; Set the random record number of a file which has been sequentially
+; accessed up to now. The FCB address is passed in DE.
+
+SetRandRec:	EX	DE,HL		; get FCB address into HL
+		LD	DE,32		; use CR and extent
+		CALL	CalcRandomRec	; calculate current record
+		LD	HL,33
+		ADD	HL,DE		; now point to R0 field (target)
+		LD	(HL),C
+		INC	HL
+		LD	(HL),B
+		INC	HL
+		LD	(HL),A		; store computed number there
+		RET
+
+; Select a drive. The BIOS is called to select the drive given in A,
+; all pointers into the DPH scratch area are set, and the complete DPH
+; and DPB data is made available. The routine returns with zero flag set
+; if the drive was already logged-in before (so it was just re-logged).
+; This routine is called with the address of the "ActiveDrive" variable
+; in HL.
+
+SelDriveA:	LD	(CurDrive),A	; save as current drive
+SelDriveA1:	LD	(HL),A		; save as active drive
+		LD	D,A		; save temporarily
+		LD	HL,(LoginVector)
+		CALL	CheckVector	; is drive already logged in?
+		LD	E,A		; move relog flag into E (0/1)
+		PUSH	DE		; and save it on stack
+		LD	C,D		; put drive code into C
+		CALL	?SelDsk		; BIOS: select disk (returns DPH addr)
+		LD	A,H
+		OR	L
+		JR	Z,SelDriveInv 	; returned 0 : invalid drive
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get translate table address into DE
+		INC	HL
+		LD	(UsedEntriesPtr),HL ; save ptr to UsedEntries
+		INC	HL
+		INC	HL
+		LD	(CurAbsTrkPtr),HL ; save ptr to CurAbsTrk
+		INC	HL
+		INC	HL
+		LD	(CurAbsSecPtr),HL ; save ptr to CurAbsSec
+		INC	HL
+		INC	HL
+		INC	HL
+		LD	(DirLblDtaPtr),HL ; save ptr to DirLbl data byte
+		INC	HL
+		LD	(LocalS1Adr),HL ; save ptr to local S1 byte
+		INC	HL		; (ptr to media flag)
+		INC	HL		; point to DPB address
+		EX	DE,HL
+		LD	(TransTableAdr),HL ; save address of translate table
+		LD	HL,DPBadr
+		EX	DE,HL		; source ptr (to DPB field in DPH)
+		LD	BC,13
+		LDIR			; copy rest of DPH to fixed address
+		LD	HL,(DPBadr)
+		LD	DE,DPB
+		LD	C,17
+		LDIR			; copy the complete DPB to fixed addr
+		LD	HL,(DSM)	; get maximum data block number
+		LD	A,H
+		LD	HL,Blocks8bit
+		LD	(HL),0FFH	; preset for 8-bit block numbers
+		OR	A		; do we have more than 255 blocks?
+		JR	Z,SelDriveA2 	; no: leave as is
+		LD	(HL),0		; flag we have 16-bit blocks
+SelDriveA2:	POP	HL		; get relog flag back (into L now)
+		DEC	L		; set zero flag on relog
+		RET
+
+SelDriveInv:	POP	HL		; clean stack (relog flag)
+		JP	PhysErrInvDrv	; abort on invalid drives
+
+; Select drive E. If the drive is already selected, just return.
+
+SelDriveE:	LD	HL,Drive
+		LD	(HL),E		; store new drive code
+
+SelCurDrive:	LD	A,(Drive)	; get current drive
+		LD	HL,ActiveDrive
+		CP	(HL)		; is this the active drive?
+		JR	NZ,SelCurDrive1	; no: select it now
+		CP	0FFH		; (yes:) is this a valid drive code?
+		RET	NZ		; yes: return, all is ok
+SelCurDrive1:	CALL	SelDriveA	; now select the drive
+		RET	Z		; return if this was a warm select
+		CALL	RelogCurDrv	; otherwise mark as relogged now
+		LD	HL,(LocalS1Adr)
+		LD	A,(HL)		; get local S1
+		AND	1		; was directory changed?
+		PUSH	AF		; save result (Z flag)
+		ADD	A,(HL)
+		LD	(HL),A		; shift bit 0 into bit 1
+		POP	AF		; get back result
+		CALL	NZ,RelogStamped	; if dir was changed: relog if stamped
+					; (then mark drive as logged-in)
+
+; Set the current drive bit in the Login Vector to mark the drive as
+; logged in (meaning the internal variables of that drive are valid).
+
+SetLoginVec:	LD	DE,LoginVector
+
+; Set the current drive bit in any vector (DE^).
+
+SetVector:	LD	A,(ActiveDrive)
+
+; Set any bit (A) in any vector (DE^).
+
+SetVectorBit:	LD	C,A
+		LD	HL,1
+		CALL	ShiftLeftHL	; compute 1-bit vector in HL
+		LD	A,(DE)
+		OR	L
+		LD	(DE),A		; OR result into low byte
+		INC	DE
+		LD	A,(DE)
+		OR	H		; now into high byte
+		LD	(DE),A
+		RET
+
+; Reset a drive on a media change.
+
+ResDrvOnMedia:	CALL	ChkDPHMediaFlg	; has media been changed in this drive?
+		RET	Z		; no: return
+		LD	(HL),0		; yes: reset media flag then
+		CALL	ClrDirBcbDrv	; clear associated directory BCBs
+		LD	HL,(@Entry)
+		PUSH	HL		; save current entry position
+		CALL	HomeDrive	; initialize the drive
+		CALL	SetEntryFFFF	; clear entry position
+ResDrvOnMedia1:	LD	C,0		; dir access code: check & react
+		CALL	NextEntry	; move on to next entry
+		LD	HL,@MedChange
+		LD	A,(HL)		; has media changed?
+		OR	A
+		JR	Z,ResDrvOnMedia2 ; no: skip this entry
+		LD	(HL),0		; yes: clear SCB MF flag
+		POP	HL		; get back old dir position
+		LD	A,(@FX)
+		CP	48		; BDOS function "flush buffers"?
+		RET	Z		; yes: we're done
+		CALL	CheckMedia1	; check media flags again
+		JP	DiskChangeOK?	; check if it's ok to change disks
+
+ResDrvOnMedia2:	CALL	ChkEntryPos	; still within directory?
+		JR	C,ResDrvOnMedia1 ; yes: check next entry
+		POP	HL
+		LD	(@Entry),HL	; restore old directory position
+		RET
+
+; Routine to select the disk needed for file I/O. The interface attributes
+; F7' and F8' (resp. their copies) are cleared first to indicate that we
+; are allowed to write to the file.
+
+AutoSelectWr:	XOR	A
+		LD	(CurrentF8),A
+		LD	(CurrentF7),A	; clear read-only flags
+		JR	AutoSelect1	; and select the disk
+
+; Auto-Select a disk drive needed for file I/O.
+
+AutoSelect:	LD	HL,(@VInfo)
+		LD	DE,7
+		EX	DE,HL
+		ADD	HL,DE		; point to F7 byte
+		LD	A,(HL)		; get current F7
+		RES	7,(HL)		; reset F7' in FCB anyway
+		SUB	(HL)
+		LD	(CurrentF7),A	; store previous F7' value
+		INC	HL		; move on to F8
+		LD	A,(HL)
+		RES	7,(HL)
+		SUB	(HL)
+		LD	(CurrentF8),A	; proceed like above
+		CALL	GetExtentAdr	; point to extent byte
+		LD	A,(HL)
+		AND	1FH
+		LD	(HL),A		; mask extent to 5 bits used
+
+AutoSelect1:	LD	HL,0
+		LD	(XfcbCreFlag),HL ; clear XFCB flag & PwdEnable flag
+		LD	(AltDir),HL	; clear alternate dir position
+		XOR	A
+		LD	(User0allowed),A ; user 0 access not allowed (yet)
+		DEC	A
+		LD	(@Resel),A	; set re-select flag
+		LD	HL,(@VInfo)
+		LD	A,(HL)		; get drive code from FCB
+		LD	(FcbDriveCode),A ; save it
+		AND	1FH		; mask off definitely unused bits
+		DEC	A		; make zero relative
+		LD	(SaveE),A	; save it
+		CP	0FFH		; use default drive?
+		JR	Z,AutoSelect2 	; yes: select default drive
+		LD	(Drive),A	; no: set desired drive
+AutoSelect2:	CALL	SelCurDrive	; select the required drive
+		LD	A,(@UsrCd)	; get current user number
+		AND	0FH		; limit to valid range
+		LD	HL,(@VInfo)
+		LD	(HL),A		; place user code in FCB's first byte
+
+; (This label is referenced for the BDOS function "Search First".)
+
+AutoSelect3:	CALL	CheckInvNext	; check if we invalidate "SearchNext"
+		CALL	Z,ClrDirBcbDrv	; if so, clear related dir BCB's
+		CALL	ResDrvOnMedia	; reset drive if media has changed
+
+; Now check all logged-in drives for possible media changes.
+; (This label is used for the BDOS function "Flush Buffers".)
+
+CheckAllMedia:	LD	HL,@Media
+		LD	A,(HL)
+		OR	A		; check SCB media flag
+		RET	Z		; no media change: return
+		LD	(HL),0		; clear media flag now
+		LD	HL,(LoginVector) ; get login vector
+		LD	A,16		; set loop counter / drive code
+CheckAllMedia1:	DEC	A		; loop: bump drive code
+		ADD	HL,HL		; shift out login vector bit (to CY)
+		JR	NC,CheckAllMedia2 ; drive not logged in: skip
+		PUSH	AF
+		PUSH	HL		; save drive & vector
+		LD	HL,ActiveDrive
+		CALL	SelDriveA	; (re-) select drive
+		CALL	ChkDrvWritten	; has drive been written to?
+		CALL	NZ,ResDrvOnMedia ; yes, reset if media changed
+		POP	HL
+		POP	AF		; restore drive & vector
+CheckAllMedia2:	OR	A
+		JR	NZ,CheckAllMedia1 ; loop until all drives checked
+		JP	SelCurDrive	; then re-select current drive again
+
+; Check if drive has been written to. (Only reference directly above.)
+; This routine checks through the WFLAGs of all related BCBs and returns
+; with zero flag set if drive has not been written to, and zero flag
+; cleared if drive has been written to and buffers need to be flushed.
+
+ChkDrvWritten:	LD	HL,(DTABCB)	; get data BCB list header
+		LD	A,L
+		AND	H
+		INC	A		; is it FFFF (meaning no buffers)?
+		RET	Z		; then return: no written buffers
+ChkDrvWritten1:	LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get next BCB's address into DE
+		LD	A,E
+		OR	D		; zero value (meaning end of list)?
+		RET	Z		; then return: no written buffers
+		LD	HL,4
+		ADD	HL,DE		; point to WFLAG in BCB
+		LD	A,(HL)
+		OR	A		; check if WFLAG is set
+		RET	NZ		; return: written buffer found
+		LD	HL,13
+		ADD	HL,DE		; point to LINK address (next BCB)
+		JR	ChkDrvWritten1	; loop til end of list or WFLAG set
+
+; Get the current directory label data byte into A.
+; (I would have done this in-line, not by a subroutine...)
+
+GetLblDataA:	LD	HL,(DirLblDtaPtr)
+		LD	A,(HL)
+		RET
+
+; Check if the referenced file is password protected, and if the correct
+; password is available. If there is no password, or the correct password,
+; return with Z flag set, otherwise return NZ.
+
+CheckPwdValid:	CALL	GetLblDataA	; get DirLbl data byte
+		AND	80H		; check if passwords enabled
+		RET	Z		; no: return 'Z'
+		CALL	SrchPassword	; is there an XFCB with pwd prot.?
+		RET	Z		; no: return 'Z'
+		JR	ComparePwd	; compare XFCB pwd against DMA buffer
+
+; Set password error (if necessary).
+
+SetPwdError:	XOR	A
+		LD	(AltDir+1),A	; don't store other entries
+		CALL	GetCurEntryAddr	; get address of current entry
+		EX	DE,HL		; ...into DE (source)
+		LD	C,12		; save 12 bytes (user + name)
+		LD	HL,TempPwdFCB	; to temp. FCB (target)
+		PUSH	HL		; save address of buffer
+		CALL	Move1		; now copy user + name
+		LD	A,(DE)		; get entry's extent byte
+		INC	HL		; why this??
+		LD	(HL),A		; to buffer too (at S1 location?)
+		POP	DE		; temp. FCB address
+		LD	HL,(@VInfo)
+		LD	A,(HL)		; get user number of user's FCB
+		LD	(DE),A		; store into temp. FCB
+		PUSH	HL		; save user-FCB address
+		EX	DE,HL
+		LD	(@VInfo),HL	; set temp. FCB for further usage
+		CALL	SrchFstNamExt	; search first matching entry
+		JR	Z,SetPwdError3 	; none: no password for this file
+		CALL	CalcPwdModPtr	; get password mode
+		OR	A
+		JR	NZ,SetPwdError1	; password protected: return error
+		EX	DE,HL		; move pwd mode pointer into DE
+		LD	HL,PwdMode
+		LD	B,(HL)		; get previous mode into B
+		LD	A,(DE)
+		LD	(HL),A		; update pwd mode variable
+		OR	A
+		JR	Z,SetPwdError3 	; no password: exit
+		XOR	B		; compare with previous mode
+		AND	0E0H		; mask out non-pwd bits
+		JR	Z,SetPwdError1 	; pwd mode unchanged: return error
+		CALL	SrchPassword	; search password XFCB
+		JR	Z,SetPwdError1 	; none found: return error
+		LD	A,(PwdMode)
+		LD	(HL),A		; store new pwd mode byte in XFCB
+		CALL	CheckROVector	; is drive read-only?
+		CALL	Z,DirWrite	; write changed XFCB if not
+SetPwdError1:	POP	HL
+		LD	(@VInfo),HL	; restore user's FCB address
+		LD	A,(@FX)		; check BDOS function code:
+		CP	15		; Open File ?
+		RET	Z
+		CP	22		; Make File ?
+		RET	Z		; return ok in these cases
+ReturnPwdErr:	LD	A,7
+		JP	ReturnErrorA	; return BDOS error 7 (pwd err)
+
+SetPwdError3:	XOR	A		; no password protection:
+		LD	(PwdMode),A	; clear mode variable
+		CALL	CheckROVector	; check if drive is r/o
+		JR	NZ,SetPwdError4	; yes: leave as is
+		CALL	SrchPassword	; otherwise search pwd entry
+		PUSH	AF
+		LD	HL,(@VInfo)
+		LD	A,(HL)
+		OR	10H		; definitely check for XFCB
+		LD	(HL),A
+		POP	AF
+		CALL	NZ,DeleteEntryNZ ; delete XFCB if there is one
+SetPwdError4:	POP	HL
+		LD	(@VInfo),HL	; restore user's FCB & return ok
+		RET
+
+; Compare the password starting at (HL) to the one established in the
+; resident system buffer. Note that the one in the XFCB is encrypted, while
+; the one in the DMA buffer is not encrypted. If the passwords don't match,
+; the XFCB contents is also compare to the "default password" which can
+; be established by a separate BDOS function. The encryption scheme is
+; rather simple: all characters are XOR'd with their total sum, and
+; stored in reverse order. The sum is stored in the S1 field of the XFCB.
+; The routine returns with zero flag set if the password matches (or if
+; there is no password stored in the XFCB), otherwise NZ.
+
+ComparePwd:	INC	HL
+		LD	B,(HL)		; get sum byte (offset 13)
+		LD	A,B
+		OR	A
+		JR	NZ,ComparePwd2	; sum is not 0: compare pwd then
+
+		LD	D,H		; sum is 0: is there any pwd?
+		LD	E,L		; save sum pointer into DE
+		INC	HL
+		INC	HL		; bump pointer before first pwd char
+		LD	C,9		; set loop counter (+1)
+ComparePwd1:	INC	HL
+		LD	A,(HL)		; get next pwd char from XFCB
+		DEC	C		; checked 8 bytes?
+		RET	Z		; no password yet: return "ok"
+		OR	A
+		JR	Z,ComparePwd1 	; cont. search on null characters
+		CP	' '
+		JR	Z,ComparePwd1 	; ... and on spaces
+		EX	DE,HL		; get sum pointer back into HL
+
+ComparePwd2:	LD	DE,10
+		ADD	HL,DE		; point to last pwd char (reverse!)
+		EX	DE,HL		; get pointer into DE
+		LD	HL,(ResBufAdr)	; compare against resident sys buffer
+		LD	C,8		; compare 8 password characters
+ComparePwd3:	LD	A,(DE)		; get char from XFCB
+		XOR	B		; apply XOR encryption
+		CP	(HL)		; matching the given password?
+		JR	NZ,ComparePwd4	; no: check "default password" then
+		DEC	DE
+		INC	HL		; bump pointers
+		DEC	C
+		JR	NZ,ComparePwd3	; loop for all 8 characters
+		RET			; all matching: password ok
+
+ComparePwd4:	DEC	DE
+		DEC	C
+		JR	NZ,ComparePwd4	; loop until pwd start is in DE again
+		INC	DE		; correct last decrement
+		LD	HL,DefaultPwd	; then check XFCB against default pwd
+		LD	C,8		; for 8 characters too
+					; (default pwd is stored encrypted)
+
+; Compare memory bytes at (HL) against (DE) for C bytes. Return Z/NZ.
+
+CompMemC:	LD	A,(DE)
+		CP	(HL)
+		RET	NZ
+		INC	HL
+		INC	DE
+		DEC	C
+		RET	Z
+		JR	CompMemC
+
+; Move password from resident system buffer to (HL) and encrypt it.
+
+MoveEncrPwd:	PUSH	HL		; save target base address
+		LD	BC,8		; preset sum (B=0) and count (C=8)
+		LD	DE,11
+		ADD	HL,DE		; point to last character
+		EX	DE,HL		; move target address into DE
+		LD	HL,(ResBufAdr)	; source is resident buffer
+
+; Routine to encrypt a password. The source pointer is in HL, and
+; the target pointer (to the last character!) in DE. If there is
+; no password, just zero values are stored. The preset sum value
+; and the character count must be in B and C, respectively.
+; When this routine is jumped to, the target base address (sum byte)
+; must be on the stack!
+
+EncryptPwd:	XOR	A
+		PUSH	AF		; push zero value: no char's yet
+EncryptPwd1:	LD	A,(HL)		; get source character
+		LD	(DE),A		; first store it (encrypted it later)
+		OR	A
+		JR	Z,EncryptPwd2 	; zero character: don't set flag
+		CP	' '
+		JR	Z,EncryptPwd2 	; space: don't set flag
+		INC	SP
+		INC	SP		; valid char: remove flag from stack
+		PUSH	AF		; and push "true" (flag valid char)
+EncryptPwd2:	ADD	A,B
+		LD	B,A		; add to sum byte
+		DEC	DE
+		INC	HL		; bump pointers
+		DEC	C
+		JR	NZ,EncryptPwd1	; loop for all 8 characters
+		POP	AF		; get "non-empty" flag from stack
+		OR	B		; combine with sum byte
+		POP	HL		; get target base address into HL
+		JR	NZ,EncryptPwd3	; there was any valid char: encrypt
+		LD	A,(@FX)
+		CP	100		; BDOS function "Set DirLbl"?
+		JR	Z,EncryptPwd3 	; yes: encrypt even blank passwords
+		LD	(HL),0		; otherwise mark as empty password
+EncryptPwd3:	INC	DE		; point to first target char
+		LD	C,8		; loop counter
+EncryptPwd4:	LD	A,(DE)
+		XOR	B
+		LD	(DE),A		; XOR all characters with sum byte
+		INC	DE
+		DEC	C
+		JR	NZ,EncryptPwd4	; loop for complete password
+		INC	HL		; point to 2nd name byte in XFCB (why?)
+		RET
+
+; Check if the file referenced by the user's FCB has some kind of password
+; protection. If there is no XFCB, return with zero-flag set. Otherwise
+; the password mode byte is returned in A (HL pointing to it), and DE
+; points to the XFCB address.
+
+SrchPassword:	LD	HL,(@VInfo)	; get user's FCB
+		LD	A,(HL)
+		PUSH	AF		; get and save user number
+		OR	10H
+		LD	(HL),A		; set it to search XFCB's only
+		CALL	SrchFstName	; search first matching entry
+		LD	A,0
+		LD	(RetStat),A	; clear return status
+		LD	HL,(@VInfo)
+		POP	BC
+		LD	(HL),B		; restore user's FCB (user number)
+		RET	Z		; no XFCB found: return
+
+; Set the password bit. This is bit 0 of the password mode byte.
+; Note that the resulting password mode byte is not stored back, but
+; just returned in A.
+
+SetPwdBit:	CALL	GetCurEntryAddr	; get address of XFCB
+		EX	DE,HL		; (return this in DE)
+		LD	HL,12
+		ADD	HL,DE		; point to password mode byte
+		LD	A,(HL)		; get pm byte
+		AND	0E0H		; mask unused bits off (return pm bits)
+		OR	1		; set password bit & return
+		RET
+
+; Increment the resident system buffer address by DE bytes.
+; (Called only once during default password establishment!)
+
+BumpDMA:	PUSH	HL
+		LD	HL,(ResBufAdr)
+		ADD	HL,DE
+		LD	(ResBufAdr),HL
+		POP	HL
+		RET
+
+; Set up a password entry in the directory. The target (empty) entry
+; must have already been selected (positioned).
+
+SetupPwdEntry:	CALL	UpdUsedEntries	; update total entry count
+		CALL	GetCurEntryAddr	; get address of target entry
+		EX	DE,HL		; ...into DE
+		LD	HL,(@VInfo)
+		LD	A,(HL)		; get user code from FCB
+		OR	10H		; mark this as XFCB
+		LD	(DE),A		; store first byte of entry
+		INC	DE
+		INC	HL		; point to name fields
+		LD	BC,11
+		LDIR			; copy name from FCB into entry
+		EX	DE,HL		; move next target address into DE
+		LD	B,20
+SetupPwdEntry1:	LD	(HL),C		; (C=0)
+		INC	HL
+		DJNZ	SetupPwdEntry1	; clear rest of entry (20 bytes)
+		RET
+
+; Set the password bit and then compare the XFCB password against (HL).
+; HL is preserved, that's also what the second label is for.
+
+CheckPassword:	CALL	SetPwdBit
+ComparePwdHL:	PUSH	HL
+		CALL	ComparePwd
+		POP	HL
+		RET
+
+; ***** End of portion 5 *****

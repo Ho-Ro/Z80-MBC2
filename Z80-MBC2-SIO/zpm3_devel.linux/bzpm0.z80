@@ -1,0 +1,69 @@
+;****************************************************************
+;*								*
+;*	Banked Portion of ZPM3 (Release N10) by Simeon Cran	*
+;*								*
+;****************************************************************
+;*								*
+;*	Disassembly via DazzleStar, text processing with	*
+;*	WordStar Release 4, and assembly with SLR180 by 	*
+;*	Tilmann Reh, on the self-designed and self-built	*
+;*	CP/M-Plus Workstation based upon the CPU280		*
+;*	single-board-computer (featuring a 12.3 MHz Z280).	*
+;*								*
+;*	Started disassembly on 04. December 1994, and		*
+;*	finished commenting on 27. March 1995.			*
+;*								*
+;*	Labels may be copyright to Digital Research (maker	*
+;*	of CP/M-3). Though Clark A. Calkins (who disassembled	*
+;*	CP/M-3) misinterpreted some details, his disassembly	*
+;*	was a great help in understanding what's going on	*
+;*	there.							*
+;*								*
+;****************************************************************
+
+; Some features were added compared to CP/M-3. For details,
+; see the document files that come with the ZPM3 binaries.
+
+; However, there is a detail not mentioned in the documents:
+; ZPM3 uses the IX and IY registers as pointers to the SCB and
+; the BDOS input parameters, and since they're not saved and
+; restored throughout the whole ZPM3 BDOS, it is necessary that
+; those registers aren't affected by *any* BIOS function. Problems
+; which were caused by this were one of the stronger reasons to
+; disassemble ZPM3.
+
+; I really tried hard to get in contact with Simeon, to discuss
+; such details and to solve the problems together. After that
+; failed, I finally started disassembly. During this, I found
+; some more strange (buggy?) details, which I marked with double
+; question marks ("??") in the comments.
+
+; There surely is much more room for improvements. Simeon's main
+; job obviously was changing all jump instructions to relative
+; jumps where this was possible. Only few routines were further
+; optimized by rewriting them for the Z80.
+
+; I divided the rather large (290k) source code into several
+; portions, for ease of editing. I tried to find "natural" borders,
+; hopefully I really found some...
+
+	.Z80
+	dseg
+
+include	BZPM1.Z80	; main entry, function distribution, error handling,
+			; filename parsing, multi-sector handling, basic
+			; character-I/O routines
+include BZPM2.Z80	; history buffer handling, command line editor,
+			; high-level character I/O routines
+include BZPM3.Z80	; basic disk-I/O routines (status checks etc.),
+			; physical disk access basics, disk position math,
+			; media change detection, dir & alloc operations
+include BZPM4.Z80	; extent handling, directory search, basic FCB
+			; operations: erase, rename, attr, open, close, read
+include BZPM5.Z80	; data buffer check, FCB write, random access,
+			; drive selection, media change reactions, passwords
+include BZPM6.Z80	; date stamps, public BDOS functions, main return
+include BZPM7.Z80	; file system data area, BCB & hash handling,
+			; history var's & buffer, global definitions
+
+	end

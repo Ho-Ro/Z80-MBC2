@@ -1,0 +1,1277 @@
+;*****************************************************************
+;**	Third portion of banked ZPM3 (N10) BDOS.		**
+;**	Disassembly by Tilmann Reh (950327).			**
+;**								**
+;**	This portion contains:					**
+;**	- basic disk I/O routines (status checks etc.)		**
+;**	- physical disk I/O basics				**
+;**	- disk position calculations				**
+;**	- media change detection				**
+;**	- directory & allocation operations			**
+;*****************************************************************
+
+; Some physical error handling routines to cover read-only disk & file
+; status, wheel protection, and invalid drives.
+; First label is called to select the drive referenced by the user's FCB
+; and to check if we are allowed to write to that drive (called prior to
+; file delete, file rename, and set attributes).
+
+AutoSelChkWr:	CALL	AutoSelectWr	; auto-select disk, enable writes
+CheckDriveRO:	CALL	CheckROVector	; check current R/O status
+		RET	Z		; return if disk is r/w
+		LD	C,2
+		JR	ReturnPhysErr	; physical error: read-only disk
+
+; Check for allowed write accesses to a file. Return a physical error
+; if write not allowed, otherwise returns to the calling program.
+; On entry, HL points to the referenced FCB.
+; The physical error code 6 was obviously defined as extension to CP/M-3.
+; It is returned if a file has attribute F8' set and the wheel byte is off.
+; (F8' is internally used by CP/M-3 to allow r/o accesses to files located
+; in user 0 from any user area.)
+
+CheckFileRO:	LD	DE,9
+		ADD	HL,DE		; point to system attr. T1' (R/O)
+		BIT	7,(HL)		; check R/O flag
+		LD	C,3		; physical error: read-only file
+		JR	NZ,ReturnPhysErr ; return phys. error if flag is set
+		DEC	HL		; otherwise, point to F8
+
+CheckWheelRO:	BIT	7,(HL)		; check interface attribute F8'
+		RET	Z		; not set: ok, return
+		CALL	GetWheelByte	; if set: check wheel byte
+		RET	NZ		; wheel is on (not protected): ok
+		LD	C,6
+		JR	ReturnPhysErr	;?? ph.err. 6, seemingly "wheel-prot."
+
+; Return with physical error 4 (Invalid Drive).
+; (This entry is referenced only once.)
+
+PhysErrInvDrv:	LD	C,4		; error code 4 = invalid drive
+		LD	A,0FFH
+		LD	(ActiveDrive),A	; make "active drive" invalid
+
+; Physical error processing routine. Enter with physical error code in C.
+; This routine will set the according return status (H = physical error
+; code, L = FF), display an error message if enabled, and abort or return
+; to the calling program depending on the Error Mode.
+
+ReturnPhysErr:	LD	H,C
+		LD	L,0FFH
+		LD	(RetStat),HL	; save return status
+ReturnBDOSerr:	LD	A,(CurDrive)
+		LD	(@ErDsk),A	; set drive code for message
+		LD	A,(@ErMde)	; check error mode
+		INC	A
+		CALL	NZ,?ErJmp	; if not "return only": print message
+		LD	A,(@FX) 	; get BDOS function code
+		CP	27		; Get Address of ALV ?
+		JP	Z,ReturnFFFF	; ... no error return mode possible
+		CP	31		; Get Address of DPB ?
+		JP	Z,ReturnFFFF	; ... also
+		JP	MainReturn	; else: return to calling prog.
+
+;?? For what are those flags?
+
+SetFcbCopyFlag: LD	A,(MovFlag)
+		LD	(FcbCopyFlag),A
+		RET
+
+ClearMovFlags:	XOR	A
+		LD	(MovFlag),A
+		LD	(FcbCopyFlag),A
+		RET
+
+; Subtract HL from the 24-bit value in BDE.
+
+Sub_BDE_HL:	EX	DE,HL
+		OR	A
+		SBC	HL,DE
+		EX	DE,HL		; first subtract HL from DE
+		RET	NC		; exit if no borrow
+		DEC	B		; else correct MSB
+		RET
+
+; Increment 24-bit record number of current file.
+
+IncRecNum:	CALL	GetRecNumAdr	; get address of record no. in FCB
+		INC	(HL)		; increment LSB
+		RET	NZ		; no overflow: exit
+		INC	HL
+		INC	(HL)		; ... increment NSB ...
+		RET	NZ
+		INC	HL
+		INC	(HL)		; ... and MSB if necessary
+		RET
+
+; Memory move routine. Moves C bytes from (DE) to (HL).
+; Returns without action if byte count in C is zero.
+; Afterwards, DE and HL are pointing behind the moved data block,
+; and BC is unchanged.
+; Entry "Move1" is without length check.
+
+Move:		LD	A,C		; get length into A
+		OR	A
+		RET	Z		; return if zero length
+Move1:		PUSH	BC
+		LD	B,0
+		EX	DE,HL		; swap source / target for LDIR
+		LDIR			; move data
+		EX	DE,HL		; swap pointers back
+		POP	BC
+		RET
+
+; Move head of current drive to home position and clear absolute
+; track & sector numbers.
+
+HomeDrive:	CALL	?Home		; physical "home"
+		XOR	A
+		LD	HL,(CurAbsTrkPtr)
+		LD	(HL),A
+		INC	HL
+		LD	(HL),A		; clear absolute track (16 bits)
+		LD	HL,(CurAbsSecPtr)
+		LD	(HL),A
+		INC	HL
+		LD	(HL),A
+		INC	HL
+		LD	(HL),A		; clear absolute sector (24 bits)
+		RET
+
+; Physical Disk Read/Write Routine with error processing.
+; Processing of Write-Protected Status/Error is enabled for writes
+; and inhibited during reads by patching an instruction code to
+; NOP and RET respectively.
+
+DiskWrite:	XOR	A		; this gives a NOP instruction...
+		LD	(DiskIoChkRO),A ; patch this in so code is active
+		CALL	?Write		; do the real write
+		OR	A
+		RET	Z		; no error: just return
+		JR	DiskIoCheck	; else move on with some checks...
+
+DiskRead:	LD	A,0C9H		; this is a RET instruction
+		LD	(DiskIoChkRO),A ; patch R/O code to be inactive
+		CALL	?Read		; do the real read
+		OR	A
+		RET	Z		; return if no errors (else check)
+
+; Disk I/O error checking routine (after BIOS calls). On enter, the
+; BIOS return code is in A (only values unequal to zero are handled
+; here).
+
+DiskIoCheck:	LD	C,A		; save error code to C
+		INC	A		; sets Z flag if value was FF
+		CALL	Z,DiskIoChkMed	; ... meaning media was changed!
+		LD	A,C
+		CP	3
+		JP	C,ReturnPhysErr ; error codes <3 are passed through
+		LD	C,1
+		JP	ReturnPhysErr	; on all other errors return "1"
+
+; Check for media change after the BIOS returned an FF status code on a disk
+; read or write. Error code is returned (or left unchanged) in register C.
+
+DiskIoChkMed:	CALL	CheckPerm	; check for perm. mounted drive
+		RET	Z		; ignore FF status here
+		LD	HL,(LoginVector)
+		CALL	CheckVector	; Test if Drive is logged in
+		LD	C,1
+		RET	Z		; no --> return with error code 1
+		CALL	LogOutDrive	; purge buf's, logout drive, set flags
+		POP	HL		; (return address in DiskIoCheck)
+		LD	A,(@FX)
+		CP	48		; BDOS function "Flush Buffers" ?
+		RET	Z		; yes: return with code in C
+		LD	HL,CurDrive
+		LD	A,(Drive)
+		CP	(HL)		; ?? compare drives?
+		JR	NZ,DiskIoCheck1	; different: clear media flag & return
+		CALL	DiskChangeOK?	; check if media change is allowed now
+DiskIoChkRO:	NOP			; this instr. is patched (NOP/RET)
+		LD	C,2		; Return "disk is r/o"
+		JP	ReturnPhysErr	; (only on writes)
+
+DiskIoCheck1:	XOR	A
+		LD	(@MedChange),A	; clear change detection flag
+		RET
+
+; Check if current drive is marked as permanent and has no directory
+; checksum. Returns with Z flag set if true.
+
+CheckPerm:	LD	HL,(CKS)	; get checksum size from DPB
+		LD	A,80H
+		CP	H		; is MSB = 80h ?
+		RET	NZ
+		XOR	A
+		CP	L		; ... and LSB = 0 ?
+		RET			; return with Z flag set accordingly
+
+; Calculate track and sector number to match the given absolute sector
+; number (AbsSector, 24 bit). On exit, the according track and sector
+; are set.
+; The internal variables CurAbsTrk and CurAbsSec (accessed via pointers)
+; hold the (previous) absolute values. Note that CurAbsSec contains the
+; sector number of the first sector of CurAbsTrk, and always points to
+; a track boundary!
+; The algorithm is very interesting indeed: The current absolute track
+; and its starting sector are changed until pointing to the maximum track
+; which is below or equal to the destination sector number. Obviously the
+; people at DRI (and Simeon, too) feared a simple 24-bit by 16-bit division.
+; (However, for sequential accesses, this might be slightly faster.)
+
+CalcSetTrkSec:	LD	HL,(CurAbsTrkPtr)
+		LD	C,(HL)
+		INC	HL
+		LD	B,(HL)		; get current absolute track into BC
+		PUSH	BC		; ... and move it onto the stack
+		LD	HL,(CurAbsSecPtr)
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)
+		INC	HL
+		LD	B,(HL)		; get track start sector into BDE
+		LD	HL,(AbsSector)
+		LD	A,(AbsSector+2)
+		LD	C,A		; get target sector into CHL
+
+; As long as BDE (current track start) is greater than CHL (target sector),
+; move one track below. After that, we surely are below the target sector.
+
+CalcTrkSec1:	PUSH	HL		; save LSW of target sector
+		OR	A
+		SBC	HL,DE
+		LD	A,C
+		SBC	A,B		; 24-bit compare CHL-BDE
+		JR	NC,CalcTrkSec2	; we are below the target: exit loop
+		LD	HL,(SPT)
+		CALL	Sub_BDE_HL	; subtract SPT (move to prev. track)
+		POP	HL		; (LSW of target sector)
+		EX	(SP),HL
+		DEC	HL		; decrement track (on stack)
+		EX	(SP),HL
+		JR	CalcTrkSec1	; loop until BDE is <= CHL
+
+; Now we found a track surely below or equal to the target track. After
+; this, search the next track above our target. From our current position,
+; this must be the track immediately following the target track.
+
+CalcTrkSec2:	LD	HL,(SPT)	; add "SPT" do BDE for each track
+		ADD	HL,DE
+		EX	DE,HL		; first add HL to DE
+		JR	NC,CalcTrkSec2a
+		INC	B		; correct MSB if necessary
+CalcTrkSec2a:	POP	HL		; (LSW of target sector)
+		LD	A,L
+		SUB	E
+		LD	A,H
+		SBC	A,D
+		LD	A,C
+		SBC	A,B		; 24-bit compare CHL-BDE
+		EX	(SP),HL		; track in HL, target LSW on stack
+		JR	C,CalcTrkSec3 	; now if BDE > CHL, exit loop
+		INC	HL		; increment track
+		EX	(SP),HL		; move it back on stack
+		PUSH	HL		; (LSW of target sector)
+		JR	CalcTrkSec2	; loop until we are above target
+
+; Now we are at the start of the first track following the target sector.
+; Finally, move one track back to be in the target track, calculate the
+; appropriate logical & physical sector number, and do the according
+; BIOS calls. The DMA address is also set for the BIOS.
+
+CalcTrkSec3:	PUSH	HL		; push track value
+		LD	HL,(SPT)
+		CALL	Sub_BDE_HL	; subtract SPT once more ....
+		POP	HL		; get back track
+		PUSH	DE
+		PUSH	BC		; save starting sector of target track
+		PUSH	HL		; save track again
+		LD	DE,(OFF)
+		ADD	HL,DE		; add offset (system) tracks
+		LD	B,H
+		LD	C,L		; move to BC for BIOS call
+		LD	(CurTrack),HL	; store currently selected track
+		CALL	?SetTrk		; BIOS: Set Track
+		POP	DE		; get track
+		LD	HL,(CurAbsTrkPtr)
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D		; ... and update CurAbsTrk
+		POP	BC
+		POP	DE		; get track start back into BDE
+		LD	HL,(CurAbsSecPtr)
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D
+		INC	HL
+		LD	(HL),B		; ... and update CurAbsSec
+		POP	BC		; (LSW of target sector)
+		LD	A,C
+		SUB	E
+		LD	L,A
+		LD	A,B
+		SBC	A,D
+		LD	H,A		; compute relative sector no. (HL)
+		CALL	CalcPhysSector	; convert to physical sector no.
+		LD	B,H
+		LD	C,L
+		LD	DE,(TransTableAdr)
+		CALL	?SecTrn		; BIOS: do sector translation
+		LD	C,L
+		LD	B,H
+		LD	(CurSector),HL	; save new current sector number
+		CALL	?SetSec		; and set it in BIOS
+		LD	BC,(DmaAdr)
+		JP	?SetDma		; BIOS: set DMA address
+
+; Calculate the physical sector number within a track from the relative
+; sector number given in HL. This routine simply halves HL for PSH times.
+
+CalcPhysSector:	LD	A,(PSH)		; get physical shift from DPB
+		OR	A
+		RET	Z		; no shift (128 byte sectors): exit
+CalcPhysSec1:	SRL	H
+		RR	L		; shift right HL (div 2)
+		DEC	A
+		JR	NZ,CalcPhysSec1	; loop for PSH times
+		RET
+
+; Compute the block position within the current FCB from the extent
+; number (relative to the FCB) and the relative record number within
+; that extent. The block position is returned in A (maximum return
+; value is 15).
+
+CalcExtBlock:	LD	HL,BSH
+		LD	B,(HL)		; get block shift into B
+		LD	A,(RecInExt)	; relative record no. within extent
+CalcExtBlock1:	SRL	A
+		DJNZ	CalcExtBlock1	; compute relative block in extent
+		LD	B,A		; save it to B
+		LD	A,8
+		SUB	(HL)
+		LD	C,A		; C=8-BSH (5=1k..1=16k)
+		LD	A,(CurExtent)	; get current extent no.
+CalcExtBlock2:	DEC	C
+		JR	Z,CalcExtBlock3 ; exit this shift loop if C=0
+		OR	A
+		RLA			; double extent for C-1 times
+		JR	CalcExtBlock2	; ... to get related block no.
+CalcExtBlock3:	ADD	A,B		; add relative block to extent base
+		RET
+
+; Get the pointer to the allocation data within the user's FCB (to HL).
+
+GetD0adr:	LD	HL,(@VInfo)	; address of user FCB
+		LD	DE,16
+		ADD	HL,DE		; add 16 to point to allocation data
+		RET
+
+; Get the allocated block number from the FCB at position C. Note that
+; for both 8-bit and 16-bit block numbers, C holds the position number,
+; not the address (range 0..15 resp. 0..7)! The block number is returned
+; in HL in both cases.
+; The second entry is called with the block position in BC. It is called
+; only twice, and I don't see some real sense in this.
+
+GetFcbBlockC:	LD	B,0		; extend C to BC for addition
+GetFcbBlockBC:	CALL	GetD0adr	; get pointer into FCB
+		ADD	HL,BC		; add selected block position
+		LD	A,(Blocks8bit)
+		OR	A		; do we have 8-bit block numbers?
+		JR	Z,GetWordHLBC	; no: get a 16-bit block
+		LD	L,(HL)		; else get block into L
+		LD	H,B		; extend to HL (B=0)
+		RET
+
+; This routine is also used for other purposes (to get a data word from
+; memory by pointer, or by pointer and index).
+
+GetWordHLBC:	ADD	HL,BC		; (add block position again)
+GetWordHL:	LD	A,(HL)		; ... and get word from there
+		INC	HL
+		LD	H,(HL)
+		LD	L,A
+		RET
+
+; Compute block position (in FCB) from extent and record, and get the
+; related FCB data (block number) into HL. Set the zero flag if unused.
+; The block number from the FCB is also temporarily stored in AbsSector.
+; It is later expanded to a 24-bit absolute sector number by shifting it
+; left "BSH" times (see below).
+
+CalcGetFcbBlk:	CALL	CalcExtBlock
+		LD	(BlockInFcb),A
+		LD	C,A
+		CALL	GetFcbBlockC
+		LD	(AbsSector),HL
+		LD	A,L
+		OR	H
+		RET
+
+; Calculate the absolute sector number from the block number temporarily
+; stored in AbsSector (this gives the sector number which starts that
+; block). Then add the current "record within extent" do get the target
+; absolute sector number.
+; (Note that this routine is called only once.)
+
+CalcAbsSect:	LD	HL,(AbsSector)	; get block number
+		LD	A,(BSH)
+		LD	B,A		; get block shift into B
+		XOR	A		; preset the MSB with 0
+CalcAbsSect1:	ADD	HL,HL
+		ADC	A,A		; 24-bit shift left
+		DJNZ	CalcAbsSect1	; loop until we have related sector
+		LD	(AbsSector),HL
+		LD	(AbsSector+2),A	; store absolute sector number
+		LD	(AbsSectLSW),HL	; store LSW too (logical sector?)
+		LD	A,(BLM)
+		LD	C,A		; get block mask into C
+		LD	A,(RecInExt)
+		AND	C
+		LD	B,A		; get masked record no. into B
+		LD	(RecInBlock),A	; store relative record within block
+		LD	HL,AbsSector
+		OR	(HL)		; also insert in LSBits of AbsSector
+		LD	(HL),A		; and store the result
+		RET
+
+; Clear the interface attribute bits (F5' to F8') in the current FCB.
+; The present settings are returned in D (bit 7 = F5' .. bit 4 = F8')
+; and also stored in FcbIntAttr.
+
+ClrGetFcbAttr:	LD	HL,(@VInfo)	; get FCB address
+		LD	DE,8
+		ADD	HL,DE		; point to F8
+		LD	B,4		; process 4 bytes (F8 downto F5)
+ClrGetFcbAttr1:	LD	A,(HL)		; get present byte
+		ADD	A,A		; shift attribute bit into carry
+		RR	D		; ... then into D
+		RRCA			; correct byte value, clear MSB
+		LD	(HL),A		; store new byte
+		DEC	HL		; point to previous byte
+		DJNZ	ClrGetFcbAttr1	; loop until four bytes processed
+		LD	A,D		; get former settings
+		LD	(FcbIntAttr),A	; and store them
+		RET
+
+; Get various addresses within the referenced FCB. Self-explanatory.
+
+GetFcbS1:	CALL	GetExtentAdr
+		INC	HL		; S1 follows the extent byte
+		LD	A,(HL)		; this routine also returns the value
+		RET
+
+GetRecNumAdr:	LD	HL,(@VInfo)
+		LD	DE,33
+		ADD	HL,DE
+		RET
+
+GetExtentAdr:	LD	HL,(@VInfo)
+		LD	DE,12
+		ADD	HL,DE
+		RET
+
+Get_RCCR_Adr:	LD	HL,(@VInfo)
+		LD	DE,15
+		ADD	HL,DE		; get address of "record count" (RC)
+		EX	DE,HL		; ... return it in DE
+		LD	HL,17
+		ADD	HL,DE		; 17 byte farther: "current record" (CR)
+		RET			; ... return this in HL
+
+; Get current file position pointers from FCB into our own variables.
+; This will speed up accesses to that data.
+
+GetFilePosition:CALL	Get_RCCR_Adr	; (see directly above)
+		LD	A,(HL)
+		LD	(RecInExt),A	; get/store current record (in extent)
+		EX	DE,HL
+		LD	A,(HL)		; get record count of this extent
+		OR	A
+		JR	NZ,GetFilePos1	; not zero: continue
+		CALL	GetLastExtent
+		LD	C,A		; get last extent into C
+		CALL	UpdateFcbRC	; update record count in FCB
+		LD	A,(HL)		; get current RC value
+GetFilePos1:	CP	129
+		JR	C,GetFilePos2 	; not above 128: use it "as is"
+		LD	A,128		; otherwise limit it to 128
+GetFilePos2:	LD	(CurRecCount),A	; store its real value
+		CALL	GetExtentAdr
+		LD	A,(EXM)
+		AND	(HL)		; mask extent to within dir entry
+		LD	(CurExtent),A	; and store it locally
+		RET
+
+; Update current record number in FCB from local variable.
+; Also increment it if we're doing sequential file I/O. If it's below
+; 128 thereafter, set it from our local variable.
+
+UpdateFcbCR:	CALL	Get_RCCR_Adr	; get addresses
+		LD	A,(RecInExt)
+		LD	(HL),A		; store current record from local var.
+		LD	A,(@FX)
+		CP	22		; are we doing sequential I/O ?
+		JR	NC,UpdateFcbCR1	; random I/O: skip incrementing
+		INC	(HL)		; sequential: bump CR
+UpdateFcbCR1:	EX	DE,HL		; HL points to RC now
+		LD	A,(HL)		; get FCB's record count
+		CP	128
+		RET	NC		; return if above 127
+		LD	A,(CurRecCount)
+		LD	(HL),A		; otherwise update to local value
+		RET
+
+; Clear the extent byte and the S2 byte in the current FCB.
+
+ClearExtentS2:	CALL	GetExtentAdr	; get address (and D=0 now)
+		LD	(HL),D		; clear extent
+		INC	HL
+		INC	HL
+		LD	(HL),D		; clear S2
+		RET
+
+; Check if the S1 byte in the FCB differs from our local S1 variable.
+; If different, check if the user's original FCB is within the TPA, and
+; return an error if yes.
+; If S1 is not changed or the FCB is within the system, check for access
+; of a system file in located in user 0 and set the user field accordingly.
+
+CheckS1:	CALL	GetFcbS1	; get S1 from FCB
+		LD	HL,(LocalS1Adr)
+		CP	(HL)		; compare to local S1 value
+		CALL	NZ,ChkUsrFcbAdr	; changed: check if buffer below BDOS
+
+; (this label is referenced only once, during file close)
+
+ChkUsr0Sys:	LD	A,(CurrentF8)	; get F8' interface attribute
+		OR	A
+		RET	Z		; no "user 0 system file" access: ret
+		LD	HL,(@VInfo)
+		XOR	A
+		LD	(HL),A		; set user field to 0 for accesses
+		RET
+
+; If the value of S1 has changed, this routine is called to check if the
+; original FCB is within or above the TPA. If it's above, return an error
+; (value 10 in A). This is to distinguish FCB's in application programs
+; from those in the resident system or in RSX's.
+; On error, two return addresses are removed from the stack before return!
+; (This routine is called only from the one directly above.)
+
+ChkUsrFcbAdr:	LD	HL,(UserFcbAdr)	; get address of original FCB
+		LD	DE,(@MxTpa)
+		PUSH	HL
+		OR	A
+		SBC	HL,DE		; compare it to the TPA border
+		POP	DE
+		JR	NC,ChkUsrFcbAdr1 ; if below, return an error
+		LD	HL,(@RelogVec)
+		CALL	CheckVector	; else check if drive was relogged
+		RET	Z		; no: ok, return
+ChkUsrFcbAdr1:	POP	HL		; (return address)
+		POP	HL		; (ret. addr. of CheckS1)
+ReturnA10:	LD	A,10
+		JP	SaveStatA	; otherwise return with A=10
+
+; Shift left HL C times.
+
+ShiftLeftHL:	INC	C
+ShiftLeftHL1:	DEC	C
+		RET	Z
+		ADD	HL,HL
+		JR	ShiftLeftHL1
+
+; Check read-only status of the active drive. Return NZ when drive
+; is marked read-only, Z otherwise (A=1 resp. 0).
+; The second entry is used for checking any status vector in HL.
+
+CheckROVector:	LD	HL,(ReadOnlyVector)
+
+CheckVector:	LD	A,(ActiveDrive)
+		OR	A
+		JR	Z,CheckVector2 	; active drive is A: don't shift
+		LD	B,A
+CheckVector1:	SRL	H
+		RR	L
+		DJNZ	CheckVector1	; otherwise shift needed bit into L0
+CheckVector2:	LD	A,L
+		AND	1		; mask bit of interest
+		RET			; return with Z set accordingly
+
+; Check if current directory entry contains a R/O file (write protected).
+
+CheckEntryRO:	CALL	GetCurEntryAddr	; get address of current entry
+		JP	CheckFileRO	; if file is r/o, return error
+
+; Get address of current entry within dir buffer into HL.
+
+GetCurEntryAddr:LD	HL,(CurDirBufPtr) ; address of directory buffer
+		LD	A,(RelEntryAddr) ; rel. address of entry (0/32/64/96)
+
+; Add A to HL. Self-explanatory.
+
+AddAtoHL:	ADD	A,L
+		LD	L,A
+		RET	NC
+		INC	H
+		RET
+
+; Get the S2 byte from the FCB.
+
+GetS2:		LD	HL,(@VInfo)
+		LD	DE,14
+		ADD	HL,DE
+		LD	A,(HL)
+		RET
+
+; Mask extent number in FCB to the valid range (0..31), and clear it's
+; S2 byte.
+
+MaskExtClrS2:	CALL	GetExtentAdr
+		LD	A,(HL)
+		AND	1FH
+		LD	(HL),A
+		INC	HL
+		INC	HL
+		LD	(HL),D
+		RET
+
+; Compare position in directory with limit (number of used entries).
+; Return with carry set if we are below the limit.
+
+ChkEntryPos:	LD	DE,(@Entry)
+		LD	HL,(UsedEntriesPtr)
+		LD	A,E
+		SUB	(HL)
+		INC	HL
+		LD	A,D
+		SBC	A,(HL)
+		RET
+
+; Check if we must update the number of used entries. If we are above
+; the current limit, set the new limit to the current position +1.
+
+UpdUsedEntries:	CALL	ChkEntryPos
+		RET	C		; we are below the limit: ok, return
+		INC	DE		; position +1
+		LD	(HL),D
+		DEC	HL
+		LD	(HL),E		; store next position as new limit
+		RET
+
+; Set the checksum byte for the current directory buffer.
+
+SetDirChkSum:	LD	C,0FEH
+
+; Check and/or set the directory checksum byte for the current dir buffer.
+; C=FF : set checksum, flag if changed
+; C=FE : set checksum
+; else : check present buffer, react if sum changed
+
+DirCheckSum:	LD	HL,(CurDirSector) ; get dir sector number
+		LD	DE,(CKS)	; get number of dir sectors to check
+		RES	7,D		; ignore permanent bit
+		PUSH	HL
+		OR	A
+		SBC	HL,DE		; compare them
+		POP	DE
+		LD	A,H		; ?? for what is this?
+		RET	NC		; return if we are beyond checked area
+		PUSH	BC
+
+		LD	HL,(CurDirBufPtr) ; point to current dir buffer
+		LD	DE,400h		; D=4 (entry counter), E=0 (sum)
+DirCheckSum1:	LD	B,32		; add 32 bytes per entry
+		XOR	A		; preset sum per entry
+DirCheckSum2:	ADD	A,(HL)
+		INC	HL
+		DJNZ	DirCheckSum2	; inner loop: add all bytes of entry
+		XOR	E
+		LD	E,A
+		DEC	D
+		JR	NZ,DirCheckSum1	; outer loop: XOR all entry sums
+					; note that the sum is kept in A now
+
+		LD	DE,(CSV)	; get address of checksum vector
+		LD	HL,(CurDirSector)
+		ADD	HL,DE		; add current sector number
+		POP	BC		; get "command" byte back into C
+		INC	C
+		JR	Z,DirCheckSum3 	; set and flag changes ?
+		INC	C
+		JR	Z,DirCheckSum4 	; just a set ?
+		CP	(HL)		; otherwise compare only
+		RET	Z		; and return if unchanged
+
+; Checksum of current directory buffer is changed. Now clear all
+; associated buffers, log out that drive, and flag a media change.
+; This routine is also called if the BIOS returns an FF value from
+; the read or write routine.
+
+LogOutDrive:	CALL	ClrDtaBcbDrv	; clear related data buffers
+		LD	A,0FFH
+		LD	(@MedChange),A	; indicate media change
+		LD	(@HshCk),A	; mark hashing invalid
+		CALL	RelogStamped
+		CALL	SetLoginVec	; calculate bit vector into HL
+		JP	LogOut		; and then log out this drive
+
+; Further directory checksum handling. If we are to set the new value
+; and flag any changes, we do this by setting bit 0 of the local S1 byte.
+
+DirCheckSum3:	CP	(HL)		; comp. computed sum against old value
+		LD	(HL),A		; store new value anyway
+		RET	Z		; return if unchanged
+		LD	HL,(LocalS1Adr)
+		LD	A,1
+		OR	(HL)		; set bit 0 of local S1
+DirCheckSum4:	LD	(HL),A		; store new S1 resp. new checksum
+		RET
+
+; Write protect the current drive. The appropriate bit in the R/O vector
+; is set, and the number of used entries is set to its maximum value.
+
+WriteProtect:	LD	A,(Drive)
+		LD	DE,ReadOnlyVector
+		CALL	SetVectorBit	; set bit in R/O vector
+		LD	DE,(DRM)
+		INC	DE		; get number of dir entries into DE
+		LD	HL,(UsedEntriesPtr)
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D		; and store this as new limit
+		RET
+
+; Check if the current drive was stamped. If no, just return.
+; If the drive was stamped, set the appropriate bit in the relog vector.
+
+RelogStamped:	LD	HL,(@StampVec)
+		CALL	CheckVector	; was this drive stamped?
+		RET	Z		; no: return
+		LD	DE,@RelogVec
+		JP	SetVector	; otherwise mark as relogged now
+
+; Check for a BDOS function that invalidates further "Search Next" calls.
+; On permanently mounted drives, this check is skipped. (why?)
+
+CheckInvNext:	LD	A,(CKS+1)	; get CKS MSB
+		AND	80H		; mask permanent flag bit
+		RET	NZ		; return if drive is permanent
+		LD	HL,InvalidNextTab ; point to function code table
+
+; Check the function code against a table at (HL). The table is terminated
+; by a null byte. Return with Z if code was found. Note that the function
+; code is taken from a special location in the SCB which holds this
+; function code especially for error handling purposes.
+
+SearchCode:	LD	B,(IX+43H)	; get function code into B
+SearchCode1:	LD	A,(HL)		; get table value
+		CP	B
+		RET	Z		; return if equal to function
+		INC	HL		; bump pointer
+		OR	A		; check for table end
+		JR	NZ,SearchCode1	; no: continue with next table entry
+		INC	A		; A=1, NZ
+		RET			; return with NZ: not found
+
+; Get media flag within DPH (the byte behind the scratch area of which
+; the local S1 is the last byte) and check for zero/non-zero.
+
+ChkDPHMediaFlg:	LD	HL,(LocalS1Adr)
+		INC	HL
+		LD	A,(HL)
+		OR	A
+		RET
+
+; A disk change was detected, now check if this is ok.
+; If we are doing file I/O, return an illegal media change (A=10).
+; If we are doing directory I/O (like file close or search next),
+; a fatal error will be executed.
+
+DiskChangeOK?:	LD	HL,MainReturn
+		PUSH	HL		; create error return address
+		LD	HL,FileIoFuncTab
+		CALL	SearchCode	; check for file I/O function
+		JP	Z,ReturnA10	; found: return error, A=10
+		LD	HL,DirIoFuncTab
+		CALL	SearchCode	; check for directory I/O func.
+		JP	Z,ReturnError	; return fatal error if found
+		POP	HL		; clean stack (error return addr)
+		RET
+
+; Check if the BIOS has flagged a media change. If the global media flag
+; in the SCB is set, the current drive is re-selected, and its directory
+; position is initialized.
+
+CheckMedia:	LD	HL,@MedChange	; check global MF in SCB
+		LD	A,(HL)
+		OR	A
+		RET	Z		; no media change: return
+		LD	(HL),0		; clear SCB flag
+CheckMedia1:	CALL	SelCurDrive	; reselect drive
+		LD	HL,0
+		LD	(@Entry),HL	; reset current entry number
+		XOR	A
+		LD	(RelEntryAddr),A ; ... and relative entry address
+		RET
+
+; Update the FCB's S1 byte from the local S1 byte in the DPH scratch area.
+
+UpdateS1:	LD	HL,(LocalS1Adr)
+		LD	C,(HL)		; get local S1 byte
+		CALL	GetFcbS1
+		LD	(HL),C		; copy this into the FCB
+		RET
+
+; Check through the current data BCB list and clear all buffers which
+; correspond to the current drive and the current absolute sector.
+
+ClrDtaBcbSec:	LD	HL,(DTABCB)
+		LD	B,4		; compare level: check all 4 bytes
+		JR	ClearBcb
+
+; Clear all buffers in the current data BCB list resp. directory BCB list
+; which are related to the current drive.
+
+ClrDtaBcbDrv:	LD	HL,(DTABCB)
+		JR	ClearBcbDrv
+
+ClrDirBcbDrv:	LD	HL,(DIRBCB)
+
+; Check all BCB's in the list (HL pointing to the BCB list header) and
+; clear all buffers associated with the current drive.
+; The number of bytes per buffer to compare is given in B. The second
+; label is used for checking/clearing buffers which are matching the
+; current drive and the current absolute sector number (with a compare
+; level of 4 bytes, see above).
+
+ClearBcbDrv:	LD	B,1		; compare level: check drive only
+ClearBcb:	LD	A,L
+		AND	H
+		INC	A
+		RET	Z		; return if HL = FFFFh (no buffer)
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL		; get addr of first BCB
+ClearBcb1:	PUSH	HL		; outer loop: check through BCB list
+		PUSH	BC		; save pointer and compare level
+		LD	DE,CurDrive	; source address for comparison
+ClearBcb2:	LD	A,(DE)
+		CP	(HL)		; compare a byte
+		JR	NZ,ClearBcb3	; different: don't need further comp.
+		INC	HL
+		INC	DE		; bump pointers
+		DJNZ	ClearBcb2	; ... continue comparing B bytes
+ClearBcb3:	POP	BC		; (compare level)
+		POP	HL		; (BCB pointer)
+		JR	NZ,ClearBcb4	; non-matching BCB: leave it unchanged
+		LD	(HL),0FFH	; matching BCB: mark as "free"
+ClearBcb4:	LD	DE,13
+		ADD	HL,DE		; calc ptr addr to next BCB in list
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL		; get next BCB address into HL
+		LD	A,L
+		OR	H
+		JR	NZ,ClearBcb1	; walk through BCB list until NEXT=0
+		RET			; then we're done
+
+; Calculate the directory sector associated with the current entry number,
+; and read that particular directory sector into the directory buffer.
+
+DirRead:	LD	HL,(@Entry)	; current entry number
+		SRL	H
+		RR	L
+		SRL	H
+		RR	L		; div 4 (four entries per sector)
+		LD	(CurDirSector),HL ; store directory sector
+		LD	(AbsSector),HL
+		XOR	A
+		LD	(AbsSector+2),A	; store as 24-bit abs. sector, too
+		LD	L,A
+		LD	H,A		; clear HL
+		LD	A,3		; A=3 means "dir read" in BufferIO
+		LD	(BufBlock),HL	; clear current buffer block no.
+		LD	HL,(DIRBCB)	; point to dir buffer structure
+		OR	A		; clear zero flag: I/O request
+		CALL	BufferIO	; read dir buffer from disk
+		LD	HL,(@CrDma)
+		LD	(DmaAdr),HL	; restore user's DMA address
+		RET
+
+; Directory write (write the current directory buffer back to disk).
+
+DirWrite:	CALL	CheckDriveRO	; error abort if drive is r/o
+		CALL	SetDirChkSum	; compute current dir checksum
+		LD	HL,0
+		LD	(BufBlock),HL	; clear current buffer block no.
+		LD	HL,(CurBcbAddr)	; get pointer to currently used BCB
+		XOR	A		; set zero flag: flush request
+		LD	A,5		; flag write operation
+		CALL	BufferIO	; write dir buffer to disk
+RestoreUsrDMA:	LD	HL,(@CrDma)
+		LD	(DmaAdr),HL	; restore user's DMA address
+		RET
+
+; Move current directory buffer to user's DMA address and return the
+; directory code (0..3) of the current entry (for BDOS functions
+; which return directory information, i.e. Open, Search etc.).
+; (Note this is called just once.)
+; The Z80DOS time stamp area is cleared on errors (or if there
+; are no stamps), otherwise the current stamp is copied to it for
+; further accesses via BDOS function 54 (Get Stamp).
+
+MoveDirBuffer:	LD	HL,(CurDirBufPtr) ; source: current dir buffer
+		LD	DE,(ResBufAdr)	; target: resident 128 byte buffer
+		LD	BC,128		; length: 1 sector
+		LDIR			; copy the directory buffer
+		LD	HL,RetStat	; point to BDOS return status
+		LD	A,(HL)
+		INC	A		; was there a hardware error (FF) ?
+		JR	Z,ClearZDstamp	; yes: return this unchanged
+		LD	A,(@Entry)
+		AND	3
+		LD	(HL),A		; otherwise return directory code
+
+; Copy date & time stamp data from SFCB into the Z80DOS stamp data fields.
+; Since we have only create *or* access stamp, the "best fit" is instead
+; copied into the remaining Z80DOS variable.
+; After this, the stamp data can be accessed by BDOS function 54 (Get Stamp).
+
+SetZDStamps:	LD	C,0
+		CALL	CalcStampPtr	; get pointer to SFCB stamp field
+		OR	A
+		JR	NZ,ClearZDstamp ; no stamp: clear Z80DOS stamp field
+		PUSH	HL
+		LD	HL,(DirLblDtaPtr)
+		LD	A,10H		; check bit 4:
+		AND	(HL)		; are create stamps enabled?
+		POP	HL
+		JR	NZ,SetZDStamps1	; yes: get creation/update/update
+		LD	DE,ZD_Access
+		LD	BC,4
+		LDIR			; copy access stamp from SFCB
+		LD	DE,ZD_CreationDate
+		LD	C,2		; since there's no creation stamp:
+		LDIR			; use update date instead of creation
+		DEC	HL
+		DEC	HL		; move pointer back to update field
+		LD	C,4
+		LDIR			; copy update stamp (to ZD_Update)
+		RET
+
+SetZDStamps1:	LD	DE,ZD_CreationDate ; target: Z80DOS create date
+		LD	BC,2
+		LDIR			; copy creation date from SFCB
+		INC	HL
+		INC	HL		; point to update field
+		LD	C,4
+		LDIR			; copy update stamp from SFCB
+		LD	HL,ZD_Update	; move back to update field
+		LD	C,4
+		LDIR			; copy update field to access field
+		RET
+
+ClearZDstamp:	LD	HL,ZD_CreationDate
+		LD	BC,10*100h+0	; B = byte count, C = value
+		JP	FillMemory
+
+; Mark the current FCB as invalid. This will set bit 7 of the S2 byte
+; and set the first data block number to FFFFh.
+; (this is referenced only once, before an error return.)
+
+MarkFcbInvalid:	CALL	SetS2bit7	; set bit 7 of S2 byte
+		INC	HL
+		INC	HL		; point to D0 byte of FCB
+		LD	A,0FFH
+		LD	(HL),A
+		INC	HL
+		LD	(HL),A		; set block number to FFFFh
+		RET
+
+; Check if the current FCB is valid. This is determined by the first
+; data block referenced in the FCB (FFFF=invalid). The routine returns
+; with zero flag set if the FCB is invalid.
+
+CheckFcbValid:	CALL	GetD0adr	; get pointer to allocation data
+		JR	CheckFFFF	; check if there's FFFF
+
+; Report an error if the FCB is invalid.
+
+ChkFcbValErr:	CALL	CheckFcbValid	; FCB valid?
+		RET	NZ		; valid: return
+		POP	HL		; else waste return address
+		LD	A,9
+		JP	SaveStatA	; and execute an error instead
+
+; Check the current entry for validity (FFFF=invalid).
+; Returns with Z if invalid, NZ if valid.
+
+ChkEntryValid:	LD	HL,@Entry
+CheckFFFF:	LD	A,(HL)
+		INC	HL
+		CP	(HL)
+		RET	NZ
+		INC	A
+		RET
+
+; Set current directory entry number to invalid.
+
+SetEntryFFFF:	LD	HL,0FFFFh
+		LD	(@Entry),HL
+		RET
+
+; Move to next directory entry, then check for possible media changes.
+; Note that C must contain the checksum operation code (see below).
+
+NextEntryChg:	CALL	NextEntry
+		JR	Changed?
+
+; Move to next directory entry. If we're past the last entry then, set
+; the entry number to FFFF (invalid). Read new dir buffer if necessary.
+; Note that the routine must be called with a directory checksum operation
+; code in C (for DirCheckSum, FF=set&flag, FE=set, others=check).
+
+NextEntry:	LD	HL,(@Entry)
+		INC	HL
+		LD	(@Entry),HL	; increment entry number
+		EX	DE,HL		; move it into DE
+		LD	HL,(DRM)	; get total number of entries
+		OR	A
+		PUSH	HL
+		SBC	HL,DE		; are we past the end now?
+		POP	DE
+		LD	A,H
+		JR	C,SetEntryFFFF	; yes: set entry to invalid
+		LD	A,(@Entry)
+		AND	3		; get directory code
+		ADD	A,A
+		ADD	A,A
+		ADD	A,A
+		ADD	A,A
+		ADD	A,A
+		LD	(RelEntryAddr),A ; compute relative address
+		OR	A
+		RET	NZ		; return if we're still within sector
+
+; We passed a sector boundary when incrementing the entry number. Now read
+; the associated directory sector into the dir buffer. Also process the
+; directory checksum if the media is still unchanged (note C must contain
+; the checksum operation code).
+
+RdNxtDirSec:	PUSH	BC		; (save checksum op)
+		CALL	DirRead		; read new (current) dir sector
+		POP	BC
+		LD	A,(@MedChange)
+		OR	A		; check global media flag
+		RET	NZ		; disk changed: no checksum needed
+		JP	DirCheckSum	; unchanged: set/flag/check checksum
+
+; Read directory sector and check for possible media changes.
+; (Called only once.)
+
+RdDirSecChg:	CALL	RdNxtDirSec
+
+Changed?:	LD	A,(@MedChange)
+		OR	A
+		RET	Z		; no media change: return
+		CALL	DiskChangeOK?	; media change allowed now & here?
+		CALL	CheckMedia	; check MF's of all drives
+		JP	DirRead		; now read directory sector
+
+; Get a bit from the allocation vector. The block number is given in BC
+; upon entry. The allocation bit is returned in bit 0 of A. The original
+; bit position is also returned in D, to allow modifications of that
+; allocation bit (HL points to the appropriate byte in the vector).
+
+GetAllocBit:	LD	A,C
+		AND	7		; get bit number (0..7)
+		INC	A		; --> 1..8 (1=MSB, 8=LSB)
+		LD	E,A
+		LD	D,A		; store bit position in D and E
+		SRL	B
+		RR	C
+		SRL	B
+		RR	C
+		SRL	B
+		RR	C		; byte number = block div 8
+		LD	HL,(ALV)
+		ADD	HL,BC		; get pointer into allocation vector
+		LD	A,(HL)		; get allocation byte from there
+GetAllocBit1:	RLCA
+		DEC	E
+		JR	NZ,GetAllocBit1	; move desired bit into A0
+		RET
+
+; Set or clear the allocation bits in both allocation vectors for the
+; current directory entry. C holds the clear/set flag (0/1).
+
+SetFileBothALV:	PUSH	BC		; save flag
+		CALL	SetFileALV	; clear/set bits in first ALV
+		POP	BC		; get flag back into C
+
+; Set or clear the allocation bits in the second ALV only.
+; C holds the clear/set flag (0/1).
+
+SetFileScndALV:	PUSH	BC		; save flag
+		CALL	GetALVlength
+		EX	DE,HL		; get ALV length into DE
+		LD	HL,(ALV)
+		POP	BC		; get flag back into C
+		PUSH	HL		; save original ALV address
+		ADD	HL,DE
+		LD	(ALV),HL	; store pointer to 2nd ALV
+		CALL	SetFileALV	; clear/set bits in 2nd ALV
+		POP	HL
+		LD	(ALV),HL	; restore ALV pointer
+		RET
+
+; Set or clear the allocation bits in the first ALV only. (This routine
+; is also used for the second ALV by temporarily changing the ALV address.)
+; C holds the clear/set flag (0/1).
+
+SetFileALV:	CALL	GetCurEntryAddr	; get current entry's address
+		LD	DE,16
+		ADD	HL,DE		; point to D0 byte
+		PUSH	BC		; save clear/set flag
+		LD	C,16+1		; set loop counter
+SetFileALV1:	POP	DE		; get flag into E / clean stack
+		DEC	C
+		RET	Z		; return if we're done
+		PUSH	DE		; move flag back on stack
+		LD	A,(Blocks8bit)
+		OR	A
+		JR	Z,SetFileALV2 	; 16-bit blocks: use two FCB bytes
+		PUSH	BC
+		PUSH	HL
+		LD	C,(HL)
+		LD	B,0		; get 8-bit block number into BC
+		JR	SetFileALV3
+SetFileALV2:	DEC	C		; 16-bit: count second byte
+		PUSH	BC
+		LD	C,(HL)
+		INC	HL
+		LD	B,(HL)		; get 16-bit block number into BC
+		PUSH	HL
+SetFileALV3:	LD	A,C
+		OR	B
+		JR	Z,SetFileALV5 	; zero block number: skip this one
+		LD	HL,(DSM)
+		SBC	HL,BC		; are we beyond the maximum block?
+		JR	C,SetFileALV5 	; yes: skip this number
+		PUSH	DE
+		CALL	GetAllocBit	; get current bit (and pointers)
+		AND	0FEH		; mask bit A0 off
+		POP	BC
+		OR	C		; move clear/set flag into A0
+SetFileALV4:	RRCA
+		DEC	D
+		JR	NZ,SetFileALV4	; shift byte back into original state
+		LD	(HL),A		; and store it into the ALV
+SetFileALV5:	POP	HL
+		INC	HL		; bump pointer to next byte
+		POP	BC
+		JR	SetFileALV1	; loop until all blocks are processed
+
+; Get length of allocation vector into HL. Note this is the length of
+; a single ALV (double-bit ALV's require twice the space).
+
+GetALVlength:	LD	HL,(DSM)	; get total number of data blocks
+		SRL	H
+		RR	L
+		SRL	H
+		RR	L
+		SRL	H
+		RR	L		; div 8 (there are 8 bits in each byte)
+		INC	HL		; compensate for "-1" definition of DSM
+		RET
+
+; Relog the current drive. Clears all related buffers and updates the
+; allocation vector if necessary. (called once)
+
+RelogCurDrv:	CALL	ChkDPHMediaFlg	; point to media flag byte
+		LD	(HL),0		; and clear it
+		CALL	CheckPerm	; does this drive have a checksum?
+		JR	NZ,RelogCurDrv1	; yes: clear buffers, update vectors
+		LD	HL,(LocalS1Adr)	; no: check if local S1 is zero
+		CP	(HL)		; (note that A is 0 after CheckPerm)
+		JP	NZ,FreeUnwritBCB ; non-zero: free unwritten BCB's only
+RelogCurDrv1:	CALL	ClrDtaBcbDrv
+		CALL	ClrDirBcbDrv	; clear all buffers of current drive
+		CALL	GetALVlength
+		LD	B,H
+		LD	C,L		; get ALV length into BC
+		LD	HL,(ALV)
+		LD	(HL),0		; set first ALV byte to 0
+		LD	D,H
+		LD	E,L
+		INC	DE		; set target address = source +1
+		DEC	BC		; correct byte count
+		LDIR			; fill first ALV with zero bytes
+		LD	HL,(DirLblDtaPtr)
+		LD	(HL),0		; clear DirLbl stamp/password mode
+		LD	DE,(DirALV)	; get AL0/AL1 from DPB
+		LD	HL,(ALV)
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D		; set first two bytes of ALV
+		CALL	HomeDrive	; initialize drive
+		LD	HL,(UsedEntriesPtr)
+		LD	(HL),4
+		INC	HL
+		LD	(HL),0		; set UsedEntries to 4 (1 sector)
+		CALL	SetEntryFFFF	; set entry invalid (inc will give 0!)
+		LD	HL,(HASH)
+		LD	(AbsSectLSW),HL	; save hash table address
+
+; Loop through entire directory and update the first allocation vector
+; for each file found. After the complete directory is checked, the fresh
+; first allocation vector is copied to the second one.
+
+RelogCurDrv2:	LD	C,0FFH		; checksum op: set and flag if changed
+		CALL	NextEntryChg	; move on to first/next entry
+		CALL	ChkEntryValid	; check entry number is still valid
+		JP	Z,Update2ndALV	; no: we're done: update 2nd ALV
+		CALL	GetCurEntryAddr	; get pointer to current entry
+		LD	DE,(AbsSectLSW)	; get hash table address
+		LD	A,D
+		AND	E
+		INC	A		; is hashing enabled?
+		CALL	NZ,SetHashData	; yes: set hash table for this entry
+		LD	A,21h
+		CP	(HL)		; is this an SFCB?
+		JR	Z,RelogCurDrv2 	; yes: skip this, move to next entry
+		LD	A,0E5H
+		CP	(HL)		; is this an empty entry?
+		JR	Z,RelogCurDrv2 	; yes, skip this
+		LD	A,20H
+		CP	(HL)		; is this the directory label?
+		JR	Z,RelogDirLbl	; yes, get DirLbl settings
+		LD	A,10H
+		AND	(HL)		; is this a password entry?
+		JR	NZ,RelogCurDrv3	; yes, skip this (but count as used)
+		LD	C,1
+		CALL	SetFileALV	; set all ALV bits related to entry
+RelogCurDrv3:	CALL	UpdUsedEntries	; increment number of used entries
+		JR	RelogCurDrv2	; loop through complete directory
+
+; We found the directory label. Now move the directory label data into
+; the according local variable in the DPH's scratch area.
+
+RelogDirLbl:	LD	DE,12
+		ADD	HL,DE		; point to DirLbl data byte
+		LD	A,(HL)		; get it...
+		LD	HL,(DirLblDtaPtr)
+		LD	(HL),A		; and store it in scratch area
+		JR	RelogCurDrv3	; count this entry and continue
+
+; Store status of file search from file access as return status.
+
+StoreSrchStat:	LD	A,(SearchStat)
+		JP	SaveStatA
+
+; ***** End of portion 3 *****

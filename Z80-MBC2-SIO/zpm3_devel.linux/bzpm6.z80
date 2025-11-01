@@ -1,0 +1,1259 @@
+;*****************************************************************
+;**	Sixth portion of banked ZPM3 (N10) BDOS.		**
+;**	Disassembly by Tilmann Reh (950327).			**
+;**								**
+;**	This portion contains:					**
+;**	- date & time stamp handling 				**
+;**	- "official" non-character BDOS function entries	**
+;**	- main BDOS return routine				**
+;*****************************************************************
+
+; Use Z80DOS stamp data instead of the current date & time. The stamp
+; data is taken from the local Z80DOS stamp data area and copied directly
+; into the current SFCB. The target address is contained in HL on entry.
+; This routine contains a severe bug: Instead of the directory label data
+; byte, it's pointer's low byte is checked for the bit flag that distin-
+; guishes between create and access stamps in CP/M-3. As a result, the 
+; used stamp may be wrong (confusing create/access information).
+
+UseZDStamps:	LD	A,(DirLblDtaPtr) ; ?? BUG! checks pointer, not data!
+		AND	10H		; check if create stamps enabled
+		JR	NZ,UseZDStamps1	; yes: get creation date
+		LD	DE,@Access	; no: get Z80DOS access stamp
+		LD	C,4
+		JP	Move1		; and copy it into the SFCB
+
+UseZDStamps1:	LD	DE,@Create	; get the Z80DOS creation date
+		LD	C,2
+		JP	Move1		; copy it into the SFCB
+
+; Update the SFCB's update stamp field to the current date & time.
+; If the Z80DOS "SetStamp" function was called, use the given date&time
+; instead of the values obtained from the BIOS function TIME.
+
+SetNewUpdStamp:	LD	C,4
+		CALL	CalcStampPtr	; get address of SFCB update stamp
+		OR	A
+		RET	NZ		; no valid stamp: return
+		LD	DE,DirWrite
+		PUSH	DE		; ret. addr. in case of "SetStamp"
+		BIT	4,(IX-17H)
+		JR	Z,UpdSFCBstamp	; no Z80DOS stamp: update SFCB
+		LD	DE,@Update	; yes: source is Z80DOS update time
+		LD	C,4
+		JP	Move1		; move 4 bytes into SFCB update stamp
+
+; Update the SFCB's create/access stamp field.
+
+SetNewCreStamp:	LD	C,0
+		CALL	CalcStampPtr	; get address of SFCB cre/acc stamp
+		OR	A
+		RET	NZ		; no valid stamp: return
+		LD	DE,DirWrite
+		PUSH	DE		; ret. addr. in case of "SetStamp"
+		BIT	4,(IX-17H)	; was Z80DOS "Set Stamp" called?
+		JR	NZ,UseZDStamps	; yes: use those stamps
+
+; Update one SFCB's time stamp (HL^) with the current date/time.
+; In fact, the data is only moved if the stamps are different, which
+; obviously doesn't make much sense since afterwards the SFCB always
+; contains the current date & time from the BIOS clock. There is yet another
+; inefficiency here: HL wouldn't have to be saved for the BIOS call, and
+; PUSH/POP would have saved space against the in-code variable method.
+
+UpdSFCBstamp:	LD	(SFCBStampPtr),HL ; store pointer to SFCB stamp
+		LD	DE,@Date
+		LD	C,0
+		CALL	?Time		; BIOS: update date & time in SCB
+		LD	C,4		; compare 4 bytes
+		LD	HL,0		; ... against SFCB stamp
+SFCBStampPtr	EQU	$-2		; (in-code variable)
+		CALL	CompMemC	; do the compare
+		LD	C,4		; eventually move 4 bytes
+		LD	DE,@Date	; source address: SCB date&time fields
+		LD	HL,(SFCBStampPtr) ; target address: SFCB stamp
+		JP	NZ,Move1	; update SFCB stamp if different
+		POP	HL		; waste return addr pushed previously
+		RET
+
+; Update SFCB stamp field in current directory entry, offset by BC.
+
+UpdStampBC:	CALL	GetCurEntryAddr	; point to current entry
+		ADD	HL,BC		; calculate target address
+		LD	DE,Ignore
+		PUSH	DE		; push dummy return address (RET)
+		JR	UpdSFCBstamp	; update the according stamp
+
+; Get pointer to password mode field within current SFCB.
+
+CalcPwdModPtr:	LD	C,8		; offset of pwd mode in SFCB subfield
+
+; Calculate pointer into the current SFCB subfield. The offset into
+; the subfield is contained in C during entry (0 = Create/Access,
+; 4 = Update, 8 = Password Mode, 9 = reserved).
+; The routine returns with A<>0 if there is no valid SFCB available.
+
+CalcStampPtr:	LD	A,(@Entry)	; get LSB of current entry number
+		AND	3		; get relative entry in sector
+		CP	3
+		RET	Z		; return (A=3) if 3: no stamps there
+		LD	B,A		; move relative entry (0..2) into B
+		LD	HL,(CurDirBufPtr)
+		LD	DE,60H
+		ADD	HL,DE		; point to start of SFCB
+		LD	A,(HL)
+		SUB	21h		; check for correct SFCB ID
+		RET	NZ		; not correct: return (A<>0)
+		LD	A,B		; get entry back
+		ADD	A,A		; 2*n
+		LD	E,A		; to E
+		ADD	A,A		; 4*n
+		ADD	A,A		; 8*n
+		ADD	A,E		; 10*n
+		INC	A		; 10*n+1 = start of stamp field
+		ADD	A,C		; add offset for wanted stamp
+		LD	E,A
+		ADD	HL,DE		; calculate pointer to stamp data
+		XOR	A		; return with A=0: found stamp
+		RET
+
+; Check if file shall be stamped. Enter with bit mask in C which is used
+; to mask the appropriate bit in the DirLbl data byte. The routine will
+; return with Z if we are processing the base extent, the C bit of the
+; DirLbl data byte is set, and the drive is R/W. Otherwise, NZ is returned.
+; The valid masks are 10h (create), 20h (update), 40h (access).
+; (The second entry, called once few lines below, is for skipping the base
+; extent check during update stamping.)
+
+CheckStamp:	CALL	ChkBaseExtent	; are we working on the base extent?
+		RET	NZ		; no: return
+CheckStamp1:	LD	HL,(DirLblDtaPtr)
+		LD	A,C
+		AND	(HL)		; check stamp flag of interest
+		JP	NZ,CheckROVector ; yes: return with r/o status
+		INC	A		; no: return with A=1 (NZ)
+		RET
+
+; Check if we currently process the base extent of a file. Only the
+; base extent is stamped in the SFCB, all further SFCB's are unused.
+; The routine returns a Z flag if stamping is supported, NZ otherwise.
+
+ChkBaseExtent:	LD	A,(EXM)		; get extent mask (extents per FCB)
+		OR	0E0H		; set 3 highest bits
+		CPL			; negate it
+		LD	B,A		; move mask into B
+		CALL	GetExtentAdr
+		LD	A,(HL)		; get extent from FCB
+		AND	B		; check if outside the base extent
+		RET	NZ		; yes, return (no stamps)
+		INC	HL
+		INC	HL		; point to S2 byte
+		LD	A,(HL)
+		AND	3FH		; check if lower 6 bits are zero
+		RET			; (stamping allowed if yes)
+
+; A file was updated. Now set the update stamp if this is enabled.
+
+StampUpdate:	LD	C,20H
+		CALL	CheckStamp1	; update stamps enabled and possible?
+		RET	NZ		; no: return without action
+		CALL	GetS2
+		AND	40H		; check if file is already stamped
+		RET	NZ		; yes: return (stamp only once)
+		LD	C,(HL)		; get previous S2 value
+		LD	(HL),A		; clear S2 (A=0)
+		DEC	HL
+		DEC	HL
+		LD	B,(HL)		; get previous extent
+		LD	(HL),A		; clear extent
+		PUSH	HL
+		PUSH	BC		; save extent pointer & extent/S2
+		CALL	SrchFstNamExt	; search base extent (having SFCB)
+		CALL	NZ,SetNewUpdStamp ; if found, set new update stamp
+		XOR	A
+		LD	(RetStat),A	; clear return status
+		POP	BC
+		POP	HL		; get back extent/S2 and pointer
+		LD	(HL),B
+		INC	HL
+		INC	HL
+		LD	(HL),C		; restore previous extent and S2
+		RET
+
+;*****************************************************************
+;**	The following labels represent the entries for the	**
+;**	official BDOS function calls. They are directly		**
+;**	referenced by the function decoder at the very start	**
+;**	of the banked BDOS portion.				**
+;*****************************************************************
+
+; BDOS function 12: Get version. This simply returns the value stored in
+; the SCB.
+
+GetVersion:	LD	A,(@Version)
+		JP	SaveStatA
+
+; BDOS function 13: Reset File System. This simply logs out all disks,
+; sets the current disk to 0, and restores the DMA address to its default
+; value.
+
+ResetFileSys:	LD	HL,0FFFFh
+		CALL	LogOut		; log out all disks
+		XOR	A
+		LD	(@CrDisk),A	; clear current disk (in SCB)
+		LD	HL,0080H
+		LD	(@CrDma),HL	; set DMA address to default
+		JP	RestoreUsrDMA
+
+; BDOS function 14: Select Disk. This actually selects the desired disk
+; and also stores this as the current disk in the appropriate SCB variable.
+
+SelectDrive:	CALL	SelDriveE	; select the drive in E
+		LD	A,(Drive)
+		LD	(@CrDisk),A	; ... and store as current disk
+		RET
+
+; BDOS function 15: Open File. DE points to the referenced FCB.
+
+OpenFile:	CALL	GetS2
+		LD	(HL),0		; clear the S2 byte in the FCB
+		CALL	AutoSelectWr	; auto-select referenced drive
+		CALL	ChkUsrFcbWild	; abort if FCB contains wildcards
+		LD	A,(@UsrCd)
+		OR	A		; check current user number
+		JR	Z,OpenFile1 	; user 0: don't check for SYS-0 files
+		LD	A,0FEH
+		LD	(AltDir+1),A	; set flags to accept system
+		INC	A		; files in user 0 too
+		LD	(User0allowed),A
+OpenFile1:	CALL	OpenUsrFcb	; open the requested file (or try to)
+		CALL	OpenFileOK	; if found, proceed (return if not)
+		LD	HL,User0allowed	; (A=0 upon return of OpenFileOK)
+		CP	(HL)		; are user 0 system files allowed too?
+		JR	Z,OpenFile2 	; no: return (non-existant file)
+		LD	(HL),A		; clear user0-flag now
+		LD	A,(AltDir+1)
+		CP	0FEH		; did we find a matching user0 entry?
+		JR	Z,OpenFile2 	; no: return (non-existant)
+		CALL	SetEntryPredAlt	; set position before that entry
+		LD	A,80H
+		LD	(CurrentF8),A	; open this file as read-only
+		LD	HL,(@VInfo)
+		LD	(HL),0		; insert user code 0 into FCB
+		LD	C,15		; compare level: with extent & S1/S2
+		CALL	SetSrchFirst
+		CALL	SrchNextEntry	; search the matching user0 entry
+		CALL	OpenUsrFcb1	; open this one now
+		CALL	OpenFileOK	; if ok, proceed (return if not)
+OpenFile2:	JP	SetZDStamps	; set Z80DOS stamps in any case
+
+; Check that it was ok to open the specified file. If the file was not
+; found, set A=0 and return. Otherwise, we won't return to the calling
+; program. This routine is only used immediately after opening an FCB.
+
+OpenFileOK:	CALL	ChkEntryValid	; valid entry?
+		RET	Z		; no: return (A=0)
+		CALL	Get_RCCR_Adr	; get addresses of RC and CR
+		LD	A,(HL)		; get CR byte
+		INC	A		; is it FFh?
+		JR	NZ,OpenFileOK1	; no: ok, proceed
+		DEC	DE		; yes:
+		DEC	DE
+		LD	A,(DE)		; get S1 byte
+		LD	(HL),A		; ...and move it into CR
+OpenFileOK1:	POP	HL		; waste return address (open ok)
+		LD	A,(CurrentF8)
+		RLA			; is this a read-only user0 file?
+		JR	NC,OpenFileOK2	; no: skip system attribute check
+		LD	HL,(@VInfo)
+		LD	DE,10
+		ADD	HL,DE		; point to T2
+		LD	A,(HL)
+		AND	80H		; check T2' flag (system attribute)
+		JR	NZ,OpenFileOK2	; system file: ok, use it
+		LD	(CurrentF8),A	; otherwise clear read-only flag
+		JP	ReturnError	; and return error (file not found)
+
+OpenFileOK2:	CALL	UpdateS1	; update S1 (set "file open" bit)
+		CALL	GetLblDataA	; get DirLbl data byte
+		AND	80H		; check if passwords enabled
+		JR	Z,OpenFileOK6 	; no: just stamp & return
+		CALL	ChkBaseExtent	; check if this is the base extent
+		JR	NZ,OpenFileOK3	; no: don't check passwords then
+		CALL	CalcPwdModPtr	; get pointer to password mode byte
+		OR	A
+		JR	NZ,OpenFileOK3	; file password not set: proceed
+		LD	A,(HL)		; get password mode byte
+		AND	0C0H		; protected for read/write?
+		JR	Z,OpenFileOK6 	; no: just stamp & return
+		CALL	SaveFndEntry	; save the file's entry number
+		CALL	SrchPassword	; ...and search for the pwd entry
+		JR	NZ,OpenFileOK4	; found: check if password is ok
+		CALL	SearchAltDir	; was there an alternate entry?
+		RET	Z		; no: open file (no pwd entry)
+					; ?? BUG? (should be JR Z,OpenFileOK6)
+		CALL	CalcPwdModPtr
+		OR	A		; check password mode of alt. entry
+		JR	NZ,OpenFileOK6	; no password: just stamp & return
+		LD	(HL),A		; else clear password mode
+		CALL	CheckROVector	; is drive read-only?
+		CALL	Z,DirWrite	; write DIR back if not
+		JR	OpenFileOK6	; then stamp & return
+
+OpenFileOK3:	CALL	SaveFndEntry	; save file entry number
+		CALL	SrchPassword	; search a matching pwd entry
+		JR	Z,OpenFileOK5 	; none found: skip further pwd checks
+OpenFileOK4:	CALL	ComparePwd	; compare passwords
+		JR	Z,OpenFileOK5 	; matching: ok, open the file
+		CALL	SetPwdError	; otherwise set error code
+		LD	A,(PwdMode)
+		AND	0C0H		; password for read/write?
+		JR	Z,OpenFileOK5 	; no: return ok
+		AND	80H		; password for read?
+		JP	NZ,ReturnPwdErr	; yes: error abort "invalid password"
+		LD	A,80H		; no: must be for write, so mark
+		LD	(CurrentF7),A	; ... file as read-only
+OpenFileOK5:	CALL	SearchAltDir	; get to the file entry again
+		RET	Z		; not found (?): return
+OpenFileOK6:	CALL	UpdateS1	; update S1 (set "file open" bit)
+
+		LD	C,40H		; check for access stamping
+ChkCreAccStamp:	CALL	CheckStamp	; shall this file/extent be stamped?
+		CALL	Z,SetNewCreStamp ; yes: set new cre/acc stamp
+		LD	DE,@StampVec
+		JP	SetVector	; set the drive's bit in stamp vector
+
+; BDOS function 16: Close file.
+
+CloseFile:	CALL	AutoSelect	; auto-select referenced drive
+		CALL	UpdateS1	; update S1 flags
+		CALL	ChkUsr0Sys	; prepare if user-0 system file
+		CALL	CloseUsrFcb	; close the FCB
+		LD	A,(RetStat)
+		INC	A		; return status: physical error?
+		RET	Z		; yes: return, don't go further
+		JP	FlushBuffers	; otherwise flush related buffers
+
+; BDOS function 17: Search First.
+; This routine is also used for "Search Next". The distinguishing flag
+; is the zero flag when SearchF1 is called.
+
+SearchFirst:	EX	DE,HL		; move FCB pointer into HL
+		XOR	A		; set zero (first/next) flag
+SearchF1:	PUSH	AF		; save first/next flag
+		LD	A,(HL)		; get user code from FCB
+		CP	'?'		; is this a "take-all" request?
+		JR	NZ,SearchF2	; no: standard search FCB
+		CALL	SelCurDrive	; select current drive
+		CALL	AutoSelect3	; check for media change
+		LD	C,0		; set compare level to zero
+		JR	SearchF3	; (accept every entry)
+SearchF2:	CALL	GetExtentAdr	; standard search: get extent
+		LD	A,(HL)
+		CP	'?'		; is this an "any-extent" request?
+		CALL	NZ,MaskExtClrS2	; if not, mask the extent and clear S2
+		CALL	AutoSelectWr	; auto-select drive (allow writes)
+		LD	C,15		; compare level: name, extent & S1/S2
+SearchF3:	POP	AF
+		PUSH	AF		; get & save first/next flag
+		JR	Z,SearchF4 	; search first: skip DIR reading
+		LD	A,(@Entry)	; search next:
+		PUSH	AF		; save current entry number (LSB)
+		AND	0FCH
+		LD	(@Entry),A	; set to sector start
+		CALL	DirRead		; read the related dir sector
+		POP	AF
+		LD	(@Entry),A	; restore current entry number
+SearchF4:	POP	AF		; get first/next flag
+		LD	HL,MoveDirBuffer
+		PUSH	HL		; set return address
+		JP	Z,SrchFrstEntry	; search first: now do it!
+		LD	C,(IX+49H)	; get compare level from SCB @Match
+		CALL	SetSrchFirst	; setup for search function
+		JP	SrchNextEntry	; now search the next matching entry!
+
+; BDOS function 18: Search Next.
+; This is really strange: This BDOS function doesn't need an FCB address
+; in DE when called. It should use the FCB referenced at the last "Search
+; First" function call, instead of storing the new "FCB" here!
+; This is also in CP/M-3, but only in the banked version. The nonbanked
+; CP/M-3 version behaves like we expect. Is this another bug, or is this
+; handled in the resident BDOS portion ??
+
+SearchNext:	EX	DE,HL		; move FCB address into HL
+		LD	(SearchFcbPtr),HL ;?? store FCB address
+		OR	1		; clear zero flag (first/next flag)
+		JR	SearchF1	; then search the next matching entry
+
+; BDOS function 19: Delete File.
+
+DeleteFile:	CALL	AutoSelChkWr	; allowed to write to spec'd drive?
+		JP	Erase		; (yes:) erase the file
+
+; BDOS function 20: Read Sequential.
+
+ReadSeq:	CALL	AutoSelect	; auto-select FCB drive
+		CALL	CheckS1		; check S1 (user 0 access?)
+		JP	ReadFile	; read next sector sequentially
+
+; BDOS function 21: Write Sequential.
+
+WriteSeq:	CALL	AutoSelect	; auto-select FCB drive
+		CALL	CheckS1		; check S1 (user 0 access?)
+		JP	WriteFile	; write next sector sequentially
+
+; BDOS function 22: Make File.
+
+MakeFile:	CALL	ClrGetFcbAttr	; get & clear interface attributes
+		CALL	MaskExtClrS2	; mask extent byte, clear S2
+		CALL	AutoSelectWr	; auto-select drive for writing
+		CALL	ChkUsrFcbWild	; abort if FCB contains wildcards
+		CALL	ClearAltDir	; clear alternate dir entry
+		CALL	OpenUsrFcb	; try to open this file
+		CALL	ChkEntryValid	; check if we were successful
+		OR	A
+		JR	Z,MakeFile1 	; no: proceed
+		CALL	GetLastExtent	; last ext in A, current ext at (HL)
+		CP	(HL)		; trying to create a higher extent?
+		JP	NC,FileExistsErr ; no: return error (file exists)
+MakeFile1:	PUSH	AF		; save carry flag
+		CALL	ChkBaseExtent	; is the base extent specified?
+		JR	Z,MakeFile2 	; yes: ok, create file
+		CALL	GetLblDataA
+		AND	80H		; check if passwords enabled
+		JR	Z,MakeFile2 	; no: create file
+		CALL	SrchPassword	; search a matching password
+		JR	Z,MakeFile2 	; none: create file
+		CALL	ComparePwdHL	; compare found password
+		JR	Z,MakeFile2 	; matching: create file
+		CALL	SetPwdError	; set password error status
+		LD	A,(PwdMode)
+		AND	0C0H		; protected for read or write?
+		JP	NZ,ReturnPwdErr	; yes: password error
+MakeFile2:	POP	AF		; get carry flag (open successful?)
+		CALL	NC,GetEmptyEntry ; create a new entry if not
+		CALL	ChkEntryValid	; check if the entry is valid
+		RET	Z		; return if not (out of space)
+		CALL	UpdateS1	; mark file as opened
+		CALL	GetLblDataA
+		AND	80H		; passwords enabled?
+		JR	Z,MakeFile5 	; no: stamp & return
+		LD	A,(FcbIntAttr)	; get FCB interface attributes
+		AND	40H		; check for F6' (assign password)
+		JR	Z,MakeFile5 	; not set: exit
+		CALL	ChkBaseExtent
+		JR	NZ,MakeFile5	; not in base extent: exit
+		CALL	SaveFndEntry	; store file entry location
+		CALL	SrchPassword	; search a matching password entry
+		JR	NZ,MakeFile3	; found: use this one
+		LD	A,0FFH		; not found:
+		LD	(XfcbCreFlag),A	; set flag that we are creating one
+		CALL	GetEmptyEntry	; get next free entry
+		JR	NZ,MakeFile3	; found one: proceed
+		CALL	SrchFstNamExt	; no free entry: move to file entry
+		CALL	DeleteEntryNZ	; delete the file entry
+		JP	ReturnError	; and return an error
+
+MakeFile3:	CALL	SetupPwdEntry	; setup password data
+		EX	DE,HL
+		LD	HL,(ResBufAdr)	; get pointer to user's password
+		LD	BC,8
+		ADD	HL,BC		; point to password mode (byte 9)
+		EX	DE,HL
+		LD	A,(DE)		; get desired password mode
+		AND	0E0H
+		JR	NZ,MakeFile4	; use this if any protection set
+		LD	A,80H		; otherwise assume "read protection"
+MakeFile4:	LD	(PwdMode),A	; set new password mode
+		PUSH	AF
+		CALL	SetPwdBit	; get address into XFCB pwd mode
+		POP	AF
+		LD	(HL),A		; store pwd mode in XFCB too
+		CALL	MoveEncrPwd	; store encrypted pwd in XFCB
+		LD	(HL),B		; finally store sum byte (key)
+		CALL	SetDirLabel4	; set new hash index & write to disk
+		CALL	SearchAltDir	; move to file entry again
+		RET	Z		; none: return (should be impossible)
+		CALL	CalcPwdModPtr
+		OR	A		; check its password mode
+		JR	NZ,MakeFile5	; already protected: don't change
+		LD	A,(PwdMode)
+		LD	(HL),A		; otherwise set new password mode
+		CALL	DirWrite	; write to disk
+		CALL	UpdateS1	; update file open flag
+MakeFile5:	LD	C,50H		; check for both create & access
+		CALL	ChkCreAccStamp	; stamp file if either enabled
+		LD	C,20H
+		CALL	CheckStamp	; check if update stamps are enabled
+		RET	NZ		; no: return
+		CALL	SetNewUpdStamp	; otherwise set new update stamp
+MarkFileChanged:CALL	GetS2		; mark the file as changed:
+		AND	40H		; check S2 bit 6 and return result
+		SET	6,(HL)		; now set bit 6 anyway
+		RET
+
+FileExistsErr:	LD	A,8		; set error code 8 = file exists
+ReturnErrorA:	LD	C,A
+		LD	(RetStat+1),A	; store as physical error code
+		CALL	ReturnError	; setup error flags
+		JP	ReturnBDOSErr	; return error to calling program
+
+; BDOS function 23: Rename File.
+
+RenameFile:	CALL	AutoSelChkWr	; allowed to write to spec'd drive?
+		JP	RenameUserFcb	; rename file according to FCB data
+
+; BDOS function 24: Return Login Vector.
+
+GetLoginVec:	LD	HL,(LoginVector) ; get current login vector
+		JP	StoreHL		; store it as return value & exit
+
+; BDOS function 25: Return Current Disk.
+
+GetDisk:	LD	A,(Drive)	; get current drive
+		JP	SaveStatA	; return this
+
+; BDOS function 26: Set DMA Address.
+
+SetDMA:		LD	(@CrDma),DE	; store DMA address in SCB
+		LD	(DmaAdr),DE	; and internally
+		RET
+
+; BDOS function 27: Get Address of Alloction Vector.
+
+GetALV:		CALL	SelCurDrive	; select the current drive
+		LD	HL,(ALV)	; return the ALV address
+		JP	StoreHL		; (note this is in banked memory!)
+
+; BDOS function 29: Get Read-Only Vector.
+
+GetROvec:	LD	HL,(ReadOnlyVector)
+		JP	StoreHL
+
+; BDOS function 30: Set File Attributes.
+
+SetFileAttr:	CALL	ChkUsrFcbWild	; abort if FCB contains wildcards
+		CALL	AutoSelChkWr	; allowed to write to spec'd drive?
+		CALL	GetCurEntryAddr
+		LD	DE,8
+		ADD	HL,DE		; point to F8 byte
+		CALL	CheckWheelRO	; check if we're allowed to write
+		CALL	SetUsrFcbAttr	; set new attributes
+		JP	StoreSrchStat	; set return status & exit
+
+; BDOS function 31: Get Address of DPB.
+
+GetDPB:		CALL	SelCurDrive	; select current drive
+		LD	HL,(DPBadr)	; and return its DPB address
+StoreHL:	LD	(RetStat),HL
+		RET
+
+; BDOS function 32: Get/Set User Code.
+
+GetSetUser:	LD	A,(SaveE)	; get input value from user
+		CP	0FFH
+		JR	NZ,SetUser	; not FF: set user to given value
+		LD	A,(@UsrCd)	; get user
+		AND	0FH		; mask off unused bits
+		JP	SaveStatA
+
+SetUser:	AND	0FH		; mask off invalid bits
+		LD	(@UsrCd),A	; store new user code
+		RET
+
+; BDOS function 33: Read Random.
+
+ReadRandom:	CALL	AutoSelect	; auto-select drive
+		CALL	CheckS1		; check file update flags
+		LD	C,0FFH		; set "read" flag
+		CALL	SetFcbRandom	; set random position
+		CALL	Z,ReadFile	; read sector from file
+		RET
+
+; BDOS function 34: Write Random.
+
+WriteRandom:	CALL	AutoSelect	; auto-select drive
+		CALL	CheckS1		; check file update flags
+		LD	C,0		; clear "read" flag
+		CALL	SetFcbRandom	; set random position
+		CALL	Z,WriteFile	; write sector to file
+		RET
+
+; BDOS function 35: Compute File Size.
+
+ComputeSize:	CALL	AutoSelect	; select referenced drive
+		JP	CalcFileSize	; compute file size and return
+
+; BDOS function 37: Reset Drive.
+; (This also resets the read-only status of the drive.)
+; Note that the parameter passed in DE is a bit vector, not an address.
+
+ResetDrive:	EX	DE,HL		; move reset vector into HL
+		CALL	LogOut		; logout the drive
+		LD	DE,(ReadOnlyVector)
+		LD	A,E
+		AND	L
+		LD	L,A
+		LD	A,D
+		AND	H
+		LD	H,A
+		LD	(ReadOnlyVector),HL ; and reset read-only vector bit
+		RET
+
+; Logout drive. HL must contain the drive mask word on entry.
+
+LogOut:		LD	A,L
+		CPL
+		LD	L,A
+		LD	A,H
+		CPL
+		LD	H,A		; invert to make a negative mask
+		LD	DE,(LoginVector)
+		AND	D
+		LD	D,A
+		LD	A,L
+		AND	E
+		LD	E,A		; mask off drive bit in login vector
+		LD	(LoginVector),DE ; ... and store new vector
+		LD	A,0FFH
+		LD	(ActiveDrive),A	; mark "no active drive"
+		RET
+
+; BDOS function 44: Set Multi-Sector Count. It simply stores the value
+; in the SCB if it is within the valid range.
+
+SetMulti:	LD	A,E
+		OR	A
+		JP	Z,ReturnError	; value 0: error
+		CP	129
+		JP	NC,ReturnError	; above 128: error
+		LD	(@MltIO),A	; store values in range 1..128
+		RET
+
+; BDOS function 45: Set BDOS Error Mode.
+
+SetErrMode:	LD	(IX+4BH),E	; just store new mode in SCB
+		RET
+
+; BDOS function 46: Get Disk Free Space
+
+GetDiskSpace:	CALL	SelDriveE	; select drive given in E
+		LD	HL,(ALV)
+		EX	DE,HL		; get ALV address into DE
+		CALL	GetALVlength	; get ALV length into HL
+		LD	BC,0		; preset used-blocks counter
+GetDiskSpace1:	LD	A,(DE)		; get ALV byte
+		OR	A
+		JR	Z,GetDiskSpace3 ; no blocks used: skip this one
+GetDiskSpace2:	RRA			; shift in 0, shift out ALV bit
+		JR	NC,GetDiskSpace2 ; repeat until used block found
+		INC	BC		; now count this block
+		OR	A		; any more used blocks in this byte?
+		JR	NZ,GetDiskSpace2 ; yes: loop again & count
+GetDiskSpace3:	INC	DE		; bump pointer
+		DEC	HL		; ... and length
+		LD	A,L
+		OR	H
+		JR	NZ,GetDiskSpace1 ; repeat for complete alloc vector
+		LD	HL,(DSM)
+		INC	HL		; get number of available blocks
+		SBC	HL,BC		; subtract used to get free blocks
+		LD	A,(BSH)
+		LD	B,A		; get block shift into B
+		XOR	A		; reset highest byte of result
+GetDiskSpace4:	ADD	HL,HL
+		ADC	A,A		; 24-bit shift left
+		DJNZ	GetDiskSpace4	; for BSH times (gives sectors)
+		EX	DE,HL		; now result is in ADE
+		LD	HL,(ResBufAdr)	; get pointer to result target
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D
+		INC	HL
+		LD	(HL),A		; store 24-bit free sector count
+		RET
+
+; BDOS function 47: Chain to Program.
+
+Chain:		LD	HL,@Chain
+		SET	7,(HL)		; set chain flag in SCB
+		INC	E		; check chain flag given in E
+		JR	NZ,Chain1	; don't init default drive: skip
+		SET	6,(HL)		; set default-init flag
+Chain1:		JP	WarmBoot	; start the CCP which actually chains
+
+; BDOS function 48: Flush Buffers.
+
+Flush:		CALL	CheckAllMedia	; check for media changes
+		CALL	?Flush		; flush BIOS buffers
+		OR	A
+		CALL	NZ,DiskIoCheck	; any errors?
+					; (fall-thru to free blocks)
+
+; BDOS function 98: Free Blocks.
+
+FreeBlocks:	LD	HL,(LoginVector) ; get vector of logged-in drives
+		LD	A,16		; check all 16 drives
+FreeBlocks1:	DEC	A		; main loop: count drive (code in A)
+		ADD	HL,HL		; shift related login bit into CY
+		JR	NC,FreeBlocks4	; not logged in: skip all checks
+		PUSH	AF
+		PUSH	HL		; save drive code & login vector
+		LD	E,A
+		CALL	SelDriveE	; (re-) select the drive
+		LD	A,(@FX)
+		CP	48		; is this a "Flush" request?
+		JR	Z,FreeBlocks2 	; yes: just flush related data buffers
+		;?? (the following is available as subroutine also!)
+		CALL	GetALVlength	; Free Blocks: get ALV size
+		LD	B,H
+		LD	C,L		; ...into BC
+		LD	HL,(ALV)
+		LD	D,H
+		LD	E,L		; and ALV pointer into DE
+		ADD	HL,BC		; HL points to second ALV
+		LDIR			; copy second ALV half into first
+		CALL	ClrUnwrDatBcb	; clear unwritten data BCB's
+		JR	FreeBlocks3	; proceed with drive loop
+
+FreeBlocks2:	CALL	FlushDataBufs1	; "Flush" request: just flush buffers
+		LD	A,(SaveE)	; get "purge flag" supplied by user
+		INC	A		; is it set?
+		CALL	Z,ClrDtaBcbDrv	; if yes, clear all data BCBs too
+FreeBlocks3:	POP	HL
+		POP	AF		; restore drive code & login vector
+FreeBlocks4:	OR	A
+		JR	NZ,FreeBlocks1	; loop until all drives processed
+		RET
+
+; Flush all data buffers of the selected drive.
+
+FlushBuffers:	CALL	?Flush		; flush BIOS buffers
+		OR	A
+		CALL	NZ,DiskIoCheck	; check return status (if non-zero)
+FlushDataBufs1:	LD	A,(PHM)		; get sector deblocking mask
+		OR	A		; deblocking needed?
+		RET	Z		; return if not (no buffers then)
+		LD	A,4		; BCB access code: flush
+		JP	DataBufferIO	; flush all data buffers of drive
+
+; BDOS function 49: Get/Set System Control Block.
+
+GetSetSCB:	EX	DE,HL		; get paramblock address into HL
+		LD	A,(HL)		; get relative address byte
+		CP	63H		; within range?
+		RET	NC		; return (without action) if not
+		LD	DE,ScbBase
+		ADD	A,E
+		LD	E,A		; get pointer to SCB variable in DE
+		INC	HL
+		LD	A,(HL)		; get access code
+		CP	0FEH		; set SCB data word/byte?
+		JR	NC,SetSCB	; yes: branch
+		EX	DE,HL		; no: get operation (always word)
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get word into DE
+		EX	DE,HL		; ...then HL
+		JP	StoreHL		; return this as result
+
+SetSCB:		LD	B,A		; move access code into B (FE/FF)
+		INC	HL
+		LD	A,(HL)		; get data LSB to be written
+		LD	(DE),A		; place this into SCB
+		INC	B
+		RET	Z		; return if "set byte" function (FF)
+		INC	HL
+		INC	DE		; bump pointers
+		LD	A,(HL)
+		LD	(DE),A		; move data MSB too (set word)
+		RET
+
+; BDOS function 50: Direct BIOS Calls.
+
+DirectBIOS:	LD	HL,DirectBiosRet
+		PUSH	HL		; setup return address
+		EX	DE,HL		; get SCB PB address into HL
+		LD	A,(HL)		; get function code
+		CP	27		; function 27 (SELMEM) ?
+		RET	Z		; abort then: not available for user
+		CP	12		; function 12 (SETDMA) ?
+		JR	NZ,DirectBios1	; no: skip DMA bank setting
+		LD	DE,SetDmaBank1	; yes: push another return address
+		PUSH	DE		; ...to set the proper DMA bank
+DirectBios1:	CP	9		; function 9 (SELDSK) ?
+		JR	NZ,DirectBios2	; no: skip DPH copying
+		LD	DE,CopyDphCommon ; yes: push another return address
+		PUSH	DE		; ...to copy the DPH in common memory
+DirectBios2:	PUSH	HL		; save SCB PB address
+		INC	HL
+		INC	HL		; point to BC register contents
+		LD	C,(HL)
+		INC	HL
+		LD	B,(HL)		; get BC contents
+		INC	HL
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get DE contents
+		INC	HL
+		LD	A,(HL)
+		INC	HL
+		LD	H,(HL)
+		LD	L,A		; get HL contents
+		EX	(SP),HL		; push HL, get back SCB PB addr.
+		LD	A,(HL)		; get function code again
+		PUSH	HL		; save SCB PB address again
+		LD	L,A
+		ADD	A,A
+		ADD	A,L		; multiply function code by 3
+		LD	HL,?Boot
+		ADD	A,L
+		LD	L,A		; add this to BIOS vector base
+		EX	(SP),HL		; push entry address, get SCB PB addr.
+		INC	HL
+		LD	A,(HL)		; get A contents
+		POP	HL		; get entry address
+		EX	(SP),HL		; push entry, get HL contents
+		RET			; jump into BIOS vector
+
+; Special return routines for direct BIOS calls.
+; First one is for "SETDMA" function - it also sets the proper DMA bank.
+
+SetDmaBank1:	LD	A,1
+		JP	?SetBnk		; set TPA bank for DMA
+
+; Second special return routine: After the "SELDSK" BIOS function, the
+; DPH (of which the address is returned by the BIOS) is copied into
+; common memory so that the user program can directly access it. The
+; routine then passes the address of the DPH copy to the calling program.
+; Note that the target buffer resides in the resident BDOS portion, and
+; its address is passed to the banked BDOS in the @VInfo SCB variable
+; (using the memory directly above the BIOS PB function code).
+
+CopyDphCommon:	LD	A,L
+		OR	H
+		RET	Z		; invalid disk: return directly
+		EX	DE,HL		; get DPH address into DE
+		LD	HL,10
+		ADD	HL,DE		; point to the "local S1" byte
+		LD	(HL),0		; clear it
+		LD	HL,(CommonBase)	; get address of common memory base
+		OR	A		; (clear carry)
+		PUSH	DE
+		EX	DE,HL
+		SBC	HL,DE		; compare DPH address to common base
+		POP	DE
+		LD	A,H		; why this?
+		EX	DE,HL		; get DPH address back into HL
+		RET	NC		; return if DPH already in common mem.
+		EX	DE,HL		; (DPH into DE again)
+		LD	HL,(@VInfo)	; get common target address
+		INC	HL
+		PUSH	HL		; save target base address
+		LD	BC,25
+		EX	DE,HL
+		LDIR			; copy DPH (25 bytes)
+		EX	DE,HL		; (why?)
+		POP	HL		; get address of DPH copy
+		RET			; return this to the user
+
+; General return entry for all BIOS calls. Set the proper return status.
+
+DirectBiosRet:	LD	(RetStat),HL	; store HL as the return status
+		LD	B,A		; move A return value into B
+		LD	HL,(@VInfo)
+		LD	A,(HL)		; get BIOS function code
+		CP	9
+		RET	Z		; SELDSK : return (HL)
+		CP	16
+		RET	Z		; SECTRN : return (HL)
+		CP	20
+		RET	Z		; DEVTBL : return (HL)
+		CP	22
+		RET	Z		; DRVTBL : return (HL)
+		LD	A,B		; all other functions return A
+		JP	SaveStatA	; so set A as the return status
+
+; BDOS function 99: Truncate File.
+
+Truncate:	CALL	AutoSelectWr	; select referenced drive
+		CALL	ChkUsrFcbWild	; abort if FCB contains wildcards
+		CALL	CheckPwdValid	; check if password is ok
+		CALL	NZ,SetPwdError	; no: set pwd error status
+		LD	C,0FFH		; set "read" flag
+		CALL	SetFcbRandom	; set FCB according to R0-R2
+		JP	NZ,ReturnError	; impossible: abort
+		CALL	GetCurEntryAddr	; get address of entry
+		LD	DE,15		; offset: record count
+		CALL	CalcRandomRec	; compute random record number
+		CALL	GetRecNumAdr	; get pointer to R0
+		CALL	CompareRecHL	; are they matching?
+		JP	C,ReturnError	; above current file size: error
+		OR	D
+		JP	Z,ReturnError	; exactly equal: error, too
+		CALL	CheckEntryRO	; abort if this file is read-only
+		CALL	DirWrite	; write new entry back to disk
+		CALL	StampUpdate	; set update stamp
+		CALL	SrchFstName	; search for first matching file
+Truncate1:	JP	Z,StoreSrchStat	; no (more) matching file: return
+		CALL	CompExtents	; directory extent below FCB?
+		JP	C,Truncate3	; (JR!) yes: ok, skip erasure
+		PUSH	AF		; no:
+		LD	C,0
+		CALL	SetFileBothALV	; clear related allocation bits
+		POP	AF		; (get back CompExtents flags)
+		JR	Z,Truncate4 	; extents were the same: special case
+		CALL	GetCurEntryAddr	; get address of directory entry
+		LD	(HL),0E5H	; mark as deleted
+		CALL	UpdateHashTbl	; update the hash table accordingly
+Truncate2:	CALL	DirWrite	; write changed directory to disk
+Truncate3:	CALL	SrchNextEntry	; search for next matching entry
+		JR	Truncate1	; loop until no more entry found
+
+; We found the entry which matches the extent in that the file shall be
+; truncated. Now remove all previously allocated blocks from that entry
+; and update the extent and RC bytes according to the new file length.
+
+Truncate4:	CALL	GetFilePosition	; compute record position
+		CALL	CalcExtBlock	; compute related FCB block position
+		CALL	FillFcbZero	; clear all remaining blocks
+		CALL	GetLastExtent	; get last extent number
+		CP	(HL)		; compare with current extent
+		LD	(HL),A		; store last extent now
+		PUSH	AF
+		CALL	Get_RCCR_Adr	; get addresses
+		LD	A,(HL)
+		INC	A
+		LD	(DE),A		; store CR as RC now (last record)
+		POP	AF		; restore flags (extent compare)
+		EX	DE,HL
+		CALL	NZ,InitFcbRC	; extents not matching: clear RC
+		LD	A,(BlockInFcb)
+		OR	A		; first block of entry?
+		CALL	Z,InitFcbRC	; yes: clear RC then
+		LD	BC,11
+		CALL	GetEntryPtrs	; point to T3 bytes (archive flags!)
+		EX	DE,HL
+		LD	A,(HL)
+		AND	7FH
+		LD	(HL),A		; reset archive bit of dir entry
+		INC	HL
+		INC	DE		; point to extent byte
+		LD	A,(DE)
+		LD	(HL),A		; move extent from FCB to dir entry
+		INC	HL
+		LD	(HL),0		; clear S1 byte of entry
+		INC	HL
+		INC	HL
+		INC	DE
+		INC	DE
+		INC	DE		; point to RC bytes
+		LD	C,17
+		CALL	Move1		; copy RC and allocation blocks
+		LD	C,1
+		CALL	SetFileBothALV	; set allocations bits
+		JR	Truncate2	; continue loop (for all entries)
+
+; Get pointers to current directory entry (DE) and FCB (HL), both offset
+; by the value passed in BC.
+
+GetEntryPtrs:	CALL	GetCurEntryAddr
+		ADD	HL,BC
+		EX	DE,HL
+		LD	HL,(@VInfo)
+		ADD	HL,BC
+		RET
+
+; Compare FCB against directory entry. Set carry flag if the FCB
+; references larger record numbers than the directory entry.
+; (Referenced only once, in "Truncate File".)
+
+CompExtents:	LD	BC,14
+		CALL	GetEntryPtrs	; get pointers to S2 bytes
+		LD	A,(HL)		; get S2 from FCB
+		AND	3FH		; mask off status bits
+		LD	B,A		; save it
+		LD	A,(DE)
+		CP	B		; compare entry S2 against FCB S2
+		RET	NZ		; unequal: return with proper carry 
+		DEC	HL
+		DEC	HL
+		DEC	DE
+		DEC	DE		; point to extent bytes
+		LD	A,(DE)
+		LD	C,(HL)		; get both extents
+		CALL	ChkSameExtent	; check if belonging to same entry
+		RET	Z		; yes: return with Z flag set
+		LD	A,(DE)
+		CP	(HL)		; no: compare extents
+		RET			; ...and return proper carry flag
+
+; Fill the remainder of the FCB/entry at (HL) with zero bytes.
+; The last used block position is given in A upon entry.
+; (For removing allocated blocks from an entry, function "Truncate File".)
+
+FillFcbZero:	INC	A		; first block to be cleared
+		LD	HL,Blocks8bit
+		INC	(HL)		; 8-bit block numbers?
+		JR	Z,FillFcbZero1 	; yes: use block number as offset
+		ADD	A,A		; 16-bit: use 2* block as offset
+FillFcbZero1:	DEC	(HL)		; restore 8-bit flag
+		CALL	GetD0adr	; get address of first block pos.
+		LD	C,A
+		LD	B,D		; move offset into BC (D=0)
+		ADD	HL,BC		; point to first block to be cleared
+		LD	A,16		; set maximum relative address
+FillFcbZero2:	CP	C		; did we reach the end?
+		RET	Z		; yes: return
+		LD	(HL),B		; clear allocation data byte
+		INC	HL		; bump pointer
+		INC	C		; ...and counter / relative address
+		JR	FillFcbZero2	; loop until end of allocation area
+
+; BDOS function 100: Set Directory Label.
+
+SetDirLabel:	CALL	AutoSelectWr	; select referenced drive
+		LD	HL,(@VInfo)
+		LD	(HL),21H	; set SFCB "user code" in FCB
+		LD	C,1		; compare level: check "user" only
+		CALL	SrchFrstEntry	; search first matching entry
+		JR	NZ,SetDirLabel1	; found: proceed
+		CALL	GetExtentAdr	; not found:
+		LD	A,(HL)		; get DirLbl data (offset as extent)
+		AND	70H		; any stamps enabled?
+		JP	NZ,ReturnError	; yes: return error / no: proceed
+SetDirLabel1:	LD	HL,(@VInfo)
+		LD	(HL),20H	; now set search for DirLbl entry
+		LD	C,1		; compare level: 1 byte
+		CALL	ClearAltDir	; clear alternate entry
+		CALL	SrchFrstEntry	; search for DirLbl entry
+		JR	NZ,SetDirLabel2	; found: modify existing label
+		LD	A,0FFH		; none found:
+		LD	(XfcbCreFlag),A	; create new DirLbl
+		CALL	GetEmptyEntry	; get an empty entry
+		RET	Z		; none available: abort
+		CALL	SetupPwdEntry	; setup entry data
+		LD	BC,24		; (ts1 offset)
+		CALL	UpdStampBC	; update DirLbl creation stamp
+		CALL	SetNewCreStamp
+SetDirLabel2:	LD	BC,28		; (ts2 offset)
+		CALL	UpdStampBC	; set new DirLbl update stamp
+		CALL	SetNewUpdStamp
+		CALL	CheckPassword	; check if given password is ok
+		JP	NZ,ReturnPwdErr	; no: abort, pwd error
+		CALL	GetCurEntryAddr	; get current entry address
+		EX	DE,HL		; ...into DE
+		LD	HL,(@VInfo)	; get source (FCB)
+		LD	BC,12
+		LDIR			; copy 12 bytes (DirLbl code, name)
+		EX	DE,HL
+		LD	A,(DE)		; get FCB dirlbl data byte
+		OR	1		; set flag "dirlbl exists"
+		LD	(HL),A		; store this in entry
+		PUSH	HL
+		LD	HL,(DirLblDtaPtr)
+		LD	(HL),A		; ...and in DPH scratch area
+		POP	HL
+SetDirLabel3:	LD	A,(DE)		; get FCB dirlbl data byte
+		AND	1		; "dirlbl exists" flag set?
+		JR	Z,SetDirLabel4 	; no: skip password handling
+		LD	DE,8
+		CALL	BumpDMA		; move to last pwd character
+		CALL	MoveEncrPwd	; encrypt password into entry
+		LD	(HL),B		; store sum byte in entry
+		LD	DE,-8
+		CALL	BumpDMA		; correct buffer pointer
+SetDirLabel4:	CALL	UpdateHashTbl	; update hash tables
+		JP	DirWrite	; and write new dir to disk
+
+; BDOS function 101: Return Directory Label Data.
+
+GetDirLblData:	CALL	SelDriveE	; select given drive
+		CALL	GetLblDataA	; get dir label data
+		JP	SaveStatA	; and return it - that's all
+
+; BDOS function 102: Read File Stamps & Password Mode.
+
+ReadStamps:	CALL	AutoSelectWr	; select referenced drive
+		CALL	ChkUsrFcbWild	; abort if FCB contains wildcards
+		CALL	ClearExtentS2	; clear extent number
+		CALL	SrchFstNamExt	; search first extent of file
+		RET	Z		; not found: return
+		CALL	GetD0adr
+		CALL	FillNull8	; clear stamp data target
+		PUSH	HL
+		LD	C,0
+		CALL	CalcStampPtr	; compute pointer to cre/acc stamp
+		OR	A
+		JR	NZ,ReadStamps1	; no SFCB: skip stamp copying
+		POP	DE
+		EX	DE,HL
+		LD	C,8
+		CALL	Move1		; move both stamps into FCB
+		LD	A,(DE)		; get password mode from SFCB
+		JR	ReadStamps2	; store at extent byte & return
+ReadStamps1:	POP	HL		; no SFCB:
+		CALL	FillNull8	; clear stamp area (why again?)
+		CALL	SrchPassword	; search password XFCB
+		RET	Z		; none found: return
+		LD	A,(HL)		; get password mode from XFCB
+ReadStamps2:	CALL	GetExtentAdr	; get target address (extent byte)
+		LD	(HL),A		; store password mode there
+		RET
+
+; BDOS function 103: Write File XFCB.
+
+WriteXFCB:	CALL	AutoSelectWr	; select referenced drive
+		CALL	GetLblDataA	; get current DirLbl data
+		RLA			; passwords enabled?
+		JP	NC,ReturnError	; no: abort then (senseless call)
+		CALL	ChkUsrFcbWild	; abort on any wildcards
+		CALL	GetExtentAdr
+		LD	B,(HL)		; get extent byte
+		PUSH	HL
+		PUSH	BC		; save extent and pointer
+		CALL	ClearExtentS2
+		CALL	SrchFstNamExt	; search extent 0 of referenced file
+		POP	BC
+		POP	HL
+		LD	(HL),B		; restore extent
+		RET	Z		; file not found: abort
+		CALL	ClearAltDir
+		CALL	CalcPwdModPtr	; get pointer to SFCB password mode
+		OR	A		; found a valid SFCB?
+		JR	Z,WriteXFCB6 	; yes: eventually just update pwd mode
+		CALL	SrchPassword	; search password entry
+		JR	NZ,WriteXFCB2	; found it: update contents
+
+; Create a new XFCB entry since there is no valid one yet.
+
+WriteXFCB1:	LD	A,0FFH
+		LD	(XfcbCreFlag),A	; flag: we're creating an XFCB
+		CALL	SrchFstName	; search file entry
+		RET	Z		; none found: abort
+		CALL	GetEmptyEntry	; search an empty entry
+		RET	Z		; none available: abort
+		CALL	SetupPwdEntry	; setup entry data
+
+WriteXFCB2:	CALL	CheckPassword	; check if we're allowed to access this
+		JP	NZ,ReturnPwdErr	; no: return password error
+		PUSH	HL
+		CALL	GetExtentAdr	; get XFCB pwd mode address into HL
+		POP	DE
+		EX	DE,HL		; DE^ = XFCB P.M., HL^ = entry P.M.
+		LD	A,(HL)		; get password mode
+		OR	A		; was this file already protected?
+		JR	NZ,WriteXFCB3	; yes: change mode only
+		LD	A,(DE)		; get desired pwd mode from XFCB
+		AND	1		; assign a new password?
+		JR	NZ,WriteXFCB3	; yes: do it now
+		CALL	SetDirLabel4	; else update hash & write to disk
+		JR	WriteXFCB5	; then change & write new pwd mode
+
+WriteXFCB3:	LD	A,(DE)		; get XFCB password mode (new)
+		AND	0E0H		; any protection enabled?
+		JR	NZ,WriteXFCB4	; yes: use as is
+		LD	A,80H		; assume read mode if nothing given
+WriteXFCB4:	LD	(HL),A		; store new password mode
+		CALL	SetDirLabel3	; ...and password, then write to disk
+WriteXFCB5:	CALL	SetPwdBit	; set "password exists"
+		DEC	A		; clear bit 0 (was 1 before!)
+		LD	(PwdMode),A	; store current password mode
+		CALL	ClearExtentS2
+		CALL	SrchFstNamExt	; search first related file extent
+		RET	Z		; not found (?): return
+		CALL	CalcPwdModPtr	; get pointer to SFCB pwd mode
+		OR	A
+		RET	NZ		; no SFCB: ok, return
+		LD	A,(PwdMode)
+		LD	(HL),A		; otherwise update SFCB pwd mode also
+		JP	DirWrite	; ...and write back to disk
+
+; We found a valid password mode byte in the SFCB of the referenced file.
+; Check if there already is an XFCB and create one if necessary.
+
+WriteXFCB6:	LD	A,(HL)
+		PUSH	AF		; get & save SFCB password mode
+		CALL	SrchPassword	; search matching password entry
+		POP	BC
+		JR	Z,WriteXFCB1 	; none found: create a new one
+		LD	(HL),B		; otherwise restore mode byte
+		JR	WriteXFCB2	; ...and modify existing entry
+
+; BDOS function 104: Set Date & Time.
+; BDOS function 105: Get Date & Time.
+
+SetDateTime:	LD	HL,@Date
+		CALL	Move4bytes	; move stamp data from (DE) into SCB
+		LD	(HL),0		; clear seconds field
+		LD	C,0FFH		; set "set" flag
+		JP	?Time		; BIOS: set clock to SCB values
+
+GetDateTime:	LD	C,0		; clear "set" flag
+		CALL	?Time		; BIOS: update SCB from clock
+		LD	HL,@Date
+		EX	DE,HL
+		CALL	Move4bytes	; move stamp data to target (DE)
+		LD	A,(DE)		; get seconds value
+		JP	SaveStatA	; ...and return this in A
+
+Move4bytes:	LD	C,4
+		JP	Move1
+
+; BDOS function 106: Set Default Password.
+
+SetDefPasswd:	LD	HL,DefaultPwd+7	; point to last char of Default Pwd
+		EX	DE,HL		; source in HL, dest. in DE
+		LD	BC,8
+		PUSH	HL
+		JP	EncryptPwd	; encrypt password into Def. Memory
+
+; BDOS function 107: Return Serial Number.
+
+GetSerialNo:	LD	HL,BankedBdos	; serial number is first bytes of BDOS
+		LD	BC,6		; 6 bytes long
+		LDIR			; copy serial number to target (DE)
+		RET
+
+; BDOS function 108: Get/Set Program Return Code
+
+GetSetRetCod:	LD	A,D
+		AND	E
+		INC	A		; check if DE is FFFF (get)
+		LD	HL,(@RetCode)	; get current return code into HL
+		JP	Z,StoreHL	; get request: return this now
+		LD	(@RetCode),DE	; set request: set new code
+		RET
+
+; Main return routine for BDOS functions. The drive/user field in any
+; FCB is restored to the drive meaning (in the BDOS, it holds the user
+; number), and all registers are restored to their correct values.
+
+ReturnFFFF:	LD	HL,0FFFFh
+		LD	(RetStat),HL	; on errors, return status FFFF
+
+MainReturn:	LD	A,(@Resel)
+		OR	A		; update the user's FCB?
+		JR	Z,MainReturn1 	; no: just return
+		LD	HL,(@VInfo)
+		LD	A,(FcbDriveCode)
+		LD	(HL),A		; copy drive back into FCB
+		LD	DE,7
+		ADD	HL,DE		; point to F7 byte
+		LD	A,(CurrentF7)
+		OR	(HL)		; insert current local F7' flag
+		LD	(HL),A
+		INC	HL		; move on to F8 byte
+		RES	7,(HL)		; clear F8' in FCB
+		LD	A,(CurrentF8)
+		OR	(HL)		; insert current local F8' flag
+		LD	(HL),A
+MainReturn1:	LD	SP,0		; load user's SP (resp. resident DOS)
+UserSP		EQU	$-2		; (in-code variable)
+		LD	HL,0		; load HL with the return status
+RetStat 	EQU	$-2		; (in-code variable)
+		LD	A,L
+		LD	B,H		; return result in both HL and BA
+		RET
+
+; ***** End of portion 6 *****

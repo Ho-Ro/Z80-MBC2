@@ -1,0 +1,1376 @@
+;*****************************************************************
+;**	Second portion of banked ZPM3 (N10) BDOS.		**
+;**	Disassembly by Tilmann Reh (950327).			**
+;**								**
+;**	This portion contains:					**
+;**	- history buffer & command line editor			**
+;**	- public character I/O routines (BDOS functions)	**
+;*****************************************************************
+
+; History buffer handling starts here. The history buffer contains
+; the previous entries with the latest first. For each entry, the
+; following data is stored:
+; 1 Byte Command Prompt Flag (during creation of that entry)
+; 1 Byte String Length (n)
+; n Byte String Text
+; 1 Byte terminating null character
+; 1 Byte String Length (n) again, for back references
+
+; Add a line to the history buffer. If an identical line is already
+; stored in the history buffer, it is deleted first.
+
+AddToHistory:	LD	HL,(@VInfo)	; (pointer to input buffer structure)
+		INC	HL
+		LD	A,(HL)		; get current string length
+		OR	A
+		RET	Z		; return if zero
+		CP	0FFH
+		RET	NC		; also return if FF (why?)
+		LD	B,A		; ?? this seems unnecessary!
+		CALL	DeleteOldEntry	; check for identical entry & delete
+		PUSH	HL		; save input string pointer
+		LD	E,(HL)
+		LD	D,0		; set DE to input string length
+		LD	HL,HistBufferEnd
+		XOR	A
+		SBC	HL,DE		; calc buffer size to take over
+		DEC	HL
+		DEC	HL
+		DEC	HL
+		DEC	HL		; consider 4 admin. bytes per entry
+		LD	DE,HistBufferEnd
+		LD	BC,HistBufLength ; length for block move
+		LDDR			; move old entries up in history
+		POP	HL		; get input string pointer back
+		CALL	MoveIntoHist	; move new entry into History
+		PUSH	HL		; preserve input pointer again
+
+; We just moved the old entries one step forward (just enough to fit the
+; new entry before). Now check the old entries and find out which is the
+; last one stored completely, then set the following length byte to zero
+; to mark the end of the valid history buffer.
+
+		LD	HL,HistBuffer	; start at the beginning, of course
+ChkHistEnd:	INC	HL
+		LD	(HistTemp),HL	; store ptr to current length byte
+		LD	A,(HL)		; get length byte
+		OR	A		; and check for zero (end mark)
+		JR	Z,ChkHistEndExit ; history end: ok, we're all done
+		LD	E,A
+		LD	D,0		; else move length to DE
+		ADD	HL,DE		; and calculate next entry's start
+		INC	HL
+		INC	HL		; consider two of the admin. bytes
+		PUSH	HL
+		XOR	A
+		LD	DE,HistBufferEnd
+		SBC	HL,DE		; check for memory end
+		POP	HL
+		INC	HL		; now points to the next prompt Flag
+		JR	C,ChkHistEnd	; loop til entry reaches beyond end
+		LD	HL,(HistTemp)	; get back ptr to its length byte
+		LD	(HL),A		; and clear it (mark end)
+ChkHistEndExit: POP	HL		; (input ptr preserved before check)
+		RET
+
+; Check history buffer if it contains an old entry identical to the
+; one in the current input buffer. If yes, delete that old entry.
+; This routine is called with the pointer to the length byte of the
+; input string in HL.
+
+DeleteOldEntry: LD	DE,(HistPosition) ; get current position in history
+		LD	A,D
+		OR	E
+		RET	Z		; return if undefined
+		PUSH	BC
+		LD	DE,HistFirstLength ; ptr to first entry's length
+
+; Search through the history buffer for an entry identical to the current
+; input string. Only entries with prompt flag identical to the current
+; one are checked (this prevents program input lines to be confused with
+; CCP command lines - it's like two separate history buffers).
+
+DelOldSrchLp:	PUSH	HL		; preserve input string pointer
+		LD	(HistTemp),DE	; store current search location
+		LD	A,(DE)
+		OR	A
+		JR	Z,DelOldSrchEnd ; found history end: all done
+		LD	C,A		; else move string length to C
+		DEC	DE
+		LD	A,(DE)		; get prompt flag of history entry
+		LD	B,A
+		LD	A,(PromptFlag)
+		SUB	B		; compare it to current prompt flag
+		JR	NZ,DelOldSrch1	; different: skip entry
+		INC	DE		; point to length byte again
+		LD	B,A		; clear B (A is 0)
+		INC	BC		; compare length: include length byte
+		CALL	StringComp	; compare input string to hist entry
+		JR	Z,DeleteOldDo	; identical entry found: delete it
+DelOldSrch1:	LD	HL,(HistTemp)	; get current search location again
+		LD	A,(HL)
+		LD	E,A
+		LD	D,0		; move entry's string length to DE
+		ADD	HL,DE
+		LD	E,4
+		ADD	HL,DE		; calc next search location in hist.
+		EX	DE,HL		; move pointer to DE
+		POP	HL		; restore input string pointer
+		JR	DelOldSrchLp	; and loop until found or end reached
+
+; In the search loop, the end mark was found. Now check the first length
+; byte to see if the history is empty. If yes, clear the current history
+; position pointer.
+
+DelOldSrchEnd:	LD	A,(HistFirstLength) ; get first entry's length
+		OR	A
+		JR	NZ,DelOldSrchEnd1 ; history not empty: just return
+		LD	H,A
+		LD	L,A
+		LD	(HistPosition),HL ; hist empty: clear position ptr
+DelOldSrchEnd1: POP	HL		; restore input string pointer
+		POP	BC		; ... and BC
+		RET
+
+; We found an old identical entry. Now delete it, and close the gap by
+; moving all further entries one step back.
+
+DeleteOldDo:	LD	DE,(HistTemp)	; get ptr to old entry (length byte)
+		LD	A,(DE)		; get entry's length
+		DEC	DE		; point to prompt flag
+		PUSH	DE
+		EX	DE,HL		; move prompt flag ptr to HL
+		LD	C,A
+		LD	B,0		; ... and string length to BC
+		ADD	HL,BC
+		LD	C,4
+		ADD	HL,BC		; calc next prompt flag address
+		PUSH	HL		; save it too
+		EX	DE,HL
+		LD	HL,HistBufferEnd
+		SBC	HL,DE		; calculate size of remaining memory
+		LD	B,H
+		LD	C,L		; set BC accordingly (move length)
+		POP	HL		; get back next prompt flag address
+		POP	DE		; get prompt flag ptr again
+		LDIR			; move all following entries back
+		JR	DelOldSrchEnd	; did we delete the only entry?
+
+; Move a string (HL pointing to its length byte) into the history buffer.
+; It is always moved to the very beginning of the buffer (according to
+; the "latest first" scheme).
+
+MoveIntoHist:	PUSH	BC
+		PUSH	HL
+		LD	DE,HistBuffer	; set target ptr: first prompt flag
+		LD	A,(PromptFlag)
+		LD	(DE),A		; copy current prompt flag
+		LD	A,(HL)		; get input string length
+		LD	C,A
+		LD	B,0		; and move it to BC
+		INC	BC		; consider the length byte itself
+		INC	DE		; target: first length byte
+		LDIR			; copy input string to history buffer
+		INC	DE		; skip byte after string
+		LD	(DE),A		; set second length byte of entry
+		XOR	A
+		DEC	DE		; back to byte after string
+		LD	(DE),A		; clear it (terminating null char)
+		POP	HL
+		POP	BC
+		RET
+
+; Initialise the current history position pointer. This pointer is used
+; to keep track of the current history line during "Next Line" and
+; "Previous Line" control commands at history access. Within this routine,
+; that pointer is initialised to the first (latest) history entry which
+; hast the right (matching) prompt flag.
+
+InitHistPos:	PUSH	HL
+		LD	HL,HistFirstLength ; start with first entry
+InitHistNext:	LD	A,(HL)		; get entry's length byte
+		OR	A
+		JR	Z,InitHistEnd	; history end reached: clear position
+		DEC	HL		; point to prompt flag
+		LD	A,(PromptFlag)
+		CP	(HL)		; compare to current one
+		JR	Z,InitHistPos1	; equal: init to this position
+		INC	HL		; otherwise point to length again
+		LD	E,(HL)
+		LD	D,0		; get length into DE
+		ADD	HL,DE
+		LD	E,4
+		ADD	HL,DE		; and calculate next entry's address
+		JR	InitHistNext	; loop until matching entry found
+InitHistEnd:	LD	HL,-2		; we found the history end: clear ptr
+InitHistPos1:	INC	HL
+		INC	HL		; inc pointer to the string start
+		LD	(HistPosition),HL ; ... and store this location
+		POP	HL
+		RET
+
+; Increment history position pointer (go to next line in history, which
+; in fact is the previous line for the user). Entries with non-matching
+; prompt flags are skipped.
+
+IncHistPos:	LD	HL,(HistPosition) ; get current position
+IncHistPosLp:	DEC	HL		; point to length byte
+		LD	A,(HL)		; get length
+		OR	A
+		JR	NZ,IncHistPos1	; history end reached?
+		LD	HL,HistBuffer-3 ; then roll over to beginning
+IncHistPos1:	LD	E,A
+		LD	D,0		; get length into DE
+		ADD	HL,DE
+		INC	HL
+		INC	HL
+		INC	HL		; point to next prompt flag
+		LD	E,(HL)		; get prompt flag into E
+		INC	HL
+		LD	A,(HL)		; get next length into A
+		INC	HL		; point to next string start
+		OR	A
+		JR	Z,IncHistPosLp	; end reached: get next entry
+		LD	A,(PromptFlag)
+		CP	E
+		JR	NZ,IncHistPosLp ; prompt flag not matching: next entry
+		LD	(HistPosition),HL ; next matching entry found, store
+		RET
+
+; Decrement history position pointer (go to previous history entry, which
+; in fact is the next input line for the user).
+
+DecHistPos:	LD	HL,(HistPosition) ; get current position
+		LD	A,H
+		OR	L
+		RET	Z		; there's nothing: return
+		DEC	HL
+		DEC	HL
+DecHistPosLp:	DEC	HL		; point to prev. 2nd length byte
+		LD	A,(HL)
+		OR	A
+		CALL	Z,GetHistLast	; at hist start: roll over to end
+		LD	E,A
+		LD	D,0		; get length into DE
+		SBC	HL,DE
+		DEC	HL
+		DEC	HL
+		DEC	HL		; calc ptr to previous prompt flag
+		LD	D,(HL)
+		LD	A,(PromptFlag)
+		CP	D		; matching current prompt flag?
+		JR	NZ,DecHistPosLp ; no: loop until matching one found
+		INC	HL
+		INC	HL		; then inc ptr to string start
+		LD	(HistPosition),HL ; and save new position ptr
+		RET
+
+; Get pointer to last history entry. Return with HL pointing to 2nd
+; length byte of last valid entry, and A containing that length byte.
+; (This routine is called only by DecHistPos above.)
+
+GetHistLast:	LD	HL,HistFirstLength ; start at history beginning
+GetHistLastLp:	LD	E,(HL)
+		LD	D,0		; get length into DE
+		ADD	HL,DE
+		LD	E,4
+		ADD	HL,DE		; calc address of next entry
+		LD	A,(HL)		; get its length byte
+		OR	A
+		JR	NZ,GetHistLastLp ; loop until end marker found
+		DEC	HL
+		DEC	HL		; go back to previous 2nd length byte
+		LD	A,(HL)		; get length byte into A
+		RET
+
+; Compare current input string against history string pointed to by HL.
+; Return with carry flag set if input string longer than history string,
+; otherwise return with zero flag set according to comparison.
+; This routine is used for automatic input expansion. As soon as the input
+; string exceeds the any matching history entry, auto-expansion is disabled.
+
+HistComp:	EX	DE,HL		; move hist pointer to DE
+		LD	HL,(@VInfo)
+		INC	HL		; get ptr to input string into HL
+		LD	C,(HL)		; get input length into C
+		DEC	DE
+		LD	A,(DE)		; get history string length into A
+		CP	C
+		RET	C		; return with C=1 if input is longer
+		INC	DE
+		INC	HL		; bump pointers to string starts
+		LD	B,0		; B=0, compare length is valid in BC
+
+; Compare two strings at (DE) and (HL) for BC characters.
+; The comparison is case-insensitive (except for the bug in ToUpper).
+; On different strings, the routine returns with the zero flag cleared
+; (NZ) and HL/DE pointing to the location of the first difference.
+; Otherwise, the zero flag is set, HL/DE point behind the strings, and BC=0.
+
+StringComp:	LD	A,(DE)		; get character from string 1
+		PUSH	BC
+		CALL	ToUpper 	; ignore case
+		LD	B,A		; and move it into B
+		LD	A,(HL)		; get character from string 2
+		CALL	ToUpper 	; ignore case also
+		CP	B		; compare the characters
+		POP	BC
+		RET	NZ		; return if different
+		INC	DE		; bump string 1 pointer
+		LD	A,(HL)		; ... so CPI will always "match" (Z)
+		CPI			; INC HL, DEC BC, and set Z flag
+		RET	PO		; return if BC is 0 now
+		JR	StringComp	; otherwise loop until it is...
+
+; Output a character to the console (raw mode, no TAB expansion)
+; with preserving all primary registers.
+
+CO:		PUSH	BC
+		PUSH	DE
+		PUSH	HL
+		CALL	OutCon
+		POP	HL
+		POP	DE
+		POP	BC
+		RET
+
+; BDOS Function 10: Get Command Line Buffer.
+; This function features a built-in command line editor and history.
+; The editing and history functions are activated by control codes
+; typed in at the keyboard. These control codes are handled via an
+; address table, so are independent of the ASCII code definition at
+; the very start of this source text.
+; To avoid false printouts during line editing when printer echo is
+; enabled, it is temporarily disabled during editing and the line is
+; echoed completely after input is finished.
+
+BufferInput:	LD	A,34
+		CALL	GetZ3EnvVar	; get Z3 message buffer address
+		LD	A,(@CcpFlags1)	; bit 7 contains "CCP running" flag
+		JR	Z,BufferInput1	; no Z3: use flag from SCB
+		CALL	GetTpaWord	; else get Z3Msg address
+		LD	A,7
+		CALL	AddAtoHL	; add 7
+		CALL	GetBank1	; and get ZEX input flag from there
+		DEC	A		; check for command prompting (=1)
+		LD	A,0
+		JR	NZ,BufferInput1 ; no command prompt : clear flag
+		LD	A,80H		; command prompt: set flag
+BufferInput1:	AND	80H		; mask flag bit (from SCB byte)
+		LD	(PromptFlag),A
+		BIT	7,(IX-17H)	; check "clear history" flag
+		JR	Z,BufferInput2	; not set: don't clear the history
+		RES	7,(IX-17H)	; clear flag anyway
+		XOR	A		; clear history by setting first...
+		LD	(HistFirstLength),A ; ... entry's length to zero
+BufferInput2:	CALL	InitHistPos	; init current line position
+		LD	A,(@LstOutFlag)
+		LD	(PrnEchoFlag),A ; copy curr. echo status to local flag
+		LD	A,1
+		LD	(@FX),A 	; imagine func. no. 1 (Console Input)
+		DEC	A
+		LD	(AutoExpFlag),A ; clear Auto-Expand flag
+		LD	(@LstOutFlag),A ; temporary clear printer echo status
+		LD	(IY+1),A	; set current line length to zero
+		LD	(CharsAtLeft),A ; no left characters yet
+		CP	(IY+0)		; compare to maximum length
+		JR	NZ,BufferInput3 ; there is a buffer: ok
+		INC	(IY+0)		; else allow one single char input
+BufferInput3:	LD	(BufferInpSP),SP ; save stack pointer during editing
+BufferInput4:	LD	A,(IY+1)
+		OR	A		; empty input line yet?
+		CALL	Z,SetAutoExp	; yes: set auto-expand (if enabled)
+		CALL	GetNextChar	; get char (from TPA string or console)
+		CALL	ProcessChar	; process that character
+		JR	BufferInput4	; loop until terminated by processing
+
+; Get a string from memory and process it af it was typed in at the
+; console. This is used to process strings of the history buffer when
+; being selected by the "Next Line" / "Previous Line" command.
+; Enter with HL pointing to the (null-terminated) string.
+
+ProcessString:	LD	A,(HL)		; get character to process
+		LD	(CurrentChar),A ; save it
+		OR	A
+		RET	Z		; null-char terminates string
+		PUSH	HL
+		CALL	ProcessChar	; process character
+		POP	HL
+		INC	HL		; bump pointer
+		JR	ProcessString	; process next char
+
+; Editing command: enter line (^J=LF and ^M=CR).
+; If the command has three or more characters, it is added to the history
+; buffer. The global printer echo flag is set to the correct value again
+; and the input string is completely echoed to the printer (this is done
+; to prevent garbage printout during line editing).
+
+EnterLine:	LD	SP,0		; first restore stack pointer
+BufferInpSP	EQU	$-2		; (address of in-code variable)
+		CALL	ClearAutoExp	; clear auto expand mode
+		LD	(@BufPtr),HL	; clear buffer pointer (HL=0)
+		LD	A,(IY+1)	; get current length of input
+		CP	3
+		CALL	NC,AddToHistory ; if >=3 chars, add to history
+		LD	A,(PrnEchoFlag)
+		LD	(@LstOutFlag),A ; copy local echo flag to global one
+		OR	A		; echo on?
+		JR	Z,EnterLineEx	; no: output CR on console and exit
+		LD	HL,(@VInfo)
+		INC	HL
+		LD	A,(HL)		; else get current length again
+		OR	A
+		JR	Z,EnterLineEx	; nothing there: output CR on console
+		LD	B,A		; else put string length in B
+EchoInputStr:	INC	HL
+		LD	C,(HL)		; get next char from input string
+		PUSH	HL
+		CALL	ListOutX	; and output to list device
+		POP	HL
+		DJNZ	EchoInputStr	; loop until complete string done
+EnterLineEx:	LD	C,CR
+		JP	OutCon		; output carriage return
+
+; Line Editing & History: Process a character typed in at the console.
+; Enter with character in A (and IY pointing to input buffer).
+
+ProcessChar:	LD	(CharAtCursor),A ; save character
+		LD	A,(CharsAtLeft)
+		LD	B,A
+		LD	A,(IY+1)	; get current line length
+		SUB	B		; subtract chars at left
+		LD	(CharsAtRight),A ; ...gives chars at right!
+		LD	A,(CharAtCursor) ; get char back into A
+		CP	' '
+		JR	NC,ProcessChar1 ; continue processing visible chars
+		CP	CtlCharNum
+		RET	NC		; control chars >= ^Z aren't interpr.
+		OR	A
+		RET	Z		; Null code is ignored.
+		ADD	A,A		; double code (for table access)
+		LD	HL,CtlFuncTable
+		CALL	AddAtoHL	; build table pointer
+		LD	A,(HL)
+		INC	HL
+		LD	H,(HL)
+		LD	L,A		; get function routine address
+		JP	(HL)		; and process particular control key
+
+ProcessChar1:	CP	DEL
+		JP	Z,BackSpace	; delete/rubout: destructive backspace
+		LD	A,(AutoExpFlag)
+		OR	A
+		JR	NZ,ProcessExp	; auto-expand enabled: search history
+		LD	A,(IY+0)	; get buffer size (maximum length)
+		CP	(IY+1)		; compare to current length
+		JP	Z,BeepOnNulChar ; size reached: ignore, beep on NUL ??
+		LD	A,(CharAtCursor) ; else get character again
+		LD	C,A
+		CALL	OutCon		; output char to console
+		LD	A,(CharsAtRight)
+		OR	A
+		CALL	NZ,MoveRight	; if anything is right: "move" it
+		CALL	GetCurCharAdr	; calculate address in buffer
+		LD	A,(CharAtCursor)
+		LD	(HL),A		; store this character there
+		INC	(IY+1)		; increment current string length
+		LD	HL,CharsAtLeft
+		INC	(HL)		; ... and chars left (cursor updated)
+		RET
+
+; Process input character for enabled Auto-Expand feature. This will
+; search the history buffer for an input line starting like what was
+; already typed in. If a matching previous message is found, it is
+; displayed while the cursor remains at its position.
+
+ProcessExp:	CALL	GetCurCharAdr
+		LD	A,(CharAtCursor)
+		LD	(HL),A		; store current char in input string
+		LD	C,A
+		CALL	OutCon		; and echo it on the console
+		LD	HL,CharsAtLeft
+		INC	(HL)		; increment cursor position
+		INC	(IY+1)		; ... and input string length
+		LD	A,(CharsAtRight)
+		OR	A
+		JR	Z,ProcessExp1	; nothing right of cursor: continue
+		DEC	A		; if we are in the midst of the line:
+		LD	(CharsAtRight),A ; correct right-character count
+		DEC	(IY+1)		; and string length (--> unchanged)
+ProcessExp1:	LD	HL,(AutoExpPtr)
+		LD	A,H
+		OR	L		; check if there was a matching entry
+		JR	Z,ProcessExp2	; no: continue, search one
+		CALL	HistComp	; yes: check if it still matches
+		RET	Z		; yes, it does: return (we're done)
+
+; There was no history entry matching before, or the previously matching
+; entry doesn't match the new input line after the current character is
+; inserted. Now search the history if there's a matching entry in it.
+
+ProcessExp2:	CALL	DeleteToRight	; delete everything right of cursor
+		LD	HL,HistFirstLength ; set pointer to first hist entry
+ProcessExpSrch: LD	A,(HL)		; get history entry's length
+		OR	A
+		RET	Z		; zero: return, we're all through
+		DEC	HL		; point to prompt flag
+		LD	A,(PromptFlag)
+		CP	(HL)		; compare to current prompt flag
+		JR	Z,ProcessExpChk ; matching: check this entry
+		INC	HL		; otherwise skip this entry...
+ProcessExpNext: LD	E,(HL)
+		LD	D,0		; get string length into DE
+		ADD	HL,DE
+		INC	HL
+		INC	HL
+		INC	HL
+		INC	HL		; calc pointer to next entry's length
+		JR	ProcessExpSrch	; check that's length and flag, too
+
+; We found an entry in the history with a matching prompt flag. Now check
+; the string contents if it equals the typed-in string.
+
+ProcessExpChk:	INC	HL		; point to length byte again
+		PUSH	HL
+		INC	HL		; point to string start
+		CALL	HistComp	; and compare to input line
+		POP	HL
+		JR	NZ,ProcessExpNext ; string not matching: skip it
+
+; Wow! There's an entry in the history that matches the string typed in
+; from the user. Now auto-expand the input line according to that history
+; entry.
+
+		LD	A,(CharsAtLeft) ; get cursor position
+		INC	HL
+		LD	(AutoExpPtr),HL ; save current expand pointer
+		CALL	AddAtoHL	; calc start of expansion
+		PUSH	HL
+		CALL	GetCurCharAdr	; get current char addr. in input line
+		POP	DE		; get expansion-start into DE
+ProcessExpLp:	LD	A,(DE)		; get char from history entry
+		OR	A
+		JR	Z,ProcessExpExit ; null terminator: all done
+		LD	(HL),A		; else store char in input line
+		LD	C,A
+		CALL	CO		; ... and echo to console
+		LD	A,(CharsAtRight)
+		INC	A
+		LD	(CharsAtRight),A ; increment right-char count
+		INC	(IY+1)		; ... and line length
+		LD	A,(IY+0)
+		CP	(IY+1)		; check if buffer length reached
+		JR	Z,ProcessExpExit ; yes: abort expansion
+		INC	HL
+		INC	DE		; bump pointers
+		JR	ProcessExpLp	; and copy next character
+ProcessExpExit: CALL	MovCursBack	; move cursor back to current pos.
+
+; After auto-expanding an input line, the auto-expand status is immediately
+; set again so the automatic expansion will "follow" further inputs.
+
+; Copy auto-prompt status to auto-expand flag when beginning a new line.
+; Auto-expand is cleared again when there's no further matching line in
+; history buffer.
+
+SetAutoExp:	BIT	6,(IX-17H)	; check autoprompt enable
+		RET	Z		; disabled: ignore feature
+		LD	A,(AutoPrompt)
+		LD	(AutoExpFlag),A ; if autoprompt is on, set autoexpand
+		RET
+
+; Clear auto-expand status. This routine is called in those editing
+; command routines in which the current line contents is changed.
+
+ClearAutoExp:	LD	HL,0
+		LD	(AutoExpPtr),HL
+		LD	A,H
+		LD	(AutoExpFlag),A
+CtlIgnore:	RET
+
+; Table containing addresses of editing/history function routines
+; for all control keys up to ^Y (codes from ^Z up are ignored).
+;
+; Note by Jon Saxton, August 2011 (updated January 2015)
+;
+; As originally implemented, ZPM3 viewed the history as an upward-growing
+; stack, i.e. with new lines being added at the top.  For example assume
+; that lines comprising the single words "one", "two", "three", "four" and
+; "five" are entered in sequence.  The history looks like this:
+;
+;	->			(current line, blank)
+;		five		(newest)
+;		four
+;		three
+;		two
+;		one		(oldest)
+;
+; According to this view, the NEXT line in the history is the last one
+; entered.  After ^W ^W ^W ^W (NEXT, NEXT, NEXT, NEXT) the view is like this:
+;
+;		two		(line ready for editing)
+;		five		(newest)
+;		four
+;		three
+;	->	two
+;		one		(oldest)
+;
+; After ^E ^E (PREVIOUS, PREVIOUS) the view is:
+;
+;		four		(line ready for editing)
+;		five		(newest)
+;	->	four
+;		three
+;		two
+;		one		(oldest)
+;
+; This is all very consistent.  The problem is that it is utterly counter-
+; intuitive and the complete reverse of any recall and edit scheme in any
+; other operating system.  For example, linux and Windows both view shell
+; command history as a stack, but one which grows downwards.  The most
+; recently entered command is the one conceptually ABOVE the current line.
+; This view of the command history also corresponds to the way that we
+; compose text, where new lines are added below the most recently added
+; lines.
+;
+; Using the same five-line example as above, the initial view would be:
+;
+;		one		(oldest)
+;		two
+;		three
+;		four
+;		five		(newest)
+;	->			(current line, blank)
+;
+; After UP, UP, UP, UP the view is:
+;
+;		one		(oldest)
+;	->	two
+;		three
+;		four
+;		five		(newest)
+;		two		(line ready for editing)
+;
+; then DOWN, DOWN yields:
+;
+;		one		(oldest)
+;		two
+;		three
+;	->	four
+;		five		(newest)
+;		four		(line ready for editing)
+;
+; Tilman Reh recognised this as a bug when he disassembled this ZPM3.
+; It was fixed by cross-renaming the two routines NextLine and PreviousLine
+; and for WordStar compatability the NextLine routine was moved to ^W.
+; That meant the previous occupant of the ^W position, DeleteToLeft had to
+; be moved also.  For no particularly good reason I chose to use the just-
+; vacated ^X slot.
+;
+; Although I cannot imagine why one would want to do so, the original ZPM3
+; behaviour can be recovered by setting HistoryBug to some odd number.
+
+HistoryBug	equ	0		; 1 for original dispatch table
+					; 0 for modified table
+
+CtlFuncTable:
+
+	if	HistoryBug	; Original dispatch table
+
+		DW	0		; null code ignored anyway
+		DW	LeftWord	; ^A: one word left
+		DW	LineBeginEnd	; ^B: to beginning/end of line
+		DW	WarmBootKey	; ^C: reboot if at start of line
+		DW	RightChar	; ^D: right one char
+		DW	PreviousLine	; ^E: get previous line
+		DW	RightWord	; ^F: right one word
+		DW	DeleteChar	; ^G: delete char at cursor
+		DW	BackSpace	; ^H: destructive backspace
+		DW	CtlIgnore	; ^I (TAB) ignored here
+		DW	EnterLine	; ^J (LF): exit editor
+		DW	DeleteToRight	; ^K: delete all to the right
+		DW	CtlIgnore	; ^L ignored
+		DW	EnterLine	; ^M (CR): exit editor
+		DW	CtlIgnore	; ^N ignored
+		DW	CtlIgnore	; ^O ignored
+		DW	TogPrintEcho	; ^P: toggle printer echoing
+		DW	TogAutoPrompt	; ^Q: toggle autoprompt (if enabled)
+		DW	CtlIgnore	; ^R ignored
+		DW	LeftChar	; ^S: left one char
+		DW	DeleteWord	; ^T: delete word at cursor
+		DW	InpAddToHist	; ^U: add line to history
+		DW	DelFromHist	; ^V: clear line, delete from history
+		DW	NextLine	; ^W: get next line from history
+		DW	DeleteToLeft	; ^X: delete all to the left
+		DW	ClearLine	; ^Y: clear line
+
+	else			; Corrected dispatch table
+
+		DW	0		; null code ignored anyway
+		DW	LeftWord	; ^A: one word left
+		DW	LineBeginEnd	; ^B: to beginning/end of line
+		DW	WarmBootKey	; ^C: reboot if at start of line
+		DW	RightChar	; ^D: right one char
+		DW	PreviousLine	; ^E: get previous line
+		DW	RightWord	; ^F: right one word
+		DW	DeleteChar	; ^G: delete char at cursor
+		DW	BackSpace	; ^H: destructive backspace
+		DW	CtlIgnore	; ^I (TAB) ignored here
+		DW	EnterLine	; ^J (LF): exit editor
+		DW	DeleteToRight	; ^K: delete all to the right
+		DW	CtlIgnore	; ^L ignored
+		DW	EnterLine	; ^M (CR): exit editor
+		DW	CtlIgnore	; ^N ignored
+		DW	CtlIgnore	; ^O ignored
+		DW	TogPrintEcho	; ^P: toggle printer echoing
+		DW	TogAutoPrompt	; ^Q: toggle autoprompt (if enabled)
+		DW	CtlIgnore	; ^R ignored
+		DW	LeftChar	; ^S: left one char
+		DW	DeleteWord	; ^T: delete word at cursor
+		DW	InpAddToHist	; ^U: add line to history
+		DW	DelFromHist	; ^V: clear line, delete from history
+
+		; Need to put Nextline on ^X for WordStar compatibility.
+		; That means we have to find a spot for DeleteToLeft.
+		; ^X will do for now but the decision is subject to review.
+		DW	DeleteToLeft	; ^W: delete all to the left
+		DW	NextLine	; ^X: get next line from history
+
+		DW	ClearLine	; ^Y: clear line
+	endif
+
+CtlCharNum	equ	($-CtlFuncTable)/2 ; no. of supported control codes
+
+; Editing command: delete word at cursor position.
+
+DeleteWord:	LD	A,(CharsAtRight)
+		OR	A
+		RET	Z		; no chars right of cursor: ignore
+		PUSH	AF
+		CALL	ClearAutoExp	; clear auto-expand status
+		POP	AF
+		LD	D,A		; save right-char count
+		DEC	A
+		JP	Z,DeleteChar	; only one char right: delete char
+
+; Search the address up to where the input must be deleted.
+; First search the next delimiter to the right of the cursor.
+
+		CALL	GetCurCharAdr	; get current address to HL
+		LD	E,(IY+1)	; and total length into E
+DelWordDelimR:	DEC	D		; decrement right-char count
+		JP	Z,DeleteToRight ; we're at line end: delete to here
+		DEC	E		; decrement line length
+		LD	A,(HL)		; get character here
+		PUSH	HL
+		LD	HL,DelimTable
+		LD	BC,15
+		CPIR			; check if it's a delimiter
+		POP	HL
+		INC	HL		; bump pointer
+		JR	NZ,DelWordDelimR ; loop until a delimiter found
+
+; Now search the next non-delimiter character, which is the beginning of
+; the next word in the input line.
+
+DelWordNDelimR: LD	A,(HL)		; get (next) char
+		PUSH	HL
+		LD	HL,DelimTable
+		LD	BC,15
+		CPIR			; check for delimiter again
+		POP	HL
+		JR	NZ,DeleteWord1	; no delimiter: new position found!
+		DEC	D		; decrement right-char count
+		JP	Z,DeleteToRight ; input line end: delete up to here
+		DEC	E		; decrement input line length
+		INC	HL		; bump pointer
+		JR	DelWordNDelimR	; loop (until target pos. found)
+
+; The start address of the next word in the input line was found. Now
+; delete everything from the current cursor position up to that next
+; word by moving the rest of the input line backwards to the current
+; cursor position.
+
+DeleteWord1:	LD	(IY+1),E	; save new line length
+		LD	B,D		; remaining right-char count into B
+		LD	A,(CharsAtRight)
+		SUB	B		; calculate number of chars to delete
+		PUSH	AF		; (for blanking the screen below!)
+		LD	A,B
+		LD	(CharsAtRight),A ; store new right-char count
+		EX	DE,HL		; move target pointer to DE
+		CALL	GetCurCharAdr	; and get current cursor address in HL
+DelWordMoveLp:	LD	A,(DE)
+		LD	(HL),A		; move character backwards
+		LD	C,A
+		CALL	CO		; and echo it on the console
+		INC	HL
+		INC	DE		; bump pointers
+		DJNZ	DelWordMoveLp	; and repeat for remaining rest-of-line
+		POP	BC		; get number of deleted chars into B
+		PUSH	BC
+DelWordSpcLp:	LD	C,' '
+		CALL	CO		; output a space character...
+		DJNZ	DelWordSpcLp	; ... for each to blank the line rest
+		POP	BC		; number of deleted chars in B again
+		LD	A,(CharsAtRight)
+		ADD	A,B		; calculate distance to cursor pos.
+		LD	B,A		; move it into B as loop counter
+		LD	C,BS
+DelWordBackLp:	CALL	CO		; output Backspace char's
+		DJNZ	DelWordBackLp	; until cursor position reached
+		RET
+
+; Editing command: get next line from history buffer.
+;
+; This routine in fact moves to the previous line since Simeon obviously
+; forgot that the buffer is arranged backwards, i.e. latest entry first.
+; This error also applies to the next command routine (get previous line).
+;--
+; Tilmann is surely correct.  All we need do is change the names.  As coded
+; right now I have made the renaming subject to the HistoryBug conditional
+; but the new names should probably be made unconditional.
+;
+; Jon Saxton, 2015.01.27
+
+		if	HistoryBug
+NextLine:
+		else
+PreviousLine:
+		endif
+		LD	HL,(HistPosition) ; get current line position
+		LD	A,H
+		OR	L
+		RET	Z		; none: abort/ignore this command
+		CALL	ClearAutoExp	; line is changed: clear Autoexpand
+		CALL	ClearLine	; clear the line on screen
+		LD	HL,(HistPosition)
+		CALL	ProcessString	; use string at current line position
+		JP	IncHistPos	; and inc line pointer
+
+; Editing command: get previous (next, see above) line from history buffer.
+
+		if	HistoryBug
+PreviousLine:
+		else
+NextLine:
+		endif
+
+		LD	HL,(HistPosition) ; get current line position
+		LD	A,H
+		OR	L
+		RET	Z		; none: abort/ignore this command
+		CALL	DecHistPos
+		CALL	DecHistPos	; move back line pointer two lines
+		CALL	ClearAutoExp	; (continue as above)
+		CALL	ClearLine
+		LD	HL,(HistPosition)
+		CALL	ProcessString
+		JP	IncHistPos
+
+; Editing command: clear line and delete it from history.
+
+DelFromHist:	LD	HL,(@VInfo)	; get address if input buffer
+		INC	HL
+		LD	A,(HL)		; get current length of input
+		OR	A
+		RET	Z		; return if zero: line is clear
+		CALL	DeleteOldEntry	; search and delete old entry
+		CALL	InitHistPos	; and reset line position ptr.
+
+; Editing command: clear line. Simply move back one char and loop
+; until left end is reached. Then delete all to the right of the cursor.
+
+ClearLine:	CALL	LeftChar
+		LD	A,(CharsAtLeft)
+		OR	A
+		JR	NZ,ClearLine	; loop until left end reached
+
+; Editing command: delete all to the right of the cursor.
+
+DeleteToRight:	CALL	ClearAutoExp	; line contents will be changed...
+		LD	A,(CharsAtRight)
+		OR	A
+		RET	Z		; we're at the right end: ignore
+		LD	B,A		; no. of char's to delete into B
+		LD	A,(CharsAtLeft)
+		LD	(IY+1),A	; set line length to left-char count
+		CALL	GetCurCharAdr	; get current address in line
+		LD	C,' '
+DelToRightLp:	CALL	CO
+		DJNZ	DelToRightLp	; overwrite rest of line with blanks
+		CALL	MovCursBack	; go back to cursor position
+		XOR	A
+		LD	(CharsAtRight),A ; no more chars at right
+		RET
+
+; Editing command: add current line to history buffer.
+
+InpAddToHist:	CALL	AddToHistory
+		JP	InitHistPos
+
+; Editing command: delete all to the left of the cursor.
+
+DeleteToLeft:	CALL	ClearAutoExp
+		LD	A,(CharsAtRight)
+		OR	A
+		JP	Z,ClearLine	; at right end: clear entire line
+		LD	A,(CharsAtLeft)
+		OR	A
+		RET	Z		; at left end: ignore command
+		LD	B,A		; get left char-count into B
+		LD	C,BS
+DelToLeftLp1:	CALL	CO
+		DJNZ	DelToLeftLp1	; move cursor back to left end
+		CALL	GetCurCharAdr	; current cursor address is source
+		LD	DE,(@VInfo)
+		INC	DE
+		INC	DE		; target pointer (string start) in DE
+		LD	A,(CharsAtRight)
+		LD	C,A		; number of chars to move in C
+		XOR	A
+		LD	B,A		; clear B --> move length in BC
+		LD	(CharsAtLeft),A ; no more chars left of cursor
+		LDIR			; move rest of line to it's start
+		LD	C,(IY+1)	; get previous line length into C
+		LD	A,(CharsAtRight)
+		LD	B,A		; ... and new line length into B
+		LD	HL,(@VInfo)
+		INC	HL		; reset pointer for console echo
+DelToLeftLp2:	INC	HL		; bump pointer
+		PUSH	BC
+		LD	C,(HL)
+		CALL	CO		; output char from buffer
+		POP	BC
+		DEC	C		; count for total-length
+		DJNZ	DelToLeftLp2	; output new line contents
+		LD	B,C		; remaining total-length to B
+		LD	C,' '
+DelToLeftLp3:	CALL	CO
+		DJNZ	DelToLeftLp3	; overwrite rest of line with blanks
+		LD	B,(IY+1)	; get previous length into B again
+		LD	A,(CharsAtRight)
+		LD	(IY+1),A	; set new line length
+		LD	C,BS
+DelToLeftLp4:	CALL	CO
+		DJNZ	DelToLeftLp4	; move cursor back to line start
+		RET
+
+; Editing command: move right one word.
+
+RightWord:	LD	A,(CharsAtRight)
+		OR	A
+		RET	Z		; nothing there: ignore command
+		CALL	RightChar	; move cursor right
+		LD	C,0		; check char at cursor...
+		CALL	ChkBufDelim	; ... for a delimiter
+		JR	NZ,RightWord	; loop until delimiter found
+RightWord1:	CALL	RightChar	; move cursor further right
+		LD	C,0
+		CALL	ChkBufDelim	; also check char at cursor
+		RET	NZ		; no delimiter: we're done, exit
+		LD	A,(CharsAtRight)
+		OR	A
+		RET	Z		; at line end: abort
+		JR	RightWord1	; else loop until non-delimiter found
+
+; Editing command: move left one word.
+
+LeftWord:	CALL	LeftChar	; move cursor left
+		LD	A,(CharsAtLeft)
+		OR	A
+		RET	Z		; at left end: stop here!
+		LD	C,0
+		CALL	ChkBufDelim	; check char at cursor for delim.
+		JR	Z,LeftWord	; loop until non-delimiter found
+LeftChar1:	LD	C,1
+		CALL	ChkBufDelim	; then check char *before* cursor
+		RET	Z		; it's a delimiter: we're done, exit
+		CALL	LeftChar	; otherwise move left some more
+		LD	A,(CharsAtLeft)
+		OR	A
+		RET	Z		; at left end: don't move further
+		JR	LeftChar1	; loop until delimiter found again
+
+; Editing command: move cursor to beginning or end of line.
+
+LineBeginEnd:	LD	A,(IY+1)	; get current input length
+		OR	A
+		RET	Z		; return if zero
+		LD	A,(CharsAtRight)
+		OR	A
+		JR	Z,LineBegin	; we're at the end: jump to start
+
+LineEnd:	CALL	RightChar	; move cursor right ...
+		LD	A,(CharsAtRight)
+		OR	A
+		JR	NZ,LineEnd	; ... until at line end
+		RET
+
+LineBegin:	CALL	LeftChar	; move cursor left ...
+		LD	A,(CharsAtLeft)
+		OR	A
+		JR	NZ,LineBegin	; ... until at line start
+		RET
+
+; Editing command: destructive backspace (same as delete/rubout).
+
+BackSpace:	LD	A,(CharsAtLeft)
+		OR	A
+		RET	Z		; at line start: ignore
+		CALL	LeftChar	; else go left, then delete that char
+
+; Editing command: delete character at cursor position.
+
+DeleteChar:	CALL	ClearAutoExp
+		LD	A,(CharsAtRight)
+		OR	A
+		RET	Z		; at right end: ignore this command
+		DEC	(IY+1)		; decrement line length
+		DEC	A
+		LD	(CharsAtRight),A ; ... and right-char count
+		JR	NZ,DeleteChar1	; still something there: shift left
+
+SpaceBackSpace: LD	C,' '		; blank a screen position by ...
+		CALL	OutCon		; ... writing a space character ...
+		LD	C,BS
+		JP	OutCon		; ... followed by a backspace char.
+
+DeleteChar1:	LD	B,A		; move right-char count into B
+		CALL	GetCurCharAdr	; get current address
+		PUSH	HL
+		LD	E,L
+		LD	D,H		; ... into DE also
+		INC	HL		; pointer to next char in HL
+DelCharMoveLp:	LD	A,(HL)		; move next character...
+		LD	(DE),A		; ... one position to the left
+		INC	HL
+		INC	DE		; bump pointers
+		DJNZ	DelCharMoveLp	; ... for all char's to the right
+		LD	A,(CharsAtRight)
+		LD	B,A		; get right-char count again
+		POP	HL		; and current address also
+DelCharOutLp:	LD	C,(HL)		; get character
+		PUSH	HL
+		PUSH	BC
+		CALL	OutCon		; echo it to the console
+		POP	BC
+		POP	HL
+		INC	HL
+		DJNZ	DelCharOutLp	; write entire remaining line
+		CALL	SpaceBackSpace	; clear previous last char on screen
+		JP	MovCursBack	; move cursor to current position
+
+; Editing command: move cursor left one character.
+
+LeftChar:	LD	A,(CharsAtLeft)
+		OR	A
+		RET	Z		; already at left end: ignore
+		DEC	A
+		LD	(CharsAtLeft),A ; store new left-char count
+		LD	A,(CharsAtRight)
+		INC	A
+		LD	(CharsAtRight),A ; increment right-char count
+		LD	C,BS
+		CALL	OutCon		; move cursor back (on screen)
+		CALL	GetCurCharAdr	; get current address
+		LD	A,(HL)		; check character there
+		CP	' '
+		RET	NC		; visible char: return
+		LD	C,BS		; control character: go left another
+		JP	OutCon		; char to skip "^" indicator too
+
+; Editing command: move cursor right one character.
+
+RightChar:	LD	A,(CharsAtRight)
+		OR	A
+		RET	Z		; already at line end: ignore
+		DEC	A
+		LD	(CharsAtRight),A ; store new right-char count
+		LD	A,(CharsAtLeft)
+		INC	A
+		LD	(CharsAtLeft),A ; increment left-char count
+		CALL	GetCurCharAdr	; get current address
+		DEC	HL
+		LD	C,(HL)		; get previous character
+		JP	OutCon		; write it to move right onscreen
+
+; Editing command: ^C pressed at leftmost column causes warm boot.
+
+WarmBootKey:	LD	A,(IY+1)	; current string length
+		OR	A
+		RET	NZ		; >0 : return, warmboot rejected
+		BIT	3,(IX+33H)	; console mode: ^C abort enabled?
+		RET	NZ		; no: return, no warm boot here
+		LD	C,'^'
+		CALL	OutCon
+		LD	C,'C'
+		CALL	OutCon		; display "^C" on screen
+		JP	RebootFFFE	; and reboot with abort code
+
+; Editing command: toggle autoprompt feature. This is also functional
+; if previously enabled by setting an appropriate flag in the SCB.
+
+TogAutoPrompt:	CALL	ClearAutoExp
+		BIT	6,(IX-17H)	; AutoExpand toggling enabled?
+		RET	Z		; no: ignore this command
+		LD	A,(AutoPrompt)
+		XOR	0FFH
+		LD	(AutoPrompt),A	; otherwise toggle AutoExpand state
+		OR	A		; check current state
+		JR	NZ,BeepOnNulChar ; beep if current char is NUL ??
+		RET
+
+; Editing command: toggle printer echo of all console I/O.
+
+TogPrintEcho:	LD	A,(@ConMod)
+		AND	14H
+		RET	NZ		; ignore this command in "raw mode"
+		LD	A,(PrnEchoFlag) ; get local echo flag
+		LD	B,1
+		XOR	B		; invert LSB of it
+		AND	1		; mask off all other bits
+		LD	(PrnEchoFlag),A ; store flag again
+		RET	Z		; return if no echo now
+					; else beep on NUL characters ??
+
+; This obviously is a buggy routine. It seemingly was meant to check
+; the contents of A for a zero value, but now it checks the current
+; character during string processing.
+
+BeepOnNulChar:	LD	A,(CurrentChar)
+		OR	A
+		RET	NZ		; return if current char is no NUL
+		LD	C,BEL
+		CALL	OutCon		; otherwise beep once
+		RET
+
+; Get the next character from an alias, shell script, or ZEX input line.
+; If @BufPtr is valid, the character at its position is taken. If the
+; line end is reached (terminating zero), the pointers are cleared and
+; all further inputs are taken from the console directly.
+; IF no script is active, the console is accessed immediately.
+
+GetNextChar:	LD	HL,(@BufPtr)	; get current script buffer pointer
+		LD	A,L
+		OR	H
+		JP	Z,InputCon	; invalid: get input from console
+		PUSH	HL
+		CALL	ClearAutoExp
+		POP	HL
+		CALL	GetBank1	; otherwise get char from script
+		INC	HL		; bump pointer
+		OR	A
+		JR	NZ,GetNextChar1 ; store new pointers if valid char
+		LD	H,A
+		LD	L,A		; terminating NUL: clear pointers
+GetNextChar1:	LD	(@BufPtr),HL
+		LD	(@KeyInPtr),HL	; store new pointers
+		RET	NZ		; return with char in A (if valid)
+		JR	GetNextChar	; was terminating NUL: try console now
+
+; Line editing during normal console input (when cursor is within the line).
+; Move characters right of the cursor one character to the right (so the
+; new character is inserted at the current position).
+
+MoveRight:	CALL	GetCurCharAdr	; get current address
+		LD	A,(CharsAtRight)
+		LD	B,A		; get right-char count into B
+		LD	E,(HL)		; and old char at cursor into E
+MoveRightLp:	LD	C,E		; move old char into C
+		INC	HL		; bump pointer
+		LD	E,(HL)		; get next char to E
+		LD	(HL),C		; and store previous char there
+		CALL	CO		; echo previous char also
+		DJNZ	MoveRightLp	; continue for rest of line
+
+; Move cursor position from line end back to where it was before.
+; This is achieved by outputting (non-destructive) Backspace codes
+; to the console for each character right of the cursor.
+
+MovCursBack:	LD	A,(CharsAtRight)
+		OR	A		; no characters at right?
+		RET	Z		; no, we are at line end: return
+		LD	B,A		; character count = loop count
+		LD	C,BS		; output code: backspace
+MovCursBackLp:	CALL	CO		; move cursor backwards
+		DJNZ	MovCursBackLp	; for this count
+		RET
+
+; Check character in input buffer for being a delimiter.
+; Enter with flag in C:
+; if C=0, the current character is used.
+; if C=1, the previous char is used.
+
+ChkBufDelim:	CALL	GetCurCharAdr	; get current char pointer
+		DEC	C
+		JR	NZ,ChkBufDelim1 ; if C was not 1, jump
+		DEC	HL		; if C was 1, use previous char
+ChkBufDelim1:	LD	A,(HL)		; get char at this position
+		LD	HL,DelimTable
+		LD	BC,15
+		CPIR			; and check it for a delimiter
+		RET
+
+; Calculate pointer to current character in input buffer.
+
+GetCurCharAdr:	LD	A,(CharsAtLeft)
+		LD	HL,(@VInfo)
+		CALL	AddAtoHL	; add cursor position to buffer start
+		INC	HL
+		INC	HL		; consider length bytes
+		RET			; return with char pointer in HL
+
+; Auxiliary Input/Output/Status functions. Nothing great happens here,
+; just the BIOS is called...
+
+AuxIn:		CALL	?AuxIn
+		JP	SaveStatA
+
+AuxInStat:	CALL	?AuxIst
+		JP	SaveStatA
+
+AuxOutStat:	CALL	?AuxOst
+		JP	SaveStatA
+
+; Direct Console I/O (BDOS function 6). Function depends on value in
+; register C:
+; FF = Status/Input	: if character is available, get it - else ret. 0
+; FE = Status		: return FF if char available, 0 if not
+; FD = Input		: get input character (wait until available)
+; all other: output C as character directly
+
+DirectCon:	LD	A,C
+		INC	A
+		JR	Z,DirectStatInp
+		INC	A
+		JR	Z,DirectStatus
+		INC	A
+		JR	Z,DirectInput
+		LD	HL,?ConOut+2
+		JP	JumpToBios	; output all chars <FD
+
+DirectStatus:	CALL	GetConStatus	; get console status
+		JP	NZ,ReturnError	; abort on error
+		JP	SaveStatA	; save result and return
+
+DirectStatInp:	CALL	GetConStatus	; get console status
+		OR	A
+		RET	Z		; return if nothing available
+DirectInput:	CALL	InputCon	; get input char
+		JP	SaveStatA	; and save it as result value
+
+; BDOS function 9: Print a string (pointed to by DE) up to the delimiter
+; character (which is not printed...). This simply moves the string
+; address to HL and gets the delimiter from the SCB, then falls into the
+; general string output routine...
+
+PrintString:	EX	DE,HL		; move string pointer to HL
+		LD	A,(IX+37H)	; get SCB @Delim value
+		LD	(OutStrDelim),A ; store this (in-code variable)
+
+; General string output routine. The string at (HL) is displayed up to
+; the character which matches the preset delimiter character.
+
+OutputString:	LD	A,(HL)		; get next character
+		CP	0		; compare with delimiter
+OutStrDelim	EQU	$-1		; (address of in-code variable)
+		RET	Z		; return if delimiter reached
+		INC	HL		; point to next char
+		LD	C,A
+		CALL	CO		; display character
+		JR	OutputString	; repeat until delim. char found
+
+; BDOS function 11: Get Console Status.
+
+ConStat:	LD	A,(@ConMod)
+		RRA			; check for ^C-only-status
+		JR	NC,ConStatNorm	; normal status: get it and return
+		LD	HL,@KeyLock
+		LD	(HL),80H	; ^C only: lock keyboard
+		PUSH	HL
+		LD	HL,ConStat1
+		PUSH	HL		; push return address
+		LD	A,(ConInBuf)	; check key buffer first
+		CP	CtlC
+		JP	Z,ReturnA1	; ^C in buffer : set A=1, --> ConStat1
+		LD	HL,?ConSt+2
+		CALL	JumpToBios	; check BIOS status
+		OR	A
+		RET	Z		; nothing there: --> ConStat1
+		LD	HL,?ConIn+2
+		CALL	JumpToBios	; get new console key
+		CP	CtlC
+		JP	Z,ConChkBreak	; this is ^C: check scroll status
+		LD	(ConInBuf),A	; save new character in buffer
+		XOR	A
+		RET			; set status = 0, --> ConStat1
+ConStat1:	LD	(RetStat),A	; store returned status
+		POP	HL
+		LD	(HL),0		; unlock keyboard
+		RET			; and exit this function
+
+ConStatNorm:	CALL	CheckKeyboard	; get normal ConIn status
+SaveStatA:	LD	(RetStat),A	; save status as return value
+Ignore: 	RET			; and return
+
+SaveStat1:	LD	A,1
+		JR	SaveStatA	; save 1 as status
+
+; BDOS function 109: Get/Set Console Mode.
+; Enter with value/function code in DE:
+; FFFF = get console mode, value is returned in HL.
+; others: set console mode to given value.
+
+GetSetConMod:	LD	A,D
+		AND	E
+		INC	A		; set Z flag if DE = FFFF
+		LD	HL,(@ConMod)	; get current console mode
+		JP	Z,StoreHL	; "get" function: return this value
+		LD	(@ConMod),DE	; "set" function: store new value
+		RET
+
+; BDOS function 110: Get/Set Output Delimiter.
+; Enter with DE=FFFF (Get) or E=character (Set).
+
+GetSetDelim:	LD	HL,@Delim	; get pointer to delimiter in SCB
+		LD	A,D
+		AND	E
+		INC	A		; set Z flag for get operations
+		LD	A,(HL)		; get current delimiter
+		JR	Z,SaveStatA	; "get": return this
+		LD	(HL),E		; "set": store new value
+		RET
+
+; BDOS functions 111 (Print Block) and 112 (List Block).
+; Both functions share the same routine. Output device is selected using
+; the function number in @FX for each character.
+
+BlockOutput:	EX	DE,HL		; move pointer to CCB to HL
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get string address to DE
+		INC	HL
+		LD	C,(HL)
+		INC	HL
+		LD	B,(HL)		; get string length to BC
+		EX	DE,HL		; move string address to HL
+BlockOutLoop:	LD	A,B
+		OR	C
+		RET	Z		; return if remaining length = 0
+		PUSH	BC
+		PUSH	HL
+		LD	C,(HL)		; get string character
+		LD	A,(@FX)
+		CP	111
+		JR	Z,BlockOutCon	; Print Block: Output to Console
+		CALL	ListOut 	; List Block: Output to Printer
+		JR	BlockOutNxt
+BlockOutCon:	CALL	ConOut
+BlockOutNxt:	POP	HL
+		INC	HL		; increment string pointer
+		POP	BC
+		DEC	BC		; decrement loop count (length)
+		JR	BlockOutLoop	; and loop (until length is 0)
+
+; ***** End of portion 2 *****

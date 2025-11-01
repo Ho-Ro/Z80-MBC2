@@ -1,0 +1,1069 @@
+;*****************************************************************
+;**	Fourth portion of banked ZPM3 (N10) BDOS.		**
+;**	Disassembly by Tilmann Reh (950327).			**
+;**								**
+;**	This portion contains:					**
+;**	- extent number handling				**
+;**	- directory search routines				**
+;**	- FCB operations: erase, rename, attributes,		**
+;**	  open, close, read					**
+;*****************************************************************
+
+; Check if the extents in A and C belong to the same directory entry.
+; Return with zero flag set if they do.
+
+ChkSameExtent:	PUSH	BC
+		PUSH	AF
+		LD	A,(EXM)		; get extent mask
+		CPL
+		LD	B,A		; inverted into B: mask entry number
+		LD	A,C
+		AND	B
+		LD	C,A		; mask interesting bits of C
+		POP	AF		; restore A value
+		AND	B		; mask this too
+		SUB	C		; are there any differences?
+		AND	1FH		; check only used bits 0..4
+		POP	BC
+		RET
+
+; Set a flag if the current drive is not permanently mounted. This was a
+; patch in CP/M-3, and is used only for the "close file" function.
+; After that, get the last extent and return it to the calling program.
+
+GetLastExtClose:LD	A,(CKS+1)	; get CKS higher byte
+		RLA			; is this drive permanent?
+		JR	C,GetLastExtent
+		LD	A,0FFH		; no:
+		LD	(NoPermFlag),A	; set flag "not permanent"
+
+; Check through FCB and find the last data block allocated therein.
+; Return the according extent number in A, and the byte position in B.
+
+GetLastExtent:	CALL	Get_RCCR_Adr	; get FCB pointers (HL=CR, behind D15)
+		LD	BC,1011H	; B=16 (position), C=17 (loop counter)
+		PUSH	BC
+GetLastExt1:	POP	BC
+		DEC	C		; count down loops
+		XOR	A		; set compare value (=0)
+GetLastExt2:	DEC	HL		; move to next previous block number
+		DEC	B		; adjust position
+		CP	(HL)		; zero value stored in FCB?
+		JR	NZ,GetLastExt3	; no: we found something...
+		DEC	C
+		JR	NZ,GetLastExt2	; loop until we find something (or end)
+GetLastExt3:	LD	A,C
+		LD	(BlockInFcb),A	; store resulting block no. within FCB
+		LD	A,(Blocks8bit)
+		OR	A		; are we using 8-bit block numbers?
+		LD	A,B		; (get position into A)
+		JR	NZ,GetLastExt4	; yes: use position (15..0) directly
+		RRA			; 16-bit blocks: word position (7..0)
+GetLastExt4:	PUSH	BC
+		PUSH	HL
+		LD	L,A		; save position into L
+		LD	A,(BSH)		; get block shift (3=1k .. 7=16k)
+		LD	D,A
+		LD	A,7
+		SUB	D		; 7-BSH: 4=1k .. 0=16k
+		JR	Z,GetLastExt6 	; 16k blocks: skip block shifting
+GetLastExt5:	SRL	L
+		DEC	A
+		JR	NZ,GetLastExt5	; compute relative extent within FCB
+GetLastExt6:	LD	B,L		; save relative extent into B
+		LD	A,(EXM)
+		CP	B		; compare it with extent mask
+		POP	HL
+		JR	C,GetLastExt1 	; relative extent too high: ignore
+		CALL	GetExtentAdr
+		LD	C,(HL)		; get current extent from FCB to C
+		CPL			; (A is still EXM)
+		AND	1FH		; generate inverted extent mask
+		AND	C		; mask out inner-FCB extents
+		OR	B		; add relative extent
+		POP	BC
+		RET
+
+; Setup directory search parameters. First label is called for SearchFirst
+; function where the user's FCB address is stored for all further accesses
+; via SearchNext (second label).
+; Note that the compare level is in register C upon entry. The compare level
+; is 12 to check for a matching filename & extension, and 15 to check for
+; entries that also match the extent, S1 & S2 bytes. It may also be 1 to
+; check only for matching user number.
+
+SetSrchFirst:	LD	HL,(@VInfo)
+		LD	(SearchFcbPtr),HL ; store current FCB as "search FCB"
+SetSrchNext:	LD	A,C
+		LD	(@Match),A	; store compare level for search func.
+		CALL	GenHashDataA	; generate hash data for A bytes
+		LD	A,0FFH
+		LD	(SearchStat),A	; clear search status
+		RET
+
+; Search for an exactly matching password entry or the like. Its position
+; is stored in AltDir (where it was put during file search); now we
+; explicitly search for the entry which was detected earlier.
+
+SearchAltDir:	CALL	SetEntryPredAlt	; move to sector before AltDir
+		LD	C,15
+		CALL	SetSrchFirst	; find matching name, extent & S1/S2
+		JR	SrchNextEntry	; search for next matching entry
+
+; Search a directory entry matching the file name, extent, S1 & S2.
+
+SrchFstOpen:	CALL	SetS2bit7	; mark FCB "unchanged", then search
+					; (called by "open file")
+SrchFstNamExt:	LD	C,15		; compare level: check 15 bytes
+		JR	SrchFrstEntry	; search matching entry
+
+; Search a directory entry matching only the file name (& extension).
+
+SrchFstName:	LD	C,12		; compare level: name/extension only
+SrchFrstEntry:	CALL	SetSrchFirst	; setup parameters
+SrchEntry:	CALL	SetEntryFFFF	; entry number not valid yet
+		CALL	CheckInvNext	; were there (invalid) file I/O calls?
+		CALL	Z,HomeDrive	; yes: initialize drive and start over
+
+; Search next matching directory entry. All parameters are already stored
+; in some RAM variables. The FCB used for "Search First" must still be
+; valid and unchanged.
+
+SrchNextEntry:	XOR	A
+		LD	(FromUser0),A	; clear "sysfile from user 0" flag
+		CALL	HashSearch	; search in hash buffer first
+		JP	NZ,SearchNotFound ; unsuccessful: return an error
+		LD	C,0		; checksum op: check & react
+		CALL	NextEntryChg	; next entry, check for media change
+		CALL	ChkEntryValid	; check if entry is valid
+		JP	Z,SearchNotFound ; invalid entry: return an error
+		LD	HL,(SearchFcbPtr)
+		EX	DE,HL
+		LD	A,(DE)		; check user byte from FCB
+		CP	0E5H		; searching for empty entry?
+		JR	Z,SrchNxtEntry1 ; yes: use this one
+		PUSH	DE
+		CALL	ChkEntryPos	; otherwise check for allowed range
+		POP	DE
+		JP	NC,SearchNotFound ; return error if beyond limits now
+SrchNxtEntry1:	CALL	GetCurEntryAddr	; get address of current entry
+		LD	C,(IX+49H)	; get @Match into C (compare level)
+		LD	B,0		; reset matching byte count
+		LD	A,(HL)
+		CP	0E5H		; is this an empty entry?
+		CALL	Z,SaveFirstFound ; yes: preliminary store this
+		XOR	A
+		LD	(PwdFound),A	; password not found yet
+		LD	A,(HL)		; get user byte from entry
+		AND	0EFH		; mask out password entry bit
+		CP	(HL)
+		JR	Z,SrchNxtEntry3 ; no change: it's a file entry
+		EX	DE,HL
+		CP	(HL)		; compare this to our SearchFCB
+		EX	DE,HL
+		JR	NZ,SrchNxtEntry3 ; not the right user: ignore this
+		LD	A,(PwdEnable)
+		OR	A		; check if passwords globally enabled
+		JR	Z,SrchNextEntry ; no: ignore even matching pwd entry
+		LD	(PwdFound),A	; yes: flag that we found pwd entry
+
+; File name (& extension, extent, S1 & S2) comparison loop. Each byte in
+; the current entry is checked against the SearchFCB, with some bits and
+; bytes skipped or masked off.
+
+SrchNxtEntry2:	INC	DE
+		INC	HL		; bump pointers
+		INC	B		; count number of matching bytes
+		DEC	C		; count down compare level
+SrchNxtEntry3:	LD	A,C
+		OR	A		; more bytes to compare?
+		JR	Z,SrchNextFound ; no: we found a matching entry
+		LD	A,(DE)		; get byte of SearchFCB
+		CP	'?'		; is it a wildcard?
+		JR	Z,SrchNxtEntry2 ; yes: don't check, this matches all
+		LD	A,B		; check current compare position
+		CP	13
+		JR	Z,SrchNxtEntry2 ; S1 byte: skip this, no check
+		CP	12
+		JR	Z,SrchChkExtent ; extent byte: check this separately
+		CP	14		; S2 byte?
+		LD	A,(DE)		; (get byte of SearchFCB again)
+		CALL	Z,AndA_3F	; S2: strip bits 6 & 7
+		SUB	(HL)
+		AND	7FH		; compare with entry (ignore bit 7)
+		JR	Z,SrchNxtEntry2 ; matching: ok, check next byte
+		LD	A,B		; no match: is this the first byte?
+		OR	A
+		JR	NZ,SrchNextEntry ; no: continue search (start over)
+		LD	A,(HL)		; yes: get first byte (user) of entry
+		OR	A		; is it in user 0?
+		JR	NZ,SrchNextEntry ; no: continue search
+		LD	A,(User0allowed)
+		OR	A		; allowed to get user 0 files too?
+		JR	Z,SrchNextEntry ; no: continue search
+		LD	(FromUser0),A	; yes: flag that this is a user0 entry
+		JR	SrchNxtEntry2	; ..then check for matching filename
+
+; Mask of bits 6 and 7 of A. Used to mask the S2 byte of the SearchFCB.
+
+AndA_3F:	AND	3FH
+		RET
+
+; Check if the extent specified in the SearchFCB lies within the current
+; directory entry. If yes, continue the comparison loop - if not, start
+; over and continue searching.
+; Note that when we reach this routine, the filename and extension already
+; are checked (successfully).
+
+SrchChkExtent:	PUSH	BC		; save compare level and match count
+		LD	A,(EXM)
+		CPL
+		LD	B,A		; get inverted EXM into B
+		LD	A,(HL)
+		AND	B
+		LD	C,A		; get masked entry's extent into C
+		LD	A,(DE)
+		AND	B		; mask FCB's extent
+		SUB	C
+		AND	1FH		; compare and mask bits of interest
+		LD	B,A		; store result into B
+		LD	A,(FromUser0)
+		INC	A		; is this a user 0 entry?
+		JR	Z,SrchUsr0Ext	; yes: check extent & continue
+		XOR	A
+		LD	(User0allowed),A ; no: we finally found the real entry!
+		LD	A,B		; get result of compare back into A
+		POP	BC		; restore level/match counters
+		OR	A
+		JP	NZ,SrchNextEntry ; different extents: continue search
+		JR	SrchNxtEntry2	; matching extents: compare next byte
+
+; We found an entry which matches according to the specified compare level.
+; If we are searching for password entries, too (PwdEnable set to FE earlier),
+; the entry is returned as if it was a normal file entry.
+
+SrchNextFound:	LD	A,(PwdFound)
+		INC	A		; is this a password entry? (FF only)
+		JR	NZ,SrchNextFnd1	; no: just a normal entry
+		LD	A,(AltDir+1)
+		CP	0FEH		; shall we save the pwd entry number? 
+		CALL	Z,SaveFoundEntry ; yes: save it in AltDir
+		JP	SrchNextEntry	; ...then continue search
+SrchNextFnd1:	XOR	A
+		LD	(SearchStat),A	; normal entry: flag "success"
+		LD	(RetStat),A	; set BDOS return status to "ok" also
+		LD	B,A
+		INC	B		; clear Z flag indicating success
+		RET
+
+; There is no matching entry (we didn't find one in the hash table, or
+; we reached the directory end without match). Set current entry to "none"
+; and return with A=FF and B=0 (and zero flag set).
+
+SearchNotFound:	CALL	SaveFirstFound	; save current location though
+		CALL	SetEntryFFFF	; clear current entry number
+ReturnError:	LD	A,0FFH		; return an error
+		LD	B,A
+		INC	B		; set B=0 and set Z flag
+		JP	SaveStatA
+
+; We found an entry with matching filename in user 0. Now check if this
+; entry contains the extent we are looking for.
+; Note that upon entry, the counters (BC) are still on the stack, A
+; is zero, and B contains the result of the extent comparison.
+; To accept a matching entry in user 0, the S2 byte of that entry must
+; be zero. Otherwise, this entry is ignored and the search is continued.
+
+SrchUsr0Ext:	OR	B		; set Z flag according to result
+		POP	BC		; clean stack
+		LD	BC,SrchNextEntry
+		PUSH	BC		; push return address (if no match)
+		RET	NZ		; different extents: continue search
+		INC	HL
+		INC	HL		; point to entry's S2 byte
+		LD	A,(HL)
+		OR	A		; check if it's zero
+		RET	NZ		; no: continue search
+					; (yes: fall-through & save entry!)
+
+; Save the present entry number in AltDir and continue searching.
+; This is used to remember password entries, empty entries, and user 0
+; matching entries. This way, the directory need not to read again if
+; we need this entry later.
+; This is somewhat strange: we have the same function a few lines below
+; which could have easily been placed here...
+
+SaveFoundEntry:	CALL	SaveFoundEntry1	; save entry (note we won't return)
+
+; Save present entry number if the storage location is not in use already.
+
+SaveFirstFound:	PUSH	HL
+		LD	HL,(AltDir)	; get current contents
+		INC	H		; is its low byte = FF ?
+		JR	NZ,SaveFirstFndEx ; no: it's used, do nothing
+SaveFoundEntry1:LD	HL,(@Entry)
+		LD	(AltDir),HL	; store current entry number
+SaveFirstFndEx:	POP	HL
+		RET
+
+; Set PwdEnable to FF (or to the value given in A). If PwdEnable is non-
+; zero, matching password entries are stored in AltDir (while the value
+; of PwdEnable is also copied to PwdFound).
+; Two values for PwdEnable/PwdFound are used: FF flags that we are looking
+; for a file, but also consider and store matching password entries; FE
+; will return the password entry as if it was a file entry. A zero value
+; disables password entry recognition.
+; The higher byte of AltDir will also be set to FE, indicating that
+; matching password entries are to be saved in AltDir.
+
+EnablePwdSearch:LD	A,0FFH
+SetPwdSearch:	LD	(PwdEnable),A
+		LD	A,0FEH
+		LD	(AltDir+1),A
+		RET
+
+; Check if a password entry was found. For this, the sector containing
+; the entry stored in AltDir is searched again, this time especially for
+; a matching password entry.
+
+GetPwdEntry:	LD	A,(AltDir+1)
+		CP	0FEH		; check if AltDir contains entry now
+		RET	Z		; nope: return without actions
+		CALL	SetEntryPredAlt	; set to entry before current sector
+		XOR	A
+		CALL	SetPwdSearch	; disable password search (ignore)
+		LD	HL,(SearchFcbPtr)
+		LD	A,(HL)
+		OR	10H		; set password bit in FCB
+		LD	(HL),A
+		LD	C,12
+		CALL	SetSrchNext	; compare filename only
+		JP	SrchNextEntry	; restart search (for pwd this time)
+
+; Store then current entry number into AltDir. This routine should have
+; replaced "SaveFoundEntry" above (see comment there).
+
+SaveFndEntry:	LD	HL,(@Entry)
+		LD	(AltDir),HL
+		RET
+
+; Erase files that match the current FCB. Wildcards are not allowed.
+; (The directory is though completely searched to find multiple extents
+; (entries) of the same file.)
+
+Erase:		CALL	ClrGetFcbAttr	; clear & save attribute bits of FCB
+Erase1:		LD	A,0FEH
+		CALL	SetPwdSearch	; return pwd entries too
+		CALL	SrchFstName	; search matching entry
+		RET	Z		; nothing found: return
+
+Erase2:		JR	Z,Erase5 	; (loop) nothing else to delete: exit
+		CALL	GetCurEntryAddr	; get current entry's address
+		LD	A,(HL)
+		AND	10H		; is this a password entry?
+		JR	NZ,Erase3	; yes: handle separately
+		LD	A,(FcbIntAttr)	; get FCB interface attributes
+		RLA			; check b7 (F5', XFCB-only delete flag)
+		CALL	NC,CheckEntryRO	; if set, abort if file is R/O
+		CALL	GetLblDataA	; get directory label data byte
+		RLA			; check b7 (passwords enabled?)
+		JR	C,Erase4 	; ?? pwd required: skip this entry
+		LD	HL,(@VInfo)
+		CALL	CheckWilds	; are there wild cards in the FCB?
+		JR	Z,Erase4 	; yes: not allowed, skip entry
+		JR	DeleteEntry	; no wildcards: delete entry
+
+Erase3:		CALL	GetLblDataA	; password entry: get DirLbl data
+		RLA			; check if passwords enabled
+		JR	NC,Erase4	; no: can't delete them then
+		CALL	CheckPassword	; check if correct pwd is available
+		JR	Z,Erase4 	; ?? yes: skip this (why?)
+		CALL	SetPwdError	; no: report password error
+		JR	Erase1		; start over and return status
+
+Erase4:		CALL	SrchNextEntry	; skip entry: search next one
+		JR	Erase2		; and check that too
+
+Erase5:		CALL	SrchFstName	; exit: search one more time (why?)
+					; then return status (fall through)
+
+; Delete the current entry (always, or if the Z flag is cleared).
+; The entry is deleted by setting the first byte to the "free" value, E5.
+
+DeleteEntryNZ:	JP	Z,StoreSrchStat	; exit (with status) if no more entries
+DeleteEntry:	CALL	GetCurEntryAddr	; get current entry's address
+		LD	A,(HL)
+		AND	10H		; is this a password entry?
+		JR	NZ,DeleteEntry1	; yes: delete it
+		LD	A,(FcbIntAttr)
+		AND	80H		; check F5' (XFCB-only delete flag)
+		JR	NZ,DeleteEntry2	; set: skip normal file entries
+DeleteEntry1:	LD	(HL),0E5H	; mark entry as deleted
+DeleteEntry2:	PUSH	AF		; save Z flag (set if file deletion)
+		CALL	CalcPwdModPtr	; get pointer to SFCB pwd mode byte
+		OR	A		; is there a valid SFCB?
+		JR	NZ,DeleteEntry3	; no: skip mode byte setting
+		LD	(HL),A		; yes: clear pwd mode byte (A=0)
+DeleteEntry3:	CALL	DirWrite	; write changed buffer back on disk
+		LD	C,0		; indicate "clear allocation bits"
+		POP	AF		; get Z flag back (set if file del.)
+		CALL	Z,SetFileBothALV ; on file deletion, remove allocation
+		CALL	UpdateHashTbl	; update hash table entry
+		CALL	SrchNextEntry	; move on to next matching entry
+		JR	DeleteEntryNZ	; mark as deleted, too (loop 'til end)
+
+; Get the next free block number following BC and mark it as used.
+; The block number is returned in BC (and HL?), too.
+; First, the next block following BC is checked. If it's not used yet,
+; this one is taken now and marked as used. If that block is already
+; used, search backwards to find an unused block. Every time a used
+; block is found (or the end is reached), search direction is reversed.
+; This is a real annoying algorithm...
+
+FindFreeBlock:	LD	D,B
+		LD	E,C		; move starting block into DE
+FindFreeBlock1:	LD	HL,(DSM)	; get maximum block number into HL
+		LD	A,E
+		SUB	L
+		LD	A,D
+		SBC	A,H		; are we past the last block?
+		JR	NC,FindFreeBlock5 ; yes: search backwards then
+		INC	DE		; bump block number
+		PUSH	BC
+		PUSH	DE		; save reg's
+		LD	B,D
+		LD	C,E		; get current block into BC
+		CALL	GetAllocBit	; and get the current allocation bit
+		RRA			; is this block used?
+		JR	NC,FindFreeBlock3 ; no: use it now
+		POP	DE
+		POP	BC		; restore reg's
+
+FindFreeBlock2:	LD	A,C
+		OR	B		; are we at the disk start?
+		JR	Z,FindFreeBlock1 ; yes: search forward then
+		DEC	BC		; decrement block number
+		PUSH	DE
+		PUSH	BC
+		CALL	GetAllocBit	; check if this block is used
+		RRA
+		JR	NC,FindFreeBlock3 ; no: use it now
+		POP	BC
+		POP	DE
+		JR	FindFreeBlock1	; already used: search forward again
+
+; We found an unused block. Now mark it as used an return its number in BC.
+; (and HL?)
+
+FindFreeBlock3:	RLA			; correct check rotation
+		INC	A		; set bit 0 (was reset before)
+FindFreeBlock4:	RRCA
+		DEC	D
+		JR	NZ,FindFreeBlock4 ; shift alloc. byte into proper pos.
+		LD	(HL),A		; store new allocation byte
+		POP	HL		; return base block in HL
+		POP	DE		; clean stack (was BC and DE)
+		RET
+
+; We are past the last block number. Now switch to backward searching.
+
+FindFreeBlock5:	LD	A,C
+		OR	B		; did we reach the disk start?
+		JR	NZ,FindFreeBlock2 ; no: search backward
+		LD	HL,0		; otherwise return a zero value
+		RET
+
+; Update directory entry by moving E bytes from the user's FCB into it.
+; C contains an offset into the user's FCB, and the source address is
+; calculated by this offset. If the next character contains a dollar sign,
+; the @Chain flag is set.
+; The second label is used to disable usage of the original entry's MSBs
+; (by calling it with D=0 which is the MSB mask byte).
+
+UpdateDirEntry:	LD	D,80H		; (will be in B later to mask MSB's)
+UpdateDirEntry1:CALL	CheckFcb$	; check for '$' in FCB (set Chain if)
+		INC	C		; (corrective for loop check)
+UpdDirEntryLp:	DEC	C		; are we done?
+		JP	Z,DirWrite	; yes: write dir sector out to disk
+		LD	A,(HL)		; get next char from dir entry
+		AND	B		; mask MSB (still in A)
+		PUSH	BC		; save mask (B)
+		LD	B,A		; move FCB MSB into B
+		LD	A,(DE)		; get char from user's FCB
+		AND	7FH		; mask out MSB
+		OR	B		; and insert original entry's MSB
+		LD	(HL),A		; store this back to the dir entry
+		POP	BC		; restore mask byte (B)
+		INC	HL
+		INC	DE		; bump pointers
+		JR	UpdDirEntryLp	; loop until all characters copied
+
+; Check if the FCB contains a dollar sign in the "C"th character
+; (following the position with the offset C). If so, the LSB of the
+; Chain flag in the SCB is set. The routine requires the FCB offset
+; in C and returns the DE entry value in BC, the pointer to the
+; calculated FCB position in DE, and the address of the current directory
+; entry in HL.
+
+CheckFcb$:	PUSH	DE		; save DE
+		LD	B,0		; extent C to 16 bits
+		LD	HL,(@VInfo)
+		ADD	HL,BC		; get pointer into FCB
+		INC	HL
+		LD	A,(HL)		; get next byte of FCB
+		SUB	'$'		; is it a dollar sign?
+		JR	NZ,CheckFcb$1	; no: continue
+		SET	0,(IX+17H)	; yes: set bit 0 of SCB @Chain Flag
+CheckFcb$1:	DEC	HL		; move pointer back to prev. position
+		EX	DE,HL		; get it into DE
+		CALL	GetCurEntryAddr	; get current dir entry's addr in HL
+		POP	BC		; restore original DE value into BC
+		RET
+
+; Check the user's FCB (or any FCB given in HL) for wildcard characters.
+; If a wildcard is found, return an error condition (BDOS error 9).
+
+ChkUsrFcbWild:	LD	HL,(@VInfo)	; get user's FCB address
+ChkFcbWild:	CALL	CheckWilds
+		RET	NZ		; no wildcards: return good
+		LD	A,9
+		JP	ReturnErrorA	; return BDOS error 9
+
+; Check the FCB to which HL is pointing if it contains a wildcard character.
+; If it does, return with zero flag set and HL pointing to the first wildcard.
+; The complete filename (with extension) is checked.
+
+CheckWilds:	LD	C,11		; loop counter: check 8+3 characters
+CheckWildsLp:	INC	HL		; point to first/next name char
+		LD	A,'?'
+		SUB	(HL)		; compare against wildcard char
+		AND	7FH		; ignore MSB differences
+		RET	Z		; return (Z) if wildcard found
+		DEC	C
+		JR	NZ,CheckWildsLp	; loop until all characters checked
+		OR	A
+		RET			; return NZ: no wildcard found
+
+; Move user byte from first FCB half into second one. This is for the
+; BDOS function "Rename" which needs the two filenames in two 16-byte
+; parts of the referenced FCB. The user, however, is took only from
+; the first 16 bytes. We must copy that byte to use the second half as
+; complete FCB for search operations.
+
+CopyUsrToFcb2:	LD	HL,(@VInfo)	; get user's FCB
+		LD	A,(HL)		; get first user byte
+		LD	BC,16
+		ADD	HL,BC		; point to second user byte
+		LD	(HL),A		; set this to first one
+		RET			; (return pointer to 2nd half in HL)
+
+;*****************************************************************
+;**	The previous routines handled fundamental aspects of	**
+;**	the disk operating system. No we come to the BDOS	**
+;**	functions directly accessible by the user (through	**
+;**	the appropriate BDOS function calls).			**
+;*****************************************************************
+
+; Rename a file referenced by the user's FCB. This FCB must follow
+; the conventions for BDOS function 23 (the two filenames must be
+; contained in the two 16-byte name fields of the FCB).
+
+RenameUserFcb:	CALL	ChkUsrFcbWild	; error on wildcards in 1st name
+		CALL	CheckPwdValid	; password ok if enabled?
+		CALL	NZ,SetPwdError	; no: set password error (maybe)
+		CALL	EnablePwdSearch	; enable XFCB searches too
+		CALL	CopyUsrToFcb2	; copy 1st user to 2nd user byte
+		LD	(SearchFcbPtr),HL ; store 2nd name as search FCB
+		CALL	ChkFcbWild	; error on wildcards in 2nd name too
+		LD	C,12		; compare level: check drive/name only
+		LD	HL,(SearchFcbPtr)
+		CALL	SetSrchNext	; set up to search for 2nd file name
+		CALL	SrchEntry	; now search it
+		JP	NZ,FileExistsErr ; found: return BDOS error 8
+		CALL	GetPwdEntry	; was there a password entry?
+		CALL	NZ,DeleteEntry	; yes: delete it (??)
+		CALL	CopyUsrToFcb2	; copy user byte again
+		CALL	EnablePwdSearch	; enable XFCB searches again
+		CALL	SrchFstName	; search for 1st name now
+		RET	Z		; not found: nothing to do
+		CALL	CheckEntryRO	; otherwise: error if read-only
+					; (fall-through to update directory)
+
+; Update the directory for a file rename. The entry's filename is copied
+; from the second name field in the user's FCB, after that the directory
+; is rewritten. This is not called as a subroutine, it's just the loop
+; to actually change and rewrite all matching entries in the directory.
+
+RenUpdDirEntry:	LD	C,16		; offset for 2nd name field (source)
+		LD	E,12		; move 12 characters (complete name)
+		CALL	UpdateDirEntry	; update the directory entry
+		CALL	UpdateHashTbl	; update the hash table entry
+		CALL	SrchNextEntry	; move on to next matching entry
+		JR	NZ,RenUpdDirEntry ; found one more: update this too
+		CALL	GetPwdEntry	; get XFCB location
+		JP	Z,StoreSrchStat	; no XFCB: store status and return
+		CALL	CopyUsrToFcb2	; copy user byte once more
+		JR	RenUpdDirEntry	; and rename XFCB also (maintain pwd)
+
+; Set file attributes. The F8' flag is maintained, all other interface
+; attributes (F5' to F7') are cleared. If the F6' attribute was set in
+; the user's FCB indicating he wants to set the byte count, the proper
+; value is copied from the CR field of the FCB.
+; This routine is called only once, from within the related BDOS function.
+
+SetUsrFcbAttr:	CALL	ClrGetFcbAttr	; clear and get interface attributes
+		AND	10H		; check for original F8' bit
+		JR	Z,SetUsrFcbAttr1 ; unset: leave it cleared
+		SET	7,(IY+8)	; otherwise set F8' now too
+SetUsrFcbAttr1:	CALL	CheckPwdValid	; password ok?
+		CALL	NZ,SetPwdError	; no: set pwd error
+		CALL	SrchFstName	; search matching entry
+		RET	Z		; none: nothing to do
+SetUsrFcbAttr2:	LD	C,0		; check offset 0 ($ in first char?)
+		LD	E,12		; will become C later (move count)
+		CALL	CheckFcb$	; check for $ in first FCB name char
+		CALL	Move		; copy name from user FCB to entry
+		LD	A,(FcbIntAttr)	; get interface attributes back
+		AND	40H		; check F6' (flag: set byte count)
+		JR	Z,SetUsrFcbAttr3 ; don't set: skip this
+		PUSH	HL
+		CALL	Get_RCCR_Adr
+		LD	A,(HL)		; get byte count from CR field in FCB
+		POP	HL
+		INC	HL		; point to byte count in entry
+		LD	(HL),A		; store it here
+SetUsrFcbAttr3:	CALL	DirWrite	; write this to the directory
+		CALL	SrchNextEntry	; search next matching entry
+		JP	Z,StoreSrchStat	; no more found: return result status
+		JR	SetUsrFcbAttr2	; loop for all matching entries
+
+; Open a file. The directory is searched for an entry matching by name
+; and extent, and its contents is then copied into the user's FCB for
+; further file I/O accesses. The record count in the FCB is set according
+; to the current position relative to the last extent of the file.
+
+OpenUsrFcb:	CALL	SrchFstOpen	; Set 7(S2), marking "extent unchanged"
+					; SrchFstNamExt (compares 15 bytes)
+OpenUsrFcb1:	RET	Z		; no matching entry found: return
+OpenUsrFcb2:	CALL	SetS2bit7	; Set 7(S2) again (why?)
+		LD	E,A		; save S2 in E
+		PUSH	HL		; push S2 address
+		DEC	HL
+		DEC	HL		; point to extent byte
+		LD	D,(HL)
+		PUSH	DE		; save extent byte
+		CALL	GetCurEntryAddr	; get current entry's address (src)
+		LD	DE,(@VInfo)	; target: user's FCB
+		LD	BC,32
+		LDIR			; copy 32 bytes (complete entry)
+		CALL	GetLastExtent
+		LD	C,A		; get last extent no. into C
+		POP	DE
+		POP	HL
+		LD	(HL),E		; restore S2 byte
+		DEC	HL
+		DEC	HL
+		LD	(HL),D		; restore extent byte
+
+; Update RC in the current user's FCB according to current and last extent
+; and the current record count. Upon entry, C contains the last extent,
+; and HL points to the extent byte.
+
+UpdateFcbRC:	LD	B,0		; ??
+		EX	DE,HL		; move pointer to extent into DE
+		LD	HL,3
+		ADD	HL,DE		; point to record count (RC)
+		LD	A,(DE)		; get extent byte
+		SUB	C		; compare with last extent
+		JR	Z,UpdateFcbRC2 	; equal: check for zero length
+		LD	A,B		; ?? (B is always 0)
+		JR	NC,UpdateFcbRC1	; we're beyond last extent: set RC=0
+		LD	A,80H		; we're within the file:
+		OR	(HL)		;   set bit 7 of the RC byte
+UpdateFcbRC1:	LD	(HL),A		; store new RC byte
+		RET
+UpdateFcbRC2:	LD	A,(HL)		; we're in the last extent: get RC
+		OR	A		; is there anything?
+		RET	NZ		; yes: return
+InitFcbRC:	LD	(HL),0		; clear RC byte
+		LD	A,(BlockInFcb)
+		OR	A		; are we in first block of FCB?
+		RET	Z		; yes: return
+		LD	(HL),80H	; no: set RC to 80h to indicate this
+		RET
+
+; Move a word from (DE) to (HL) if the word at the (HL) location contains
+; a zero value. Note that HL and DE are maintained unchanged on return.
+
+MoveWordIfZ:	LD	A,(HL)
+		INC	HL
+		OR	(HL)		; check if target is zero
+		DEC	HL
+		RET	NZ		; target is non-zero: return 
+		LD	A,(DE)
+		LD	(HL),A		; move first byte
+		INC	DE
+		INC	HL		; bump pointers
+		LD	A,(DE)
+		LD	(HL),A		; move second byte
+		DEC	DE
+		DEC	HL		; restore pointers
+		RET
+
+; Check the record count byte (RC) in the FCB (HL pointing to the extent).
+; If greater than 128, strip the MSB to make it in the range 0..128.
+
+CheckRecCnt:	PUSH	HL		; save extent byte address
+		INC	HL
+		INC	HL
+		INC	HL		; point to RC byte
+		LD	A,(HL)		; get it
+		CP	129		; is it below 129 (maximum 128)?
+		JR	C,CheckRecCnt1 	; yes: leave it unchanged
+		AND	7FH		; no: strip MSB
+		LD	(HL),A		; ... and store new value
+CheckRecCnt1:	POP	HL		; restore pointer to extent byte
+		RET
+
+; Close a file. Allocation data is updated if file size has changed.
+
+CloseUsrFcb:	XOR	A
+		LD	(RetStat),A	; clear return status
+		CALL	CheckROVector
+		RET	NZ		; abort if drive is read-only
+		CALL	GetS2		; get S2 byte
+		AND	80H		; was this extent changed?
+		RET	NZ		; no: no need to write then
+		CALL	CheckFcbValid	; check if FCB is valid
+		JP	Z,CloseBadFcb	; no: abort with error status
+		CALL	GetLastExtClose	; check perm., get last extent
+		LD	C,A
+		LD	B,(HL)		; get previous extent into B
+		PUSH	BC
+		LD	(HL),C		; store computed last extent here
+		CALL	CheckRecCnt	; check & update record count byte
+		LD	A,C
+		CP	B		; has extent byte changed?
+		CALL	C,UpdateFcbRC	; now smaller: compute new RC value
+		CALL	CloseUpdAlloc	; update allocation data
+		CALL	GetExtentAdr	; re-calc extent byte address
+		POP	BC
+		LD	C,(HL)		; get "new" extent back to C
+		LD	(HL),B		; restore extent byte
+		JR	UpdateFcbRC	; compute new RC value & return
+
+; Update the FCB allocation data and the drive's allocation vector (the
+; second half) according to the changed FCB.
+; This routine is only called by the close file routine above.
+; Before the allocation vector is really updated, the FCB data allocation
+; area is extensively checked - if it has changed, the FCB is invalid and
+; closing the file is impossible.
+
+CloseUpdAlloc:	CALL	SrchFstNamExt
+		RET	Z		; no matching entry found: abort
+		LD	BC,16
+		CALL	GetEntryPtrs	; point to D0 byte in FCB & Entry
+		LD	C,16		; loop counter: check 16 bytes
+CloseUpdAlloc1:	LD	A,(Blocks8bit)
+		OR	A
+		JR	Z,CloseUpdAlloc4 ; 16-bit block numbers: handle sep.
+
+; Check 8-bit block numbers in user's FCB against directory entry.
+
+		LD	A,(HL)		; get alloc byte of user's FCB 
+		OR	A		; set Z flag if unused
+		LD	A,(DE)		; get alloc byte of dir entry
+		JR	NZ,CloseUpdAlloc2
+		LD	(HL),A		; insert in user's FCB if yet unused
+CloseUpdAlloc2:	OR	A		; now is this block used in dir entry?
+		JR	NZ,CloseUpdAlloc3 ; yes: check if both are equal
+		LD	A,(HL)
+		LD	(DE),A		; else insert user's byte in entry
+CloseUpdAlloc3:	CP	(HL)		; compare
+		JR	NZ,CloseBadFcb	; different: invalid FCB!
+		JR	CloseUpdAlloc5	; continue the loop for all 16 blocks
+
+; Check 16-bit block numbers in user's FCB against directory entry.
+
+CloseUpdAlloc4:	CALL	MoveWordIfZ	; move DIR to FCB if unused in FCB
+		EX	DE,HL
+		CALL	MoveWordIfZ	; move FCB to DIR if unused in DIR
+		EX	DE,HL
+		LD	A,(DE)		; get lower byte of dir entry
+		CP	(HL)		; compare against FCB
+		JR	NZ,CloseBadFcb	; not equal: invalid FCB
+		INC	DE
+		INC	HL		; bump pointers
+		LD	A,(DE)
+		CP	(HL)		; compare higher bytes too
+		JR	NZ,CloseBadFcb	; unequal: invalid FCB
+		DEC	C		; count two bytes per block number
+
+CloseUpdAlloc5:	INC	DE
+		INC	HL		; bump pointers
+		DEC	C
+		JR	NZ,CloseUpdAlloc1 ; loop for all 16 alloc bytes
+
+; We have checked the FCB's block allocation data, and it matches the
+; related directory entry. HL and DE are now pointing behind the data
+; alloc area of FCB and dir entry (offset 32).
+; ?? This is really strange: if the computed last extent matches both
+; FCB and dir entry (B=3), those two are again compared?? The result
+; should always be equal, making the further operations senseless!
+
+		EX	DE,HL		; get DIR pointer into HL
+		LD	BC,-20
+		ADD	HL,BC		; move pointer back to extent byte
+		PUSH	HL		; save pointer
+		CALL	GetLastExtent	; compute last extent (into A)
+		POP	DE		; get extent pointer back to DE
+		CALL	CloseChkExt	; check if last extent matches DIR/FCB
+		LD	(HL),A		; store last extent in user's FCB
+		LD	(DE),A		; ... and in dir entry
+		INC	HL
+		INC	HL
+		INC	HL		; point to RC byte in user's FCB
+		EX	DE,HL		; swap pointers
+		INC	HL
+		INC	HL
+		INC	HL		; point to RC byte in dir entry
+		DEC	B
+		JR	Z,CloseUpdAlloc6 ; last extent <> FCB extent: use DIR
+		DEC	B
+		JR	Z,CloseUpdAlloc7 ; =FCB, <>DIR : use FCB extent
+		LD	A,(DE)		; =FCB & =DIR: get FCB extent
+		CP	(HL)		; ?? compare against DIR extent
+		JR	C,CloseUpdAlloc6 ; ?? DIR > FCB : use DIR
+		OR	A		; is FCB extent =0 ?
+		JR	NZ,CloseUpdAlloc7 ; no: use FCB extent
+		CALL	InitFcbRC	; yes: init RC byte of FCB
+CloseUpdAlloc6:	EX	DE,HL		; eventually swap pointers back
+CloseUpdAlloc7:	LD	A,(DE)
+		LD	(HL),A		; copy extent in either direction
+		CALL	GetCurEntryAddr
+		LD	DE,11
+		ADD	HL,DE		; compute pointer to T3
+		RES	7,(HL)		; reset T3' (archive bit)
+		CALL	SetS2bit7	; mark file as unchanged now
+		LD	C,1
+		CALL	SetFileScndALV	; set all related bits in 2nd ALV
+		JP	DirWrite	; update directory on disk
+
+; The FCB referenced for the close function is invalid. Mark this and
+; return an error.
+
+CloseBadFcb:	CALL	MarkFcbInvalid
+		JP	ReturnError
+
+; Check if A matches (HL) and/or (DE). Return with B=1 if does not match
+; (HL), B=2 if it matches (HL) but not (DE), and B=3 if it matches both.
+; The value of A and the addresses in HL and DE remain unchanged.
+; This routine is used only during file close, to check the extent bytes
+; of FCB and entry against the actual last extent.
+
+CloseChkExt:	LD	B,1		; preset "no match"
+		CP	(HL)
+		RET	NZ		; return if A <> (HL)
+		INC	B		; set "matches HL only"
+		EX	DE,HL
+		CP	(HL)		; check against (DE)
+		EX	DE,HL
+		RET	NZ		; return if unequal
+		INC	B		; otherwise set B=3: A matches both
+		RET
+
+; Clear the alternate directory pointer (set it to FFFF to mark as invalid).
+
+ClearAltDir:	LD	HL,0FFFFh
+		LD	(AltDir),HL
+		RET
+
+; Set entry number to the one immediately before the sector containing
+; the entry in "AltDir" (or the entry given in HL). If we then call
+; SearchNext to explicitly find a password entry, it will surely be found
+; at the AltDir position if this matches all requirements.
+
+SetEntryPredAlt:LD	HL,(AltDir)	; get AltDir entry number (pwd etc.)
+SetEntryPredHL:	LD	A,0FCH
+		AND	L		; mask off two lowest bits
+		LD	L,A		; ... to point to sector's first entry
+		DEC	HL		; move to the entry before
+		LD	(@Entry),HL	; and store this entry number
+		RET
+
+; Get the next empty directory entry. If there was one found during the
+; last directory search operation, the search is started there this time
+; (the position of the empty entry was stored in AltDir).
+; After an empty entry is found, it is initialized so it can be used as
+; an FCB for file I/O.
+
+GetEmptyEntry:	CALL	CheckDriveRO	; abort on write protected drive
+		LD	HL,AltDir
+		CALL	CheckFFFF	; contains AltDir a valid location?
+		CALL	NZ,SetEntryPredAlt ; yes: move to preceding sector
+		LD	HL,(@VInfo)
+		PUSH	HL		; save user's FCB address
+		LD	HL,EmptyFcb
+		LD	(@VInfo),HL	; store address of "Empty" FCB
+		LD	C,1		; compare level 1: user byte only
+		CALL	SetSrchFirst
+		CALL	SrchNextEntry	; search for first match
+		POP	HL
+		LD	(@VInfo),HL	; restore user's FCB address
+		RET	Z		; no match found: return/abort
+		LD	A,(XfcbCreFlag)
+		OR	A		; are we creating an XFCB?
+		RET	NZ		; yes: return now, don't further init
+		LD	DE,13
+		ADD	HL,DE		; point to S1 in user's FCB
+		LD	(HL),D		; clear S1
+		INC	HL
+		LD	A,(HL)		; get S2
+		PUSH	AF		; save original S2 value
+		PUSH	HL		; save S2 address
+		AND	3FH		; reset bits 6 & 7 (force dir write)
+		LD	(HL),A		; store new S2 value
+		INC	HL		; point to RC byte
+		LD	A,1		; flag: stamp field not init'd yet
+		LD	C,17		; clear 17 bytes (RC and D0..16)
+GetEmptyEntry1:	LD	(HL),D		; clear FCB byte
+		INC	HL		; bump pointer
+		DEC	C
+		JR	NZ,GetEmptyEntry1 ; loop: clear C bytes
+		DEC	A		; stamp field initialized?
+		LD	C,D		; (senseless, C=D=0) clear offset
+		CALL	Z,CalcStampPtr	; no: compute stamp address
+		OR	A		; are there stamps to init?
+		LD	C,10		; stamp area is 10 bytes
+		JR	Z,GetEmptyEntry1 ; init stamp field if necessary
+		CALL	UpdUsedEntries	; update number of used entries
+		LD	C,0
+		LD	DE,32
+		CALL	UpdateDirEntry1	; write fresh entry to disk
+		POP	HL
+		POP	AF
+		LD	(HL),A		; restore S2
+		CALL	UpdateHashTbl	; update hash information
+
+; Set the MSB of the S2 byte to indicate that the file is not changed yet.
+
+SetS2bit7:	CALL	GetS2		; get current S2 value
+		OR	80H
+		LD	(HL),A		; set MSB and store new value
+		RET
+
+; Move on to the next logical extent of the current file. If necessary,
+; close the current directory entry and open the next one. (A directory
+; entry, being a physical extent, may hold one or more logical extents.)
+
+GotoNextExtent:	CALL	ClearMovFlags	; clear FCB move flags (??)
+		CALL	GetExtentAdr
+		LD	A,(HL)		; get current extent number
+		LD	C,A
+		INC	C		; increment to get next extent
+		CALL	ChkSameExtent	; check if within the same entry
+		JR	Z,GotoNextExt5 	; yes: that was easy...
+		PUSH	HL
+		PUSH	BC
+		CALL	CloseUsrFcb	; no: close current entry
+		POP	BC
+		POP	HL
+		LD	A,(RetStat)	; get status result of close operation
+		INC	A
+		RET	Z		; was FF (error): abort
+		LD	A,1FH
+		AND	C		; mask new extent to 0..31
+		LD	(HL),A		; and store it in the FCB
+		INC	HL
+		INC	HL		; move on to S2 byte
+		LD	A,(HL)
+		LD	(S2temp),A	; save S2
+		JR	NZ,GotoNextExt1	; new extent >0: ok, continue
+		INC	(HL)		; increment extent again
+		LD	A,(HL)
+		AND	3FH		; are the lower 6 bits zero?
+		JR	Z,GotoNextExt4 	; yes: process EOF condition
+GotoNextExt1:	CALL	ClearAltDir
+		CALL	SrchFstOpen	; search entry containing next extent
+		JR	NZ,GotoNextExt2	; found: open it
+		LD	A,(ReadFlag)	; not found:
+		INC	A		; check read/write flag
+		JR	Z,GotoNextExt4 	; are we trying to read beyond EOF?
+		CALL	GetEmptyEntry	; write: create new entry now
+		JR	Z,GotoNextExt4 	; no new entry found: abort
+		JR	GotoNextExt3	; continue, new entry already opened
+GotoNextExt2:	CALL	OpenUsrFcb2	; open entry containing new extent
+GotoNextExt3:	CALL	UpdateS1	; update S1 of FCB
+		CALL	GetFilePosition	; init local file position variables
+		XOR	A
+		LD	(RecInExt),A	; this is the 1st record of new extent
+		JP	SaveStatA	; return status 0 = ok
+
+; Process EOF handling. If we have tried to read beyond EOF, return
+; an error. If we need a new directory entry but can't get one,
+; return an error too.
+
+GotoNextExt4:	CALL	GetS2
+		LD	A,(S2temp)
+		LD	(HL),A		; restore S2
+		DEC	HL
+		DEC	HL
+		LD	A,(HL)		; get extent byte
+		DEC	A		; move back to previous extent
+		AND	1FH
+		LD	(HL),A		; ... to correct the FCB
+		JP	SaveStat1	; return with status 1 (EOF error)
+
+; We found the next extent in our current directory entry.
+
+GotoNextExt5:	INC	(HL)		; increment extent number
+		CALL	GetLastExtent	; get last extent used
+		LD	C,A		; and save it in C
+		CP	(HL)		; compare against new extent
+		JR	NC,GotoNextExt6	; still below last extent: continue
+		DEC	(HL)		; above last extent: move back
+		LD	A,(ReadFlag)
+		INC	A		; are we reading?
+		JP	Z,SaveStat1	; yes: not allowed to read here!
+		INC	(HL)		; writes are ok: incr. extent again
+GotoNextExt6:	CALL	CheckRecCnt	; check & correct RC byte
+		CALL	UpdateFcbRC	; update RC in FCB
+		JR	GotoNextExt3	; init file position & return ok
+
+; Read a sector from a file (sequentially or random).
+
+ReadFile:	CALL	ChkFcbValErr	; check if FCB is valid
+		LD	A,0FFH
+		LD	(ReadFlag),A	; set flag: we are reading only
+		CALL	GetFilePosition	; init local file position variables
+		LD	A,(RecInExt)
+		LD	HL,CurRecCount
+		CP	(HL)		; are we still within this extent?
+		JR	C,ReadFile1 	; yes: continue
+		CP	128		; are we at the end of a full extent?
+		JP	NZ,SaveStat1	; no: we must be at EOF
+		CALL	GotoNextExtent	; yes: move on to next extent
+		LD	A,(RetStat)
+		OR	A		; any errors during that?
+		JP	NZ,SaveStat1	; yes: EOF error
+ReadFile1:	CALL	SetFcbCopyFlag	; set FCB copy flags from MovFlag (??)
+		CALL	CalcGetFcbBlk	; compute block number to access
+		JP	Z,SaveStat1	; none: EOF error
+		CALL	CalcAbsSect	; compute absolute logical sector no.
+		CALL	SectorInMem?	; this sector already in memory?
+		JP	C,UpdateFcbCR	; yes: update FCB & return
+		JR	NZ,ReadFile2	; yes, but in cache only: get it there
+		CALL	RestoreUsrDMA	; set user's DMA address
+		CALL	CalcSetTrkSec	; calc & set proper track & sector
+		LD	A,1
+		CALL	?SetBnk		; set target bank (TPA)
+		CALL	DiskRead	; read sector from disk
+		JP	UpdateFcbCR	; then update FCB & return
+
+ReadFile2:	LD	HL,0
+		LD	(BufBlock),HL	; clear current buffer block number
+		LD	A,1		; BCB access code: read
+		CALL	DataBufferIO	; get data buffer from cache
+		JP	UpdateFcbCR	; then update FCB & return
+
+; ***** End of portion 4 *****

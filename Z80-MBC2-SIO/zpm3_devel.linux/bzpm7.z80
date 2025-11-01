@@ -1,0 +1,1146 @@
+;*****************************************************************
+;**	Last (Seventh) portion of banked ZPM3 (N10) BDOS.	**
+;**	Disassembly by Tilmann Reh (950327).			**
+;**     (latest comments 951125)				**
+;**								**
+;**	This portion contains:					**
+;**	- data storage of BDOS file system			**
+;**	- BCB handling						**
+;**	- hash table handling and hash data generation		**
+;**	- some of the previous patches (in CP/M-3)		**
+;**	- history feature variables and buffer			**
+;**	- global definitions of constants and			**
+;**	  addresses in resident BDOS, BIOS, and SCB		**
+;*****************************************************************
+
+; Main data storage area for the BDOS file system:
+
+		DB	0,0	; ?? two unused bytes?
+
+SaveE:		DB	0	; storage for E register upon BDOS call
+
+EmptyFcb:	DB	0E5H	; 1-byte search "FCB" to search empty entries
+
+ReadOnlyVector:	DW	0	; r/o vector
+LoginVector:	DW	0	; login vector
+CurDirBufPtr:	DW	0	; pointer to current dir buffer
+
+; Pointers into the scratch area within the current DPH. Each DPH has a
+; 9-byte scratch area, containing the following data:
+; 0 : 16 bit	number of used directory entries
+; 2 : 16 bit	current absolute (logical) track
+; 4 : 24 bit	absolute sector number of current track start
+; 7 :  8 bit	copy of the directory label data byte (stamp/password flags)
+; 8 :  8 bit	local S1 variable, used for checksum & media change flags
+; These pointers are updated to point within the current DPH after each
+; BIOS SelDsk call.
+
+UsedEntriesPtr:	DW	0
+CurAbsTrkPtr:	DW	0
+CurAbsSecPtr:	DW	0
+DirLblDtaPtr:	DW	0
+LocalS1Adr:	DW	0
+
+		DW	0	; ?? unused word?
+
+; The DPH fields starting with the DPB address are copied here during
+; disk selection. For details, see the CP/M-Plus System Guide.
+
+DPBadr:		DW	0	; address of DPB
+CSV:		DW	0	; address of checksum vector
+ALV:		DW	0	; address of allocation vector
+DIRBCB:		DW	0	; address of DIR BCB list head
+DTABCB:		DW	0	; address of DTA BCB list head
+HASH:		DW	0	; address of hash table
+HBANK:		DB	0	; memory bank containing hash table
+
+; Disk Parameter Block (DPB) of the currently processed disk.
+; For details, see the CP/M-Plus System Guide.
+
+DPB:				; Disk Parameter Block start
+SPT:		ds	2	; sectors per track
+BSH:		ds	1	; block shift
+BLM:		ds	1	; block mask
+EXM:		ds	1	; extent mask
+DSM:		ds	2	; directory entries
+DRM:		ds	2	; total blocks
+DirALV: 	ds	2	; directory allocated blocks
+CKS:		ds	2	; checksum size
+OFF:		ds	2	; offset tracks
+PSH:		ds	1	; physical sector shift
+PHM:		ds	1	; physical sector mask
+
+; Internal variables for disk & file I/O functions.
+; Variable groups marked by "*"s must not be moved or changed in order!
+
+CurDirSector:	DW	0	; current directory sector number
+RecInBlock:	DB	0	; record no. within block
+BufPos:		DB	0	;?? flag / record within buffer
+
+; The next two variables correspondent to CurDrive/AbsSector (with block data)
+BufDrive:	DB	0	;* copy of CurDrive during WrSeq
+BufBlock:	DW	0	;* copy of block number during WrSeq
+
+MultiSecPhys:	DB	0	;* remaining m/s count, physical boundary
+MultiRemain:	DB	0	;* remaining (log.) m/s count, loop counter
+
+		DB	0	;?? unused byte?
+
+TransTableAdr:	DW	0	; address of translate table of current drive
+ReadFlag:	DB	0	; flag: 0 for file writes, FF for reads
+SearchStat:	DB	0	; flag: 0 if "Search" found a match, else FF
+BlockInFcb:	DB	0	; block position within FCB
+SearchFcbPtr:	DW	0	; pointer to SearchFirst FCB (for SearchNext)
+PwdFound:	DB	0	; flag: FF if password found (during Search)
+Blocks8bit:	DB	0	; flag: 0 for 16-bit blocks, FF for 8-bit
+Drive:		DB	0	; current drive for/of BDOS function calls
+CurRecCount:	DB	0	; current record count of this FCB
+CurExtent:	DB	0	; current extent within FCB
+S2temp:		DB	0	; S2 stored here temp. when incr. extents
+RecInExt:	DB	0	; record no. within extent
+ActiveDrive:	DB	0FFH	; drive currently logged in (BIOS & internal)
+
+; The following variable pair is used frequently for exactly describing the
+; current location for disk I/O. It is set and compared to the buffer loca-
+; tion during physical disk I/O, and also directly copied into/from the first
+; four bytes of BCB's. AbsSector is also used for storing the 16-bit block
+; number before it is converted to the absolute sector number.
+
+CurDrive:	DB	0FFH	;* drive currently processed at disk I/O
+AbsSector:	DS	3	;* absolute sector position to process (24 bit)
+
+AbsSectLSW:	DW	0	; double-duty variable:
+				; LSW of AbsSector / hash table address
+FcbIntAttr:	DB	0	; FCB interface attributes F5'-F8' in bit7-4
+CurrentF8:	DB	0	; internal copy of current F8' (00/80)
+CurrentF7:	DB	0	; internal copy of current F7' (00/80)
+RelEntryAddr:	DB	0	; entry address relative to sector (0/20/40/60)
+HashTemp:	DS	4	; temporary storage for hash data
+MovFlag:	DB	0	; ?? (is copied to FcbCopyFlag once)
+User0allowed:	DB	0	; flag: search func's get user 0 files also
+FromUser0:	DB	0	; flag: file was loaded from user 0 (system)
+FcbDriveCode:	DB	0	; drive code of FCB (storage during BDOS func)
+
+; List of BDOS functions which invalidate further "Search Next" calls.
+
+InvalidNextTab:	DB	15	; Open File
+		DB	16	; Close File
+		DB	17	; Search First
+		DB	19	; Delete File
+		DB	22	; Make File
+		DB	23	; Rename File
+		DB	30	; Set File Attributes
+		DB	35	; Compute File Size
+		DB	99	; Truncate File
+		DB	100	; Set Directory Label
+		DB	102	; Read Date Stamps & Password Mode
+		DB	103	; Write File XFCB
+		DB	0	; (end of table marker)
+
+; List of BDOS functions which actually perform file I/O.
+
+FileIoFuncTab:	DB	20	; Read Sequential
+		DB	21	; Write Sequential
+		DB	33	; Read Random
+		DB	34	; Write Random
+		DB	40	; Write Random with Zero Fill
+		DB	0
+
+; List of BDOS functions doing directory I/O.
+
+DirIoFuncTab:	DB	16	; Close File
+		DB	18	; Search Next
+		DB	0
+
+; Data memory locations for password handling.
+
+TempPwdFCB:	DS	13	; temp. FCB for password searches
+PwdMode:	DB	0	; password mode of current file
+		DB	0,0	;?? unused?
+DefaultPwd:	DS	8	; storage for default password (encrypted)
+
+; Data memory locations for hash & data buffer handling.
+
+RecInPhysSec:	DB	0	; relative record within physical sector
+		DB	0,0	;?? unused?
+CurBcbAddr:	DW	0	; address of BCB currently in use
+BcbSave:	DW	0	; pointer to virtual BCB base (for search)
+BcbHeadAdr:	DW	0	; pointer to BCB list head currently in use
+EmptyBcbAdr:	DW	0	; addr. of (virtual) BCB pointing to empty one
+AvailBcbAdr:	DW	0	; addr. of (v.) BCB pointing to matching one
+
+; The following three bytes are the memory banks used for interbank
+; data transfers from/to BCB buffers. Only the value of BufBank is
+; changed (according to the bank in which the accessed buffer resides),
+; the two other bytes are read-only variables representing the TPA
+; (bank 1). The byte before BufBank is used for BCB data writes, and
+; the one behind is used for reads, so each time just BC can be loaded
+; from memory directly before calling the BIOS XMOVE routine.
+
+		DB	1	;* TPA (source for BCB writes)
+BufBank:	DB	0	;* bank (source for reads, dest for writes)
+		DB	1	;* TPA (dest for BCB reads)
+
+		DB	0	;?? unused?
+
+CurTrack:	DW	0	;* currently selected track (BIOS)
+CurSector:	DW	0	;* currently selected physical sector (BIOS)
+
+;*****************************************************************
+;**	Routines handling BCB I/O and hashing			**
+;*****************************************************************
+
+; Data buffer access routine. Enter with access code in A:
+; A=1 : read data BCB
+; A=2 : write data BCB
+; A=4 : flush all data buffers for current drive.
+
+DataBufferIO:	LD	HL,(DTABCB)	; get data BCB list head of curr. DPH
+		CP	4		; check access code: flush buffers?
+		JR	NZ,BufferIO	; no: perform buffer I/O
+
+; Flush all data BCB's that contain unwritten data of current drive.
+; The address of the data BCB list head is given in HL.
+; All data buffers that contain dirty data are written out to disk
+; in the order of ascending tracks. This is to increase performance
+; since track moves are much slower than the additional BCB searches
+; for ordering the accesses.
+; The file system variables "CurTrack" and "CurSector" are misused for
+; the access ordering algorithm.
+
+FlushBCBs:	LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get address of first data BCB
+		LD	HL,0FFFFh
+		LD	(CurTrack),HL	; set "current track" to maximum
+		EX	DE,HL		; first data BCB address in HL now
+
+FlushBCBs1:	LD	A,(CurDrive)	; get current drive
+		CP	(HL)		; does it match that BCB ?
+		JR	NZ,FlushBCBs2	; no: skip this BCB
+		EX	DE,HL
+		LD	HL,4
+		ADD	HL,DE		; move on to write flag
+		LD	A,(HL)		; ...and get it into A
+		EX	DE,HL		; restore BCB base pointer
+		INC	A		; does this buffer contain new data?
+		JR	NZ,FlushBCBs2	; no: skip this BCB
+		PUSH	HL
+		INC	DE
+		INC	DE		; point to track field of BCB
+		EX	DE,HL
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get BCB track into DE
+		LD	HL,(CurTrack)	; ...and "current track" into HL
+		OR	A
+		PUSH	DE
+		EX	DE,HL
+		SBC	HL,DE		; BCB track - current track
+		POP	DE		; (are we closer now?)
+		POP	HL
+		JR	NC,FlushBCBs2	; this BCB is farther: ignore
+		LD	(CurTrack),DE	; store lowest found track
+		LD	(CurSector),HL	; ...and related BCB address
+
+FlushBCBs2:	CALL	NextBCB		; advance pointer to next BCB
+		JR	NZ,FlushBCBs1	; continue if there is another one
+		LD	HL,CurTrack
+		CALL	CheckFFFF	; did we find anything?
+		RET	Z		; no: return
+		LD	HL,(CurSector)	; get BCB address holding lowest track
+		XOR	A		; set zero flag
+		LD	A,4
+		CALL	BufferIO	; flush this single buffer
+		LD	HL,(DTABCB)	; get BCB list header again
+		JR	FlushBCBs	; and start over
+
+; Perform buffer I/O. The access code is given in A:
+; 1=read, 2=write, 3=read (?), 4=flush, 5=write (?).
+; Note that upon entry, the Zero flag is set for flush requests (with
+; the desired BCB address in HL), and reset for I/O requests (with the
+; address of the BCB list head in HL).
+
+BufferIO:	PUSH	AF
+		LD	A,(PHM)
+		LD	B,A		; get physical sector mask into B
+		CPL
+		LD	C,A		; ...and inverted into C
+		LD	A,(AbsSector)
+		LD	E,A		; get absolute sector LSB into E
+		AND	B		; calc relative record in phys. sect.
+		LD	(RecInPhysSec),A ; and store this
+		LD	A,E
+		AND	C		; mask off inner-sector position
+		LD	(AbsSector),A	; store base sector number back
+		POP	AF
+		PUSH	AF		; get&save Z flag (flush) & acc. code
+		CALL	NZ,FindBCB	; I/O request: find usable BCB
+		LD	(CurBcbAddr),HL	; store address of BCB to use
+		LD	DE,10
+		ADD	HL,DE		; point to related buffer address
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get buffer address into DE
+		INC	HL
+		LD	A,(HL)		; and its bank into A
+		LD	(BufBank),A	; then save them for disk I/O
+		EX	DE,HL
+		LD	(DmaAdr),HL	; store buffer address as DMA address
+		LD	HL,(CurBcbAddr)	; get current BCB base address again
+		LD	DE,CurDrive	; set DE as pointer to current drive
+		LD	C,4
+		LD	A,(HL)		; get drive byte from BCB
+		INC	A		; BCB used?
+		JR	Z,BufferIO3 	; no: skip it
+		POP	AF
+		PUSH	AF		; get & save access code
+		CP	4
+		JR	NC,BufferIO1	; flush/special: skip comparison
+		CALL	BufferIO0	; compare drive byte and abs. sector
+		JR	Z,BufferIO7 	; matching: process sector data now
+		XOR	A		; set "access code" to 0
+BufferIO1:	CALL	GetBcbWFlagAdr	; point to WFLAG of BCB
+		CP	5
+		JR	Z,BufferIO2 	; "special write": write out anyway
+		LD	A,(HL)
+		OR	A		; check if buffer was written to
+		JR	Z,BufferIO3 	; no: skip writing out data to disk
+
+BufferIO2:	LD	(HL),0		; clear WFLAG now
+		LD	HL,(AbsSector)
+		PUSH	HL
+		LD	A,(AbsSector+2)
+		PUSH	AF		; save current file position on stack
+		LD	HL,(CurBcbAddr)	; source: current BCB
+		LD	DE,CurDrive	; dest: CurDrive, AbsSector
+		LD	BC,4
+		LDIR			; move 4 bytes: get position from BCB
+		LD	HL,ActiveDrive
+		LD	A,(CurDrive)
+		CP	(HL)		; is this drive already selected?
+		CALL	NZ,SelDriveA1	; if not, select it now
+		LD	A,1		; set write mode
+		CALL	Z,BufferRW	; write if select was successful
+		POP	AF
+		LD	(AbsSector+2),A
+		POP	HL
+		LD	(AbsSector),HL	; restore current file position
+		CALL	SelCurDrive	; reselect the active disk again
+
+BufferIO3:	POP	AF		; get access code
+		CP	4
+		RET	NC		; return on flush / special write
+		PUSH	AF		; save access code once more
+		CP	2		; write?
+		JR	NZ,BufferIO4	; no: skip BufPos check
+		LD	HL,BufPos
+		LD	A,(RecInBlock)
+		CP	(HL)		; compare relative record to BufPos
+		JR	NC,BufferIO5	; above: perform no actual I/O
+BufferIO4:	XOR	A
+		LD	(NoPermFlag),A	; mark drive as permanent
+		LD	HL,(CurBcbAddr)
+		LD	(HL),0FFH	; mark current BCB as unused
+		LD	A,2		; set read mode
+		JR	BufferIO6	; read from disk into buffer
+
+BufferIO5:	INC	A
+		LD	(HL),A		; increment BufPos
+		XOR	A		; set "no access"
+BufferIO6:	CALL	BufferRW	; read in buffer data from disk
+		LD	HL,(CurBcbAddr)	; source: current BCB
+		LD	DE,CurDrive	; dest: CurDrive, AbsSector
+		LD	C,4
+		CALL	Move		; set onto BCB position
+		LD	(HL),0		; clear WFLAG in BCB
+		INC	HL		; point to the BCB scratch byte
+		CALL	ExtendToPHM	; set 0 if at start of PS, else PHM+1
+BufferIO7:	LD	A,(RecInPhysSec) ; get relative record in PS into A
+		LD	HL,(DmaAdr)	; get current DMA address into HL
+		LD	D,A
+		LD	E,0		; * 256 into DE
+		SRL	D
+		RR	E		; half it (gives *128, rel. address)
+		ADD	HL,DE		; compute record data address
+		POP	AF		; get access code back again
+		CP	3		; special read?
+		JR	NZ,BufferIO8	; no: continue
+		LD	(CurDirBufPtr),HL ; yes: save new data pointer
+		RET			; ...and return
+
+BufferIO8:	LD	DE,(@CrDma)	; get current user's DMA into DE
+		DEC	A		; check for AC=1 (read)
+		LD	A,(CommonBasePg) ; (needed for both read & write)
+		JR	NZ,BufferIO9	; write: use separate routine
+		EX	DE,HL		; DMA address in HL, buffer adr in DE
+		DEC	A		; --> last page below common memory
+		CP	D		; check against buffer address
+		JP	C,StoreBank1	; buffer is above: skip bank switching
+		LD	BC,(BufBank)	; get envolved memory banks
+		PUSH	HL
+		PUSH	DE
+		CALL	?XMove		; BIOS: set for interbank transfer
+		POP	DE
+		POP	HL
+		LD	BC,128		; block length: 128 byte (1 record)
+		JP	?Move		; BIOS: perform interbank move
+
+BufferIO9:	CALL	BufferIO10
+		CALL	GetBcbWFlagAdr
+		LD	(HL),0FFH	; set WFLAG: buffer has been written
+		RET
+
+BufferIO10:	DEC	A		; --> last page below common memory
+		CP	H		; check against DMA address
+		LD	BC,128		; (set block length)
+		JP	C,StoreBank1	; DMA address is common: move directly
+		LD	BC,(BufBank-1)	; get banks for interbank move
+		PUSH	HL
+		PUSH	DE
+		CALL	?XMove		; BIOS: prepare for interbank move
+		POP	DE
+		POP	HL
+		LD	BC,128		; block length: 1 record
+		JP	?Move		; BIOS: perform interbank move
+
+; Get the address of the write flag (WFLAG) within the current BCB into HL.
+
+GetBcbWFlagAdr:	LD	DE,4
+		LD	HL,(CurBcbAddr)
+		ADD	HL,DE
+		RET
+
+; Read or write the contents of the referenced buffer from/to disk.
+; The access code (0=nop, 1=write, 2=read) is in A upon entry.
+
+BufferRW:	PUSH	AF		; save access code
+		CALL	CalcSetTrkSec	; compute & set BIOS track and sector
+		LD	A,(BufBank)
+		CALL	?SetBnk		; set DMA bank according to BCB
+		LD	C,1		; set access mode for DiskRead/Write
+		POP	AF
+		DEC	A		; was access code 1 (write)?
+		JP	Z,DiskWrite	; yes: write buffer to disk
+		CALL	P,DiskRead	; no: if A was not 0, read from disk
+		LD	HL,(CurBcbAddr)
+		LD	DE,6
+		ADD	HL,DE		; point to track field of BCB (target)
+		LD	DE,CurTrack	; source: current track & sector
+		LD	C,4
+		JP	Move1		; move current values into BCB
+
+; Find a BCB we can use. The address of the BCB list head is given
+; in HL, and the access code is still in A (see BufferIO for details).
+
+FindBCB:	LD	(BcbHeadAdr),HL	; store address of next BCB link
+		SUB	3		; are we doing a special read?
+		LD	(DirectIoFlag),A ; store resulting flag (zero then)
+		LD	DE,-13
+		ADD	HL,DE		; compute (virtual) start of BCB
+		LD	(BcbSave),HL	; ...and save it
+		CALL	NextBCB		; get address of next BCB and check it
+		PUSH	HL		; save this address
+		CALL	NextBCB1	; check if there's one following
+		POP	HL		; get back previous address
+		RET	Z		; at the last BCB of the list: return
+		LD	DE,0
+		LD	(EmptyBcbAdr),DE ; clear addresses of empty BCB
+		LD	(AvailBcbAdr),DE ; ..and first available BCB
+
+; Search linked BCB list for a matching entry. The addresses of the last
+; empty buffer or the first available buffer of the same size are stored.
+; We start searching with the BCB to which HL is pointing.
+
+FindBCB1:	LD	(CurBcbAddr),HL	; save address of "BCB under test"
+		LD	BC,4		; set loop counter: check 4 bytes
+		LD	DE,CurDrive	; compare against CurDrive/AbsSector
+FindBCB2:	LD	A,(DE)		; get compare value into A
+		CPI			; compare to (HL) and bump HL & BC
+		JR	NZ,FindBCB3	; different: this BCB is not matching
+		INC	DE		; increment DE also
+		JP	PE,FindBCB2	; loop until 4 bytes compared
+		JP	FindBCB10	; all bytes equal: we found a match!
+
+; The currently checked BCB is not assigned to the current disk location
+; (CurDrive/AbsSector). Check if it's used at all, and store its address
+; if not.
+
+FindBCB3:	LD	HL,(CurBcbAddr)	; get BCB base address again
+		LD	A,(HL)		; get drive byte
+		INC	A		; is it FF (saying BCB is unused)?
+		JR	NZ,FindBCB4	; it's used: continue checks
+		EX	DE,HL		; move current BCB address into DE
+		LD	HL,(BcbSave)
+		LD	(EmptyBcbAdr),HL ; store address of empty BCB pointer
+		JR	FindBCB5	; continue search
+
+; The currently checked BCB is already in use. Now check if it belongs to
+; the same drive and if it has the correct buffer size.
+
+FindBCB4:	LD	A,(CurDrive)	; get current drive
+		CP	(HL)		; compare against BCB drive
+		JR	NZ,FindBCB6	; different: continue search
+		EX	DE,HL		; move BCB address into DE
+		LD	HL,5
+		ADD	HL,DE		; point to BCB scratch byte
+		LD	A,(PHM)
+		OR	A		; are we doing sector deblocking?
+		JR	Z,FindBCB5 	; no: continue search
+		CP	(HL)		; check against record count in BCB
+		JR	NZ,FindBCB5	; different: continue search
+		LD	A,(DirectIoFlag)
+		OR	A		; are we doing a "special read"?
+		JR	NZ,FindBCB5	; no: continue search
+		LD	HL,(BcbSave)	; otherwise store this BCB address
+		LD	(AvailBcbAdr),HL ; ...as available BCB of cur. drive
+FindBCB5:	EX	DE,HL		; get BCB base address back into HL
+FindBCB6:	PUSH	HL
+		CALL	NextBCB		; is there another BCB in the list?
+		POP	DE
+		JR	Z,FindBCB7 	; no: we're through. Check found addr.
+		LD	(BcbSave),DE	; store new start pointer
+		JR	FindBCB1	; ...and start over with next BCB
+
+; We're through the complete linked BCB list. No look what we've found.
+
+FindBCB7:	LD	HL,(EmptyBcbAdr) ; get pointer to empty BCB address
+		LD	A,L
+		OR	H		; did we find one?
+		JR	NZ,FindBCB8	; yes: use this
+		LD	HL,(AvailBcbAdr) ; get pointer to usable BCB address
+		LD	A,L
+		OR	H		; did we find one?
+		JR	Z,FindBCB9 	; no: use last BCB (stored in BcbSave)
+FindBCB8:	LD	(BcbSave),HL	; store ptr to BCB we'll use
+
+; Finally, a BCB is declared for further usage. This is an empty BCB if
+; we found one, an available BCB (same drive & size), or the last BCB of
+; the list if we found neither one.
+; This buffer is removed from the linked list, and inserted as first member
+; of the BCB list.
+
+FindBCB9:	LD	HL,(BcbSave)	; get ptr to BCB address to use
+		CALL	NextBCB		; get BCB address to use
+		LD	(CurBcbAddr),HL	; ...and store this as current BCB
+		CALL	NextBCB1
+		EX	DE,HL		; get its link address into DE
+		LD	HL,(BcbSave)
+		ADD	HL,BC		; point to new BCB's pointer
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D		; insert next link to remove this BCB
+		LD	HL,(BcbHeadAdr)	; get address of BCB list header
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get address of currently first BCB
+		LD	HL,(CurBcbAddr)
+		ADD	HL,BC		; point to new BCB's link field
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D		; insert previous first BCB addr. here
+		LD	DE,(CurBcbAddr)
+		LD	HL,(BcbHeadAdr)
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D		; finally set new BCB as first one
+		EX	DE,HL		; ...and return its address in HL
+		RET
+
+; The currently checked BCB is already assigned to the sector we are
+; processing (CurDrive/AbsSector). Now check buffer size and use it.
+
+FindBCB10:	LD	HL,(CurBcbAddr) ; get current BCB address
+		LD	DE,5
+		ADD	HL,DE		; point to BCB scratch byte
+		LD	A,(RecInPhysSec)
+		CP	(HL)		; compare this against rel. record
+		JR	Z,FindBCB11 	; same: use it
+		INC	(HL)		; otherwise increment scratch byte
+		CP	(HL)		; compare once more
+		CALL	NZ,ExtendToPHM	; set to 0 or PHM+1 of not matching
+FindBCB11:	LD	HL,(BcbHeadAdr)
+		LD	D,(HL)
+		INC	HL
+		LD	E,(HL)		; get address of currently first BCB
+		LD	HL,(CurBcbAddr)	; get current BCB address
+		OR	A
+		PUSH	HL
+		SBC	HL,DE		; subtract first BCB's address
+		POP	DE
+		LD	A,H
+		OR	L		; was the result zero?
+		EX	DE,HL		; (get back current BCB address in HL)
+		RET	Z		; yes: we "found" the first BCB!
+		JR	FindBCB9	; no: remove BCB and insert as first
+
+; Advance pointer to the next BCB. This simply adds the offset of the
+; link address field to the BCB base address, and gets the address stored
+; there. The zero flag is set according to the contents of the link field.
+; (NextBCB1 only called when BC already is 13.)
+
+NextBCB:	LD	BC,13
+NextBCB1:	ADD	HL,BC		; add link field offset
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL		; get link address into HL
+		LD	A,H
+		OR	L		; check if it's zero
+		RET
+
+; Extend the relative record within the current physical sector to its
+; maximum value (physical/logical sector ratio, = PHM+1) if non-zero.
+; The result is stored in memory at (HL).
+; (This is to determine the amount of records to read/write with a single
+; BIOS disk operation.)
+
+ExtendToPHM:	LD	A,(RecInPhysSec) ; get relative record
+		LD	(HL),A		; and store it (preliminary)
+		OR	A		; is it zero?
+		RET	Z		; yes: leave it zero
+		LD	A,(PHM)
+		INC	A
+		LD	(HL),A		; otherwise store maximum record count
+		RET
+
+; Setup the hash data for the FCB at (HL) and store it to (DE) in the
+; hash bank of the currently selected drive.
+
+SetHashData:	PUSH	HL
+		PUSH	DE		; save pointers
+		CALL	GenHashData	; compute hash data
+		POP	HL		; get target address into HL
+		LD	DE,@HshUsr	; source (hash data) address into DE
+		LD	BC,4		; block length: 4 bytes of hash data
+		LD	A,(HBANK)
+		CALL	StoreBankA	; select the appropriate bank
+		LD	(AbsSectLSW),HL	; store next target address
+		POP	HL		; (restore HL)
+		RET
+
+; Generate hash data for the number of bytes given in A. This might be
+; 1 (for checking the user only), 12 (for user & name), or 15 (user,
+; name, & extent).
+
+; The hash data for each directory entry consists of four bytes. It has
+; the following structure:
+; Byte      - 0 -             - 1 -             - 2 -             - 3 -
+; Bit  7 6 5 4 3 2 1 0   7 6 5 4 3 2 1 0   7 6 5 4 3 2 1 0   7 6 5 4 3 2 1 0
+;      N N E P U U U U   N N N N N N N N   N N N N N N N N   E E E E E E E E
+; Where U is the user number (direct from FCB),
+;	P is the password bit (direct from FCB),
+;	N is the encrypted name&extension (18 bits), with the highermost
+;         bits located in byte 0 and the LSB in byte 1,
+;       E is the extent number (9 bits), with the MSB in Byte 0.
+
+GenHashDataA:	OR	A
+		RET	Z		; return if byte count is 0
+		CP	12
+		JR	C,GenHashDataA3 ; < 12 byte: compare level 0 (user)
+		LD	A,2
+		JR	Z,GenHashDataA1 ; = 12 byte: comp.level 2 (user,name)
+		LD	A,3		; more: level 3 (user,name,extent)
+GenHashDataA1:	LD	(@HshCk),A	; store compare level (2/3)
+		EX	DE,HL
+		CALL	ChkHashEnable	; is hashing enabled at all?
+		RET	Z		; no: return
+		EX	DE,HL
+		LD	A,(@FX)		; check current BDOS function
+		CP	16
+		JR	Z,GenHashData 	; Close File: generate complete data
+		CP	35
+		JR	Z,GenHashDataA2 ; Compute File Size: check for wilds!
+		CP	20		; Open, Search, Delete?
+		JR	NC,GenHashData	; no: generate complete hash data
+
+; For Open, Search, Delete & ComputeSize the compare level is set to 2
+; (user & name) unless the FCB contains wildcards (then it's set to
+; 0, saying user only).
+
+GenHashDataA2:	LD	A,2
+		LD	(@HshCk),A	; set compare level: user & name
+		PUSH	HL
+		CALL	CheckWilds	; are there wildcards?
+		POP	HL
+		JR	NZ,GenHashData	; no: generate hash data now
+GenHashDataA3:	XOR	A
+		LD	(@HshCk),A	; set compare level to 0: user only
+
+; Generate hash data to search for the file referenced by the FCB at (HL).
+; Always the complete hash data is generated and stored in the appropriate
+; SCB variables, regardless of the compare level previously stored in @HshCk.
+
+GenHashData:	LD	A,(HL)		; get user byte from FCB
+		LD	(@HshUsr),A	; store this as hash data directly
+		INC	HL		; point to first filename char
+		EX	DE,HL		; move source pointer into DE
+		LD	HL,0		; preset hash data word to 0
+		AND	20H		; are we processing the DirLabel?
+		JR	NZ,GenHashData5	; yes: no filename hash data then
+
+; Generate the hash data for the filename (including extension). The
+; filename is encoded to an 18-bit word (in AHL) which represents the
+; name, comparable to a CRC value. It's not unique, however.
+
+					; note that A=0 upon entry!
+		LD	BC,0B08H	; B=11 (total count), C=8 (name count)
+GenHashData1:	DEC	C		; (count char's)
+		PUSH	BC		; 8. file name char: skip AHL shift
+		JR	Z,GenHashData2 	; 
+		DEC	C
+		DEC	C
+		JR	Z,GenHashData2 	; 6. file name char: skip AHL shift
+		ADD	HL,HL
+		ADC	A,A		; shift AHL left
+		PUSH	AF		; save MSB on stack
+		LD	A,B		; get number of bytes left to encode
+		RRA			; is this odd?
+		JR	C,GenHashData3 	; yes: use AHL as is now
+		POP	AF
+		ADD	HL,HL
+		ADC	A,A		; ...otherwise shift AHL once more
+GenHashData2:	PUSH	AF		; save MSB on stack
+GenHashData3:	LD	A,(DE)		; get next filename character
+		AND	7FH		; strip off attribute bit
+		SUB	' '		; subtract ASCII offset
+		RRA			; odd?
+		JR	NC,GenHashData4	; no: use shifted right
+		RLA			; yes: use unchanged
+GenHashData4:	LD	C,A
+		LD	B,0		; set BC to modified character
+		POP	AF
+		ADD	HL,BC		; add character to hash data word
+		ADC	A,B		; (note that B=0)
+		POP	BC		; get back loop counter
+		INC	DE		; bump file name pointer
+		DJNZ	GenHashData1	; loop for all 11 characters
+
+; The file name & extension are encoded into the representative
+; 18-bit word. Now store this and encode extent bytes (the complete
+; 11-bit extent is computed, and then the related physical extent
+; (directory entry) is calculated from that).
+
+GenHashData5:	LD	(@HshName),HL	; store lower 16 bits of name hash
+		LD	HL,@HshUsr	; point to hash user code
+		AND	3		; get two MS bits of name hash word
+		RRCA
+		RRCA			; move into bits 6&7
+		OR	(HL)
+		LD	(HL),A		; insert into hash user code
+		AND	20H		; directory label?
+		JR	NZ,GenHashData8	; yes: don't encode extent
+		LD	A,(DE)		; get extent byte from FCB
+		AND	1FH		; mask unused bits
+		LD	C,A		; temporarily store to C
+		INC	DE
+		INC	DE		; move on to S2 byte
+		LD	A,(DE)
+		AND	3FH		; get lower 6 bits (extent extension)
+		RRCA
+		RRCA
+		RRCA			; shift them around somewhat
+		LD	D,A		; and move into D
+		AND	7		; isolate extent bits 8..10
+		LD	B,A		; ...and store them in B
+		LD	A,D
+		AND	0E0H		; get extent bits 5..7 in bits 5..7
+		OR	C		; combine with bits 0..4
+		LD	C,A		; ... to get 11-bit extent in BC
+		LD	A,(EXM)		; get extent mask
+GenHashData6:	RRA
+		JR	NC,GenHashData7	; we're through: continue
+		RR	B
+		RR	C		; shift right BC
+		JR	GenHashData6	; ...to get phys. extent (entry)
+GenHashData7:	LD	A,B
+		AND	1		; get bit 8 of entry number
+		RRCA
+		RRCA			; move into bit 6
+GenHashData8:	RRCA			; move into bit 5 (bit 4 for DirLbl)
+		OR	(HL)
+		LD	(HL),A		; insert this in hash user too
+		LD	DE,3
+		ADD	HL,DE		; point to hash extent
+		LD	(HL),C		; store lower byte of entry number
+		RET
+
+; Check if hashing is enabled for the currently selected drive.
+
+ChkHashEnable:	LD	HL,(HASH)	; get HASH value from DPH
+		LD	A,L
+		OR	H		; ?? bug? (should be "AND H")
+		INC	A		; return Z if it's FFFF (no hash)
+		RET
+
+; Search the hash table for a matching entry.
+; This routine is called only once, from "SrchNextEntry".
+
+HashSearch:	CALL	ChkHashEnable
+		RET	Z		; return if hashing disabled
+		LD	A,(@HshCk)
+		INC	A
+		RET	Z		; ...or compare level set to FF
+		LD	A,(@Match)
+		OR	A
+		RET	Z		; ...or match level set to 0
+
+		LD	HL,(UsedEntriesPtr)
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL		; get no. of used entries into HL
+		DEC	A
+		JR	NZ,HashSearch1	; match level not 1: scan used entries
+		LD	HL,(DRM)	; otherwise: scan all entries
+HashSearch1:	LD	(SrchLim),HL	; store search limit (entry count)
+		LD	A,(HBANK)
+		LD	HL,(HASH)
+		CALL	SearchHash	; resident BDOS: search hash table
+		JR	NZ,HashSearch2	; not found: mark this, but return ok
+		LD	A,(SrchFlag)	; check flag returned by resident BDOS
+		OR	A
+		LD	C,0		; (access code)
+		CALL	NZ,RdDirSecChg	; ?? read dir sector, check for changes
+		LD	A,(@FX)
+		SUB	18		; search next?
+		RET	Z		; yes: return now
+		LD	A,(@HshCk)
+		INC	A		; hashing enabled?
+		CALL	Z,SetEntryFFFF	; no: reset entry position
+		XOR	A
+		RET			; return A=0 and Z: "found"
+
+; No matching hash table entry was found.
+
+HashSearch2:	CALL	ChkEntryValid
+		RET	NZ		; return if entry invalid
+		CALL	CheckInvNext
+		RET	NZ		; invalidating "search next": proceed
+		LD	A,0FFH
+		LD	(@HshCk),A	; disable hashing now
+		LD	HL,(UsedEntriesPtr)
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL		; get no. of used entries
+		DEC	HL		; move back to last used entry
+		CALL	SetEntryPredHL	; set to related record start
+		XOR	A
+		RET			; return as if we found the file
+
+; Update hash table data according to a freshly created file stored in the
+; directory at @Entry.
+
+UpdateHashTbl:	CALL	ChkHashEnable
+		RET	Z		; return if hashing disabled
+		LD	DE,HashTemp
+		LD	HL,@HshUsr
+		LD	BC,4
+		LDIR			; save previous hash data to HashTemp
+		CALL	GetCurEntryAddr	; get pointer to current entry
+		CALL	GenHashData	; generate hash data from it
+		LD	HL,(@Entry)	; get entry number
+		ADD	HL,HL
+		ADD	HL,HL		; *4 gives offset into hash table
+		LD	DE,(HASH)
+		ADD	HL,DE		; compute target address in hash table
+		LD	BC,4		; move 4 bytes
+		LD	DE,@HshUsr	; source: computed hash data
+		LD	A,(HBANK)
+		CALL	StoreBankA	; move hash data into table
+		LD	BC,4
+		LD	DE,@HshUsr
+		LD	HL,HashTemp
+		LDIR			; restore previous hash data
+		EX	DE,HL		; (is this necessary?)
+		RET
+
+; This is a functional extension of the BufferIO routine. In CP/M-3, this
+; is a patch routine, and it wasn't moved into the calling routine with
+; ZPM3 also (why?)
+
+BufferIO0:	CP	3		; special read?
+		JP	NZ,CompMemC	; no: compare C bytes
+		LD	A,(NoPermFlag)
+		INC	A		; permanent drive?
+		JP	NZ,CompMemC	; yes: compare C bytes
+		POP	HL		; otherwise waste return address
+		JP	BufferIO4	; and jump back into BufferIO routine
+
+; Flags which obviously were added later in the CP/M-3 development history...
+
+NoPermFlag:	DB	0		; flag: drive not permanent
+DirectIoFlag:	DB	0		; flag: perform special read (BCB)
+
+; Copy the second allocation vector to the first one, then free all data
+; buffers of the current drive which contain unwritten data (that has not
+; been written to disk yet).
+
+FreeUnwritBCB:	CALL	GetALVlength
+		LD	B,H
+		LD	C,L		; get ALV length into BC
+		LD	HL,(ALV)	; get ALV base address
+		LD	D,H
+		LD	E,L		; ... as destination into DE
+		ADD	HL,BC		; pointer to 2nd vector: source
+		LDIR			; move 2nd vector to first one
+
+; Clear all data buffers of the current drive that contain unwritten
+; data (data that was changed after being read from disk but hasn't been
+; written back to disk yet).
+
+ClrUnwrDatBcb:	LD	HL,(DTABCB)	; get addr. of data BCB list head
+		LD	A,L
+		AND	H
+		INC	A		; entry FFFF ?
+		RET	Z		; yes: return, no buffers
+ClrUnwrBcb1:	LD	E,(HL)
+		INC	HL
+		LD	D,(HL)		; get first/next BCB address
+		LD	A,D
+		OR	E
+		RET	Z		; zero: end of linked list, return
+		LD	HL,CurDrive
+		LD	A,(DE)		; get drive code from BCB
+		CP	(HL)		; compare against current drive
+		JR	NZ,ClrUnwrBcb2	; different: skip this BCB
+		LD	HL,4
+		ADD	HL,DE		; point to WFLAG of BCB
+		LD	A,0FFH
+		CP	(HL)		; is this flag set?
+		JR	NZ,ClrUnwrBcb2	; no: skip this BCB
+		LD	(DE),A		; yes: clear BCB (set drive to FF)
+ClrUnwrBcb2:	LD	HL,13
+		ADD	HL,DE		; point to link field of BCB
+		JR	ClrUnwrBcb1	; check next BCB of linked list
+
+; During scan of the directory for updating the ALV, we moved beyond the
+; last entry (current entry is now FFFFh). So we've completed the first
+; ALV, now copy it to the second one. Then check if the local S1 flag
+; is zero. If yes, set it to 2, otherwise leave it unchanged.
+; (This was a patch in CP/M-3, that's why it's still located here.)
+
+Update2ndALV:	CALL	GetALVlength
+		LD	B,H
+		LD	C,L		; get length of ALV into BC
+		LD	HL,(ALV)
+		LD	D,H
+		LD	E,L		; let DE point to 1st ALV
+		ADD	HL,BC		; ... and HL to 2nd
+		EX	DE,HL		; swap 'em
+		LDIR			; copy 1st ALV to 2nd ALV
+		LD	HL,(LocalS1Adr)
+		LD	A,(HL)		; get local S1
+		OR	A
+		RET	NZ		; return if non-zero
+		LD	(HL),2		; otherwise set bit 1
+		RET
+
+; Z80DOS function 54, also implemented here (CP/M-3 doesn't support this).
+; "Get Stamp" copies the Z80DOS stamp data to the first 10 bytes in the
+; SCB page, and returns a pointer to that area. This method was chosen
+; because the SCB page is always in common memory, thus accessible by
+; the user programs.
+; The Z80DOS stamps consist of a word containing the julian date, and two
+; BCD coded bytes containing hour and minute. The data format is the same
+; that CP/M-3 uses.
+
+ZD_GetStamp:	LD	HL,@Create	; get target address in common memory
+		LD	(RetStat),HL	; save this as return value
+		EX	DE,HL		; (target for LDIR)
+		LD	HL,ZD_CreationDate ; source
+		LD	BC,10		; byte count
+		LDIR			; copy those 10 bytes...
+		RET
+
+ZD_CreationDate:defs	2		; creation date (without time!)
+ZD_Update:	defs	4		; date & time of last modify
+ZD_Access:	defs	4		; date & time of last access
+
+; Two small routines for printer support (needed for "list block" and
+; console echo).
+
+ListOutX:	PUSH	BC		; call ListOut, but preserve BC
+		CALL	ListOut
+		POP	BC
+		RET
+
+ListOut:	LD	HL,?LstOut+2	; do normal (redirectable) List Out
+
+; Generic routine to call BIOS character-I/O routines. This routine is
+; called with the address of the BIOS jump table entry +2 in HL. By this
+; address it checks if the BIOS routine is located above or below the BIOS
+; jump table, which is the difference between the original BIOS routine
+; and a redirected I/O routine (for example within an RSX).
+; This concept is fairly generic and doesn't require changing the
+; inofficial bank switch vectors of CP/M3 (which are used by the GET and
+; PUT RSX's). For further details see the ZPM3 documentation files.
+
+JumpToBios:	LD	A,(HL)		; get page address of routine entry
+		DEC	HL
+		DEC	HL		; point to jump table entry
+		CP	H		; compare routine entry to jump table
+		JP	C,ResBdosEntry	; routine is below: use bank switching
+		JP	(HL)		; original BIOS routine: direct exec.
+
+; Flags and pointers for command-line editor and history feature:
+
+PrnEchoFlag:	DB	0	; internal echo flag during editing
+AutoPrompt:	DB	0	; automatic command expansion enabled
+AutoExpFlag:	DB	0	; automatic expansion in use
+AutoExpPtr:	DW	0	; pointer to history entry currently used
+CurrentChar:	DB	0	; char currently processed (scripts only)
+CharsAtLeft:	DB	0	; number of char's left of cursor position
+CharAtCursor:	DB	0	; character at cursor position
+CharsAtRight:	DB	0	; number of char's right to the cursor
+PromptFlag:	DB	0	; bit 7: command line prompt flag
+HistPosition:	DW	0	; ptr: current hist. pos. (next/prev. line)
+HistTemp:	DW	0	; temporary pointer for history functions
+
+; Start of History Buffer. The entries are stored latest first.
+; An entry consists of the following data structure:
+; 1 Byte Command Prompt Flag (during entry of that line)
+; 1 Byte String Length (n)
+; n Byte String Text
+; 1 Byte terminating null character
+; 1 Byte String Length (n) again, for backward references
+; If the first length byte of an entry is zero, the previous entry is
+; the last one in the history buffer. If the first length byte of the
+; history buffer is zero, the buffer is empty.
+
+		DB	0	; (2nd length byte of "previous" entry)
+HistBuffer:	DB	0	; 1st command prompt flag
+HistFirstLength:		; 1st length of 1st entry will be stored here
+		org	BankedBdos+2DFCh ; use all remaining space
+HistBufLength	equ	$-HistBuffer	 ; as history buffer
+
+HistBufferEnd:	DW	0	; ??
+		DW	0	; ?? unused bytes?
+
+; ASCII and control character definitions:
+
+BEL	equ	7
+BS	equ	8
+TAB	equ	9
+LF	equ	0Ah
+CR	equ	0Dh
+DEL	equ	7Fh
+
+CtlC	equ	'C'-40h
+CtlP	equ	'P'-40h
+XON	equ	'Q'-40h
+XOFF	equ	'S'-40h
+
+; Definitions of Values and Entries in SCB, resident BDOS, and BIOS.
+
+ScbPageBase	EQU	BankedBdos-500h
+
+@Create		EQU	ScbPageBase+000H ; Z80DOS creation date (transfer only)
+@Update		EQU	ScbPageBase+002H ; Z80DOS update stamp (transfer only)
+@Access		EQU	ScbPageBase+006H ; Z80DOS access stamp (transfer only)
+
+Z3EnvAdr	EQU	ScbPageBase+083H ; address of Z3 environment (0=none)
+ZPM3Flags	EQU	ScbPageBase+085H ; various internal bit flags
+@StampVec	EQU	ScbPageBase+090H ; drive vector: stamped drives
+@RelogVec	EQU	ScbPageBase+092H ; drive vector: relogged drives
+
+ScbBase 	EQU	ScbPageBase+09CH ; official SCB start address
+
+@HshCk	 	EQU	ScbPageBase+09CH ; hash check byte (compare level)
+@HshUsr 	EQU	ScbPageBase+09DH ; hash user code (8 bit)
+@HshName	EQU	ScbPageBase+09EH ; hash filename code (16 bit)
+@HshExt 	EQU	ScbPageBase+0A0H ; hash extent code (8 bit)
+@Version	EQU	ScbPageBase+0A1H ; CP/M version number
+@RetCode	EQU	ScbPageBase+0ACH ; program return code
+@Neu31??	EQU	ScbPageBase+0B1H ; ?? write-only variable (word)
+@Chain		EQU	ScbPageBase+0B3H
+@CcpFlags1	EQU	ScbPageBase+0B4H ; various CCP flags (ZPM3 extension)
+@ConWidth	EQU	ScbPageBase+0B6H ; console width
+@Column 	EQU	ScbPageBase+0B7H ; current column
+@BufPtr 	EQU	ScbPageBase+0BAH ; pointer to 128-byte common buffer
+@KeyInPtr	EQU	ScbPageBase+0BCH 
+@ControlH	EQU	ScbPageBase+0CAH ; action (echo/backstep) on ^H
+@Rubout 	EQU	ScbPageBase+0CBH ; action (echo/backstep) on DEL
+@KeyStat	EQU	ScbPageBase+0CCH
+@ConMod 	EQU	ScbPageBase+0CFH ; current console mode
+@Delim		EQU	ScbPageBase+0D3H ; current output delimiter
+@LstOutFlag	EQU	ScbPageBase+0D4H
+@KeyLock	EQU	ScbPageBase+0D5H
+@CrDma		EQU	ScbPageBase+0D8H
+@CrDisk 	EQU	ScbPageBase+0DAH
+@VInfo		EQU	ScbPageBase+0DBH
+@Resel		EQU	ScbPageBase+0DDH
+@MedChange	EQU	ScbPageBase+0DEH
+@FX		EQU	ScbPageBase+0DFH
+@UsrCd		EQU	ScbPageBase+0E0H
+@Entry		EQU	ScbPageBase+0E1H
+@SrFcb		EQU	ScbPageBase+0E3H
+@Match		EQU	ScbPageBase+0E5H
+@MltIO		EQU	ScbPageBase+0E6H
+@ErMde		EQU	ScbPageBase+0E7H
+@ErDsk		EQU	ScbPageBase+0EDH
+@Media		EQU	ScbPageBase+0F0H
+@MsgSize	EQU	ScbPageBase+0F3H
+@Date		EQU	ScbPageBase+0F4H
+@Hour		EQU	ScbPageBase+0F6H
+@Min		EQU	ScbPageBase+0F7H
+@Sec		EQU	ScbPageBase+0F8H
+CommonBase	EQU	ScbPageBase+0F9H
+CommonBasePg	EQU	ScbPageBase+0FAH
+?ErJmp		EQU	ScbPageBase+0FBH
+@MxTpa		EQU	ScbPageBase+0FEH
+
+ResBdos 	equ	BankedBdos-300h
+StoreBankA	EQU	ResBdos+009H
+StoreBank1	EQU	ResBdos+00CH
+SearchHash	EQU	ResBdos+00FH
+SrchLim 	EQU	ResBdos+012H
+SrchFlag	EQU	ResBdos+014H
+XfcbCreFlag	EQU	ResBdos+015H	;*
+PwdEnable	EQU	ResBdos+016H	;*
+AltDir		EQU	ResBdos+017H
+ResBufAdr	EQU	ResBdos+019H
+DmaAdr		EQU	ResBdos+01BH
+FcbCopyFlag	EQU	ResBdos+01DH
+UserFcbAdr	EQU	ResBdos+01EH
+ConInBuf	EQU	ResBdos+020H
+GetBank1	EQU	ResBdos+021H
+ResBdosEntry	EQU	ResBdos+024H
+
+BIOS		equ	BankedBdos-100h
+?Boot		EQU	BIOS+000H
+?WBoot		EQU	BIOS+003H
+?ConSt		EQU	BIOS+006H
+?ConIn		EQU	BIOS+009H
+?ConOut 	EQU	BIOS+00CH
+?LstOut 	EQU	BIOS+00FH
+?AuxOut 	EQU	BIOS+012H
+?AuxIn		EQU	BIOS+015H
+?Home		EQU	BIOS+018H
+?SelDsk 	EQU	BIOS+01BH
+?SetTrk 	EQU	BIOS+01EH
+?SetSec 	EQU	BIOS+021H
+?SetDma 	EQU	BIOS+024H
+?Read		EQU	BIOS+027H
+?Write		EQU	BIOS+02AH
+?ListSt 	EQU	BIOS+02DH
+?SecTrn 	EQU	BIOS+030H
+?ConOst 	EQU	BIOS+033H
+?AuxIst 	EQU	BIOS+036H
+?AuxOst 	EQU	BIOS+039H
+?DevTbl 	EQU	BIOS+03CH
+?DevIni 	EQU	BIOS+03FH
+?DrvTbl 	EQU	BIOS+042H
+?MultIO 	EQU	BIOS+045H
+?Flush		EQU	BIOS+048H
+?Move		EQU	BIOS+04BH
+?Time		EQU	BIOS+04EH
+?SelMem 	EQU	BIOS+051H
+?SetBnk 	EQU	BIOS+054H
+?XMove		EQU	BIOS+057H
+?UserF		EQU	BIOS+05AH
+?Reserv1	EQU	BIOS+05DH
+?Reserv2	EQU	BIOS+060H
+
+; ***** End of portion 7 *****
