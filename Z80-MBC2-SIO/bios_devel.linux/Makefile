@@ -6,14 +6,14 @@
 # An utility to run CP/M-80 programs under Unix/Linux
 # CP/M file names must be lower case (path do not care)
 
-TNYLPO =  ./TNYLPO
+TNYLPO =  ../CPM.COM/TNYLPO
 
-GENCPM3 = $(TNYLPO) CPM.COM/gencpm3
-LINK =    $(TNYLPO) CPM.COM/link
-LOAD =    $(TNYLPO) CPM.COM/load
-MAC =     $(TNYLPO) CPM.COM/mac
-PIP =     $(TNYLPO) CPM.COM/pip
-ZSM4 =    $(TNYLPO) CPM.COM/zsm4
+GENCPM3 = $(TNYLPO) ../CPM.COM/gencpm3
+LINK =    $(TNYLPO) ../CPM.COM/link
+LOAD =    $(TNYLPO) ../CPM.COM/load
+MAC =     $(TNYLPO) ../CPM.COM/mac
+PIP =     $(TNYLPO) ../CPM.COM/pip
+ZSM4 =    $(TNYLPO) ../CPM.COM/zsm4
 
 
 # CP/M programs do not provide a reliable return value
