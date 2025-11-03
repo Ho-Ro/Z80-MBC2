@@ -24,6 +24,7 @@
 ; S220918-R090319   Changed system sign-on message
 ; S220918-R180319   Changed system sign-on message
 ; S220918-R141025   Dynamic system memory size message
+; S220918-R031125   Skip time calculation for unchanged dates
 ;
 ;******************************************************************************
 
@@ -32,7 +33,7 @@ lf	equ	0ah
 
 	dseg
 ?boot$ver:
-	defb	'BOOT S220918-R141025',cr,lf,0
+	defb	'BOOT S220918-R031125',cr,lf,0
 
 
 ; DEFINE LOGICAL VALUES:
@@ -65,9 +66,9 @@ DBG	equ     false
 	public	@tempc		; Temperature in degrees Celsius
 
 				; SOME MISCELLANEOUS EQUATES:
-bdos	equ	5
-cr	equ	13		; ASCII CARRIAGE RETURN
-lf	equ	10		; ASCII LINEFEED
+bdos	equ	0005h
+cr	equ	0dh		; ASCII CARRIAGE RETURN
+lf	equ	0ah		; ASCII LINEFEED
 
 ; -----------------------------------------------------------------------------
 ;
@@ -103,7 +104,7 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 	 endif
 
 				; HARDWARE INITIALIZATION OTHER THAN CHARACTER AND DISK I/O
-	
+
 ?init:
 				; ASSIGN CONSOLE INPUT AND OUTPUT TO CRT
 	ld	hl,8000h	; SIGNIFIES PHYS. DEVICE 0 (CRT)
@@ -120,6 +121,11 @@ sdmount$opc equ	087h		; SDMOUNT opcode
 	ld	hl,2000h	; SIGNIFIES PHYS. DEVICE 2 (SIOA)
 	ld	(@aivec),hl	; AUX INPUT VECTOR
 	ld	(@aovec),hl	; AUX OUTPUT VECTOR
+
+	ld	hl,0ffffh	; Invalid previous RTC values to force 1st read
+	ld	(rtc$prev),hl
+	ld	(rtc$prev+2),hl
+	ld	(rtc$prev+4),hl
 
 	ld	hl,signon$size	; -> '128'
 	ld	a,sysflag$opc
@@ -150,7 +156,6 @@ ram$512:
 	inc	hl
 	ld	(hl),'2'
 ram$size:
-
 	ld	hl,signon$msg1	; Sign-on message part1
 	call	?pmsg
 
@@ -174,7 +179,7 @@ ram$size:
 	ld	hl,?scb$ver
 	call	?pmsg
 	ld	hl,?vdisk$ver
-	jp	?pmsg
+	jp	?pmsg		; ... and return
 
 	 if	banked
 				; --------------------------
@@ -184,7 +189,7 @@ ram$size:
 
 				; THIS ROUTINE IS ENTERED TO LOAD THE CCP.COM FILE INTO THE TPA BANK
 				;  AT SYSTEM COLD START
-	
+
 ?rlccp:				; Reload CCP is the same as load CCP
 ?ldccp:
 				; SET UP THE FCB FOR THE FILE OPERATION
@@ -218,35 +223,34 @@ ccp$found:
 
 				; ROUTINE RELOADS CCP IMAGE FROM BANK 2 IF BANKED SYSTEM OR FROM THE
 				;  DISK IF NON-BANKED VERSION
-	
+
 ; -----------------------------------------------------------------------------
 ;
 ; SETS/GETS TIME (Z80-MBC2)
 ;
-; The time of day is kept as four fields. 
-; @DATE is a binary word containing the number of days since 31 December 1977. 
-; The bytes @HOUR, @MIN, and @SEC in the System Control Block contain the 
+; The time of day is kept as four fields.
+; @DATE is a binary word containing the number of days since 31 December 1977.
+; The bytes @HOUR, @MIN, and @SEC in the System Control Block contain the
 ; hour, minute, and second in Binary Coded Decimal (BCD) format.
 ;
 ; C = Get/Set Flag
 ; C=000H if get, C=0FFH if set
 ; (see Appendix J, Table J-1 of CP/M 3 System Guide)
 ;
-; NOTE1: Only the Get function is implemented. 
-;        To change RTC date/time use the IOS "SELECT BOOT MODE OR SYSTEM PARAME
-; NOTE2: Because the IOS RTC year is from 00 to 99 only date from 1-1-2000 to 3
+; NOTE1: Only the Get function is implemented.
+;        To change RTC date/time use the IOS "SELECT BOOT MODE OR SYSTEM PARAMETER"
+; NOTE2: Because the IOS RTC year is from 00 to 99 only date from 01-01-2000 to 31-12-2099
 ;        are valid for this algorithm (I think that it's enough...)
 ;
 ; -----------------------------------------------------------------------------
 
 ?time:
-				; 
-				; Check if it is a get time operation
+	; Check if it is a get time operation
 	ld	a, c
 	or	a		; Get/Set Flag = 0?
 	ret	nz		; Return if it is a Set Time request
-				; 
-				; Check if the RTC module is present
+
+	; Check if the RTC module is present
 	ld	a, sysflag$opc	; Select SYSFLAG opcode
 	out	(sto$opcd),a
 	in	a,(exc$rd$opcd)	; A = SYSFLAG
@@ -255,53 +259,86 @@ ccp$found:
 	push	bc
 	push	de
 	push	hl
-				; 
-				; Load date/time from the RTC to RTCBUFF
+
+	; Load date/time from the RTC to RTCBUFF
 	ld	a, datetim$opc	; Select DATETIME opcode
 	out	(sto$opcd),a
 	ld	c, exc$rd$opcd	; C = EXECUTE READ opcode
 	ld	hl, rtcbuff	; HL -> RTC Buffer
 	ld	b, 7		; Byte counter = 7 (Sec,Min,Hr,Day,Mth,Yr,Temp)
 	inir			; Read date/time to RTCBUFF
-				; 
+				;
 				; Update @SEC (BCD)
 	ld	bc, rtcbuff	; BC -> RTC seconds
+	ld	hl, rtc$prev	; values from previous read
 	ld	a,(bc)		; A = RTC seconds (binary)
+	cp	(hl)		; changed from last read?
+	jr	z,tm$min	; no, skip calculation
+	ld	(hl),a		; update shadow
 	call	bin2bcd		; Binary to BCD
 	ld	(@sec),a	; Store it into @SEC
-				; 
-				; Update @MIN (BCD)
-	inc	bc		; BC -> RTC minutes
+				;
+tm$min:				; Update @MIN (BCD)
+	inc	bc		; -> RTC minutes
+	inc	hl
 	ld	a,(bc)		; A = RTC minutes (binary)
+	cp	(hl)		; changed from last read?
+	jr	z,tm$hour	; no, skip calculation
+	ld	(hl),a		; update shadow
 	call	bin2bcd		; Binary to BCD
 	ld	(@min),a	; Store it into @MIN
-				; 
-				; Update @HOUR (BCD)
-	inc	bc		; BC -> RTC hours
+				;
+tm$hour:			; Update @HOUR (BCD)
+	inc	bc		; -> RTC hours
+	inc	hl
 	ld	a,(bc)		; A = RTC hours (binary)
+	cp	(hl)		; changed from last read?
+	jr	z,tm$date1	; no, skip calculation
+	ld	(hl),a		; update shadow
 	call	bin2bcd		; Binary to BCD
 	ld	(@hour),a	; Store it into @HOUR
-				; 
-				; Calculate how many whole years elapsed from 31-12-1977 to now
-	ld	a,(rtcyear)
+				;
+tm$date1:
+	inc	bc		; -> DAY
+	inc	hl
+	ld	a,(bc)		; RTC day (binary)
+	cp	(hl)		; NZ if changed
+	ld	(hl),a		; update (always)
+	inc	bc		; -> MONTH
+	inc	hl
+	ld	a,(bc)		; RTC month (binary)
+	jr	nz,tm$date2	; if already changed, keep NZ status
+	cp	(hl)		; else NZ if changed
+tm$date2:
+	ld	(hl),a		; update (always)
+	inc	bc		; -> YEAR
+	inc	hl
+	ld	a,(bc)		; RTC year (binary)
+	jr	nz,tm$date3	; if already changed, keep NZ status
+	cp	(hl)		; else NZ if changed
+tm$date3:
+	ld	(hl),a		; update shadow
+	jr	z,timeret	; no change, skip lengthy date calculation
+
+	; Calculate how many whole years elapsed from 31-12-1977 to now
 	add	a,22
 	ld	c, a		; C = elapsed_years = (RTCYEAR) + 22
-				; 
+				;
 				; Convert it in days into HL (16 bit)
 	xor	a		; A = 0
 	ld	b, a		; B = 0. BC = elapsed_years (16bit)
 	ld	de, 365		; DE = 365
 	call	mult16		; HL = elapsed_years * 365 = elapsed_years_days
-				; 
-				; Calculate how many whole leap years elapsed from 31-12-1977 to now
-				;  (current year excluded) and add it to elapsed_years_days
+				;
+	; Calculate how many whole leap years elapsed from 31-12-1977 to now
+	;  (current year excluded) and add it to elapsed_years_days
 	ld	a,(rtcyear)
 	or	a
 	jr	z,addleapyrs	; If RTCYEAR = 00 -> A = 0
 	dec	a		; If RTCYEAR > 00 -> A = (RTRYEAR) - 1
 	srl     a		; / 2S
 	srl     a		; / 4
-	inc	a		; If RTCYEAR > 00 -> A = (((RTCYEAR) - 1) / 4) 
+	inc	a		; If RTCYEAR > 00 -> A = (((RTCYEAR) - 1) / 4)
 				;  leap years from 31-12-1999 to now (current y
 addleapyrs:
 	add	a,5		; Add leap years from 31-12-1977 to 31-12-1999
@@ -310,7 +347,7 @@ addleapyrs:
 	ld	d, a		; D = 0
 	ld	b ,a		; B = 0. BC = elapsed_leap_years (16bit)
 	add	hl,bc		; HL = elapsed_years_days + elapsed_leap_years
-				; 
+				;
 				; Add days of current month
 	ld	a,(rtcday)
 	ld	c, a		; BC = days_of_current_month (16bit)
@@ -318,7 +355,7 @@ addleapyrs:
 	ld	a,(rtcmonth)	; A = current_month
 	dec	a		; A = Number_of_months_before_current
 	jr	z,checkcurryear	; Jump if Number_of_months_before_current = 0
-				; 
+				;
 				; Add days of all previous months of current year, starting with January
 	ld	bc, monthtab	; BC -> days_of_month (starting from Jan)
 adddays:
@@ -330,7 +367,7 @@ adddays:
 	pop	af
 	dec	a		; There is an other month?
 	jr	nz,adddays	; Jump if there is an other month to compute
-				; 
+				;
 				; If current year is a leap year and current month is > February add one da
 				; to HL
 checkcurryear:
@@ -347,22 +384,23 @@ checkcurryear:
 	jr	nz,timeend	; Jump if not leap
 	inc	hl		; Add 1 to HL
 timeend:
-				; 
+				;
 				; All done, store days from 31-12-1977 to now into @DATE
 	ld	(@date),hl	; Store the date in days from CP/M epoch
+timeret:
 	pop	hl
 	pop	de
 	pop	bc
 	ret
-	
+
 monthtab:
 	defb	31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30 ; Only Jan-Nov needed
-	
+
 ; Multiply 16-bit values (with 16-bit result)
 ; In: Multiply BC with DE
 ; Out: HL = result
 ;
-mult16:	
+mult16:
 	ld	a,  b
 	ld	b, 16
 mult16loop:
@@ -374,16 +412,16 @@ mult16loop:
 mult16noadd:
 	djnz    mult16loop
 	ret
-	
+
 ; BIN to BCD conversion
-;    a(BIN) =>  a(BCD) 
+;    a(BIN) =>  a(BCD)
 ;   [0..99] => [00h..99h]
 ;
 bin2bcd:
 	push	bc
 	ld	b,10
 	ld	c,-1
-div10:	
+div10:
 	inc	c
 	sub	b
 	jr	nc,div10
@@ -397,12 +435,12 @@ div10:
 	or	b
 	pop	bc
 	ret
-	
+
 rtcbuff:			; Buffer for the RTC data (binary)
 	defs	1		; Seconds [0..59]
 	defs	1		; Minutes [0..59]
 	defs	1		; Hours [0..23]
-rtcday:				; 
+rtcday:				;
 	defs	1		; Day [1..31]
 rtcmonth:
 	defs	1		; Month [1..12]
@@ -410,7 +448,10 @@ rtcyear:
 	defs	1		; Year [0..99]
 @tempc:
 	defs	1		; Temperature in deg C [-128..127]
-	
+
+rtc$prev:			; RTC data from previous read
+	defs	6		; smhDMY
+
 ; -----------------------------------------------------------------------------
 
 	 if	banked
@@ -448,7 +489,7 @@ ccp$msg:
 
 				; FCB FOR CCP.COM FILE LOADING:
 ccp$fcb:
-	defb	1		; AUTO-SELECT DRIVE A
+	defb	'A'-'@'		; AUTO-SELECT DRIVE A
 	defb	'CCP     COM'	; FILE NAME AND TYPE
 	defb	0,0,0,0
 	defs	16
