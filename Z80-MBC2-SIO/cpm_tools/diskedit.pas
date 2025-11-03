@@ -95,7 +95,7 @@ end;
 Procedure Error( no: integer ); { show error message and exit program }
 begin
   GotoXY( 10, INFOLINE );
-  case no of 
+  case no of
     0: Write( 'Program requires CP/M 3.0 (CP/M PLUS).' );
     1: Write( 'Error: Invalid drive.' );
     2: Write( 'Error during seek / read / write.' )
@@ -204,7 +204,7 @@ begin
   LowVideo;
   ShowHeader;
   GotoXY( 1, USRLINE );
-  case Mode of 
+  case Mode of
     ReadSector:   Write( 'READ  ' );
     NextSector:   Write( 'READ  ' );
     WriteSector:  Write( 'WRITE ' );
@@ -389,16 +389,24 @@ begin
   BufferValid := False;            { do not show buffer after formatting }
   for Ftrack := FirstTrack to LastTrack do
     begin
-      if (Ftrack < DirTrack) or (Ftrack = DataTrack) then
+      InfoString := 'FORMAT track ';
+      if (Ftrack < DirTrack) or (Ftrack >= DataTrack) then
         begin
           InitBuffer( False );
-          InfoString := 'FORMAT track '
         end
       else if Ftrack = DirTrack then
-             begin
-               InitBuffer( True );
-               InfoString := 'INITDIR track'
-             end;
+        begin
+          if FormatType = 'I' then
+            begin
+              InitBuffer( True );
+              InfoString := 'INITDIR track '
+            end
+          else
+            begin
+              InitBuffer( False );
+              InfoString := 'FORMAT track '
+            end
+        end;
       GotoXY( 1, USRLINE + 5 );
       Write( InfoString , Ftrack:3 );
       for Psector := 0 to ( MaxSector div LogPerPhy ) - 1 do
