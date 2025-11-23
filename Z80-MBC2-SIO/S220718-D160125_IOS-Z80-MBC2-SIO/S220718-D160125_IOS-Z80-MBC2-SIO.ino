@@ -102,7 +102,6 @@ S220718-D080825   SvenMB: corrected handling for ram extension
 --------------------------------------------------------------------------------- */
 // clang-format off
 
-#include <ctime>
 #define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D080825\r\n"
 #define BUILD_STRING "      " __DATE__ "  " __TIME__
 

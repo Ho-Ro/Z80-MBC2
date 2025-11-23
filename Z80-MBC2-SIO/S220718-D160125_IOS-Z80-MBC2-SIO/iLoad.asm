@@ -1,18 +1,19 @@
 ;
-; Loader for the iLoad function, build with:
-; - z80asm -b iLoad.asm
-; - srec_cat iLoad.bin -binary -output iLoad.include -C-Array boot_A_ -Postfix PROGMEN
-; and copy the array into the *.ino file
+; Loader for the iLoad function
+; assemble with z80assembler from https://github.com/Ho-Ro/Z80DisAssembler:
+; - z80assembler -c iLoad.asm
+; and patch the header for use with IOS
+; - sed 's/iLoadAddr/boot_A_StrAddr/g' iLoad.h > boot_A_.h
+; - sed -i 's/iLoad\[\]/boot_A_\[\] PROGMEM/g' boot_A_.h
 ;
 ;
 
 CR      equ     0Dh
 LF      equ     0Ah
-SPC     equ     20h
 
         ORG     0FD10h
 
-LFD10:  LD      SP,$
+start:  LD      SP,$
         LD      HL,hello_msg
         CALL    puts
         CALL    crlf
@@ -123,7 +124,7 @@ ih_load_loop:
         CP      ' '
         JR      Z,ih_load_loop
         CALL    to_upper
-LFE15:  CALL    putc
+        CALL    putc
         CP      ':'
         JP      NZ,ih_load_err
         CALL    get_byte
@@ -142,14 +143,14 @@ update_chk:
         LD      A,H
         CALL    ih_load_chk
         LD      A,L
-LFE38:  CALL    ih_load_chk
+        CALL    ih_load_chk
         CALL    get_byte
         CALL    ih_load_chk
         CP      01h
         JR      NZ,ih_load_data
         CALL    get_byte
         CALL    ih_load_chk
-LFE4B:  LD      A,E
+        LD      A,E
         AND     A
         JR      Z,ih_load_exit
 ih_load_chk_err:
@@ -160,9 +161,10 @@ ih_load_chk_err:
         CALL    puts
         LD      BC,0FFFFh
         JR      ih_load_exit
+
 ih_load_data:  LD      A,D
         AND     A
-        JR      Z,LFE93
+        JR      Z,ih_load_eol
         CALL    get_byte
         CALL    ih_load_chk
         PUSH    HL
@@ -180,12 +182,15 @@ ih_load_data:  LD      A,D
         CALL    puts
         LD      BC,0FFFFh
         JR      ih_load_exit
+
 store_byte:
         LD      (HL),A
         INC     HL
         DEC     D
         JR      ih_load_data
-LFE93:  CALL    get_byte
+
+ih_load_eol:
+        CALL    get_byte
         CALL    ih_load_chk
         LD      A,E
         AND     A
