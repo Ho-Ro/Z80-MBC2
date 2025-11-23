@@ -1,5 +1,5 @@
 --- boards.txt.orig	2024-05-23 21:24:40.000000000 +0200
-+++ boards.txt	2024-11-28 15:50:37.592227340 +0100
++++ boards.txt	2025-11-23 16:48:10.326071033 +0100
 @@ -16,6 +16,7 @@
  menu.pinout=Pinout
  menu.bootloader=Bootloader
@@ -57,3 +57,27 @@
  32.menu.LTO.Os.ltoarcmd=avr-ar
  
  # Clock frequencies - This is the second part of the low fuse bit concatenation
+@@ -1049,6 +1072,23 @@
+ 32.menu.clock.20MHz_external.bootloader.ckopt_bit=0
+ 32.menu.clock.20MHz_external.build.f_cpu=20000000L
+ 
++###
++#
++# Overclocking options 22 and 24 MHz
++32.menu.clock.22MHz_external=External 22 MHz
++32.menu.clock.22MHz_external.upload.default_speed=115200
++32.menu.clock.22MHz_external.bootloader.sut_cksel_bits=111111
++32.menu.clock.22MHz_external.bootloader.ckopt_bit=0
++32.menu.clock.22MHz_external.build.f_cpu=22000000L
++
++32.menu.clock.24MHz_external=External 24 MHz
++32.menu.clock.24MHz_external.upload.default_speed=115200
++32.menu.clock.24MHz_external.bootloader.sut_cksel_bits=111111
++32.menu.clock.24MHz_external.bootloader.ckopt_bit=0
++32.menu.clock.24MHz_external.build.f_cpu=24000000L
++#
++###
++
+ 32.menu.clock.18_432MHz_external=External 18.4320 MHz
+ 32.menu.clock.18_432MHz_external.upload.default_speed=115200
+ 32.menu.clock.18_432MHz_external.bootloader.sut_cksel_bits=111111

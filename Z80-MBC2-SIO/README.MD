@@ -96,6 +96,15 @@ These are the Linux and Windows locations for the current library version:
 C:\Users\<username>\AppData\Local\Arduino15\packages\MightyCore\hardware\avr\3.0.2
 ```
 
+### iLoad
+
+The file "boot_A_.h" is built from the source code in "iLoad.asm" that was created
+by disassembling the hex content of "boot_A_[]" inside the IOS source code.
+This source code is heavily commented by comparing against the code of the older source
+"iLoad_S260117.asm". The content of "boot_A_.h" is byte-by-byte identical to "boot_A_[]" below.
+It can be assembled with the linux [z80assembler](https://github.com/Ho-Ro/Z80DisAssembler).
+
+
 ## Testing
 
 For a first test you can execute `N:TESTCPMX.COM`.

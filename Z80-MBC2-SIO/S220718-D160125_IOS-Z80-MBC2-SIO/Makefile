@@ -14,7 +14,7 @@ FQBN = MightyCore:avr:32
 
 # set the frequency of the MBC2 XTAL
 # clock 16 MHz
-# overclock 20 MHz
+# overclock to 20 MHz, 22 MHz, 24 MHz
 # https://hackaday.io/project/159973-z80-mbc2-a-4-ics-homebrew-z80-computer/details
 MBC2_CLK = 20
 
@@ -43,6 +43,7 @@ BUILD = build/$(subst :,.,$(FQBN))
 # source code for the Arduino project
 INO = $(PRJ).ino
 HEADER = *.h
+BOOT_A__H = boot_A_.h
 SOURCE = *.cpp
 HEX = $(BUILD)/*.hex
 LST = *.lst $(BUILD)/*.lst
@@ -61,7 +62,7 @@ ALL_TARGETS = $(TARGET) $(TARGET_BL)
 all: $(ALL_TARGETS)
 
 
-$(TARGET_BL) : $(INO) $(SOURCE) $(HEADER) Makefile
+$(TARGET_BL) : $(INO) $(SOURCE) $(HEADER) $(ILOAD_H) Makefile
 	arduino-cli compile --export-binaries --warnings all --fqbn $(FQBN_BO) $(INO)
 	@-cp $(IOS_INO_BL_HEX) $@
 	@unix2dos --keepdate --quiet $@
@@ -70,6 +71,24 @@ $(TARGET) : $(TARGET_BL)
 	@-cp $(IOS_INO_HEX) $@
 	@unix2dos --keepdate --quiet $@
 	@ls -l *.hex
+
+
+# iLoad bootloader
+# iLoad.asm contains the disassembled and commented source code
+# of the hex bytes in the array boot_A_[]
+# iLoad.h provides these two consts:
+#   const uint16_t iLoadAddr = 0xFD10;
+#   const uint8_t iLoad[] = { ... }
+# for $(BOOT_A__H) it must be changed to:
+#   const uint16_t boot_A_StrAddr = 0xFD10;
+#   const uint8_t boot_A_[] PROGMEM = { ... }
+
+$(BOOT_A__H): iLoad.h
+	sed 's/iLoadAddr/boot_A_StrAddr/g' iLoad.h > $@
+	sed -i 's/iLoad\[\]/boot_A_\[\] PROGMEM/g' $@
+
+iLoad.h: iLoad.asm
+	z80assembler -c -l iLoad.asm
 
 
 # update AVR via serial bootloader

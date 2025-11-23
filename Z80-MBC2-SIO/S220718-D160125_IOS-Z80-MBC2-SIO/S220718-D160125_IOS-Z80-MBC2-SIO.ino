@@ -102,6 +102,7 @@ S220718-D080825   SvenMB: corrected handling for ram extension
 --------------------------------------------------------------------------------- */
 // clang-format off
 
+#include <ctime>
 #define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D080825\r\n"
 #define BUILD_STRING "      " __DATE__ "  " __TIME__
 
@@ -204,12 +205,32 @@ S220718-D080825   SvenMB: corrected handling for ram extension
 //
 // ------------------------------------------------------------------------------
 
+// Check for overclocking
+#if F_CPU == 24000000
+  #define CLOCK_LOW   "6"
+  #define CLOCK_HIGH  "12"
+#endif
+#if F_CPU == 22000000
+  #define CLOCK_LOW   "5.5"
+  #define CLOCK_HIGH  "11"
+#endif
 #if F_CPU == 20000000
   #define CLOCK_LOW   "5"
   #define CLOCK_HIGH  "10"
-#else
+#endif
+#if F_CPU == 18000000
+  #define CLOCK_LOW   "4.5"
+  #define CLOCK_HIGH  "9"
+#endif
+
+// standard clock frequency
+#if F_CPU == 16000000
   #define CLOCK_LOW   "4"
   #define CLOCK_HIGH  "8"
+#endif
+
+#if not defined CLOCK_LOW or not defined CLOCK_HIGH
+  #error Clock frequency F_CPU undefined or invalid
 #endif
 
 // ------------------------------------------------------------------------------
@@ -251,6 +272,18 @@ const byte    maxDiskSet   = 6;           // Number of configured Disk Sets
 const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256KByte,2=512KByte)
 
 // Z80 programs images into flash and related constants
+
+#if true
+
+// The file "boot_A_.h" is built from the source code in "iLoad.asm" that was created
+// by disassembling the below hex content of "boot_A_[]". This source code is heavily
+// commented by comparing against the code of the older source "iLoad_S260117.asm".
+// The content of "boot_A_.h" is byte-by-byte identical to "boot_A_[]" below.
+
+#include "boot_A_.h"
+
+#else
+
 const word  boot_A_StrAddr = 0xfd10;      // Payload A image starting address (flash)
 const byte  boot_A_[] PROGMEM = {         // Payload A image (S200718 iLoad)
     0x31, 0x10, 0xFD, 0x21, 0x52, 0xFD, 0xCD, 0xC6, 0xFE, 0xCD, 0x3E, 0xFF, 0xCD, 0xF4, 0xFD, 0x3E,
@@ -294,7 +327,10 @@ const byte  boot_A_[] PROGMEM = {         // Payload A image (S200718 iLoad)
     0x00, 0xC9, 0xDB, 0x01, 0xFE, 0xFF, 0xCA, 0x72, 0xFF, 0xC9
 };
 
+#endif
+
 const byte * const flahBootTable[1] PROGMEM = {boot_A_}; // Payload pointers table (flash)
+
 
 // ------------------------------------------------------------------------------
 //
