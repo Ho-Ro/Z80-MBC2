@@ -11,6 +11,14 @@
 CR      equ     0Dh
 LF      equ     0Ah
 
+;
+; Adresses and opcodes for serial I/O
+;
+WROPC   equ     00h     ; EXECUTE WRITE OPCODE write port
+STOPC   equ     01h     ; STORE OPCODE write port
+RXD     equ     01h     ; SERIAL RX read port
+TXOPC   equ     01h     ; SERIAL TX opcode
+
         ORG     0FD10h
 
 start:  LD      SP,$
@@ -51,7 +59,7 @@ print_addr:
 ; Flush remaining input data (if any) and jump to the loaded program
 ;
 flush_rx:
-        IN      A,(01h)
+        IN      A,(RXD)
         CP      0FFh
         JR      NZ,flush_rx
         JP      (HL)
@@ -162,7 +170,8 @@ ih_load_chk_err:
         LD      BC,0FFFFh
         JR      ih_load_exit
 
-ih_load_data:  LD      A,D
+ih_load_data:
+        LD      A,D
         AND     A
         JR      Z,ih_load_eol
         CALL    get_byte
@@ -170,7 +179,7 @@ ih_load_data:  LD      A,D
         PUSH    HL
         PUSH    BC
         AND     A
-        LD      BC,0FCF0h
+        LD      BC,start-20h ; FCF0h
         SBC     HL,BC
         POP     BC
         POP     HL
@@ -354,14 +363,14 @@ print_byte:
 
 putc:
         PUSH    AF
-        LD      A,01h
-        OUT     (01h),A
+        LD      A,TXOPC
+        OUT     (STOPC),A
         POP     AF
-        OUT     (00h),A
+        OUT     (WROPC),A
         RET
 
 getc:
-        IN      A,(01h)
+        IN      A,(RXD)
         CP      0FFh
         JP      Z,getc
         RET
