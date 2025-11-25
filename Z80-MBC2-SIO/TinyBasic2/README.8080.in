@@ -1,4 +1,4 @@
-# TINYBASIC
+# Tiny BASIC
 
 ## Palo Alto Tiny BASIC
 
@@ -29,17 +29,12 @@ interpreter software were stealing from him personally.
 and nested parantheses, has 26 staticly assigned variables `A` to `Z` and one dynamic
 array `@` that occupies the remaining free RAM space. 
 
-## TinyBASIC2
+*Tiny BASIC* can be build with the [zmac](https://github.com/gp48k/zmac) assembler.
 
-The 1st Z80 version was built and tested with my [Z80 dongle](https://github.com/Ho-Ro/Z80_dongle).
-I converted the source code to Z80 and used the gained space to add some functionality - still using less than 2KB of code.
-
-### Z80-MBC2 version
+### Z80-MBC2 version `tinybasic8080.asm`
 
 The I/O functions `ROUTC` and `CHKIO` and the memory size were modified for the `iLoad` command of the
-[Z80-MBC2](https://github.com/Ho-Ro/Z80-MBC2).
+[Z80-MBC2](https://github.com/Ho-Ro/Z80-MBC2). I made some formatting changes w/o functional impact.
 
-*TinyBASIC2* can be build with the [zmac](https://github.com/gp48k/zmac) assembler.
-
-### Commands
+### Commands of the original Tiny BASIC
 
