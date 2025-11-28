@@ -51,7 +51,8 @@ void SC16IS752_Init(uint32_t baud_A, uint32_t baud_B) {
 
 void SC16IS752_WriteByte(uint8_t channel, uint8_t val) {
   if ( verbosity > 2 )
-    Serial.printf( F( "???SIO: WriteByte 0x%02X %c\r\n" ), val, val >= 0x20 && val < 0x7F ? val : '.' );
+    Serial.printf( F( "???SIO%c: WriteByte 0x%02X %c\r\n" ),
+                   'A' + channel, val, val >= 0x20 && val < 0x7F ? val : '.' );
   SC16IS752_WriteRegister(channel, SC16IS752_REG_THR, val);
 }
 
@@ -59,27 +60,24 @@ void SC16IS752_WriteByte(uint8_t channel, uint8_t val) {
 int SC16IS752_ReadByte(uint8_t channel) {
   uint8_t val = SC16IS752_ReadRegister(channel, SC16IS752_REG_RHR);
   if ( verbosity > 2 )
-    Serial.printf( F( "???SIO: ReadByte 0x%02X %c\r\n" ), val, val >= 0x20 && val < 0x7F ? val : '.' );
+    Serial.printf( F( "???SIO%c: ReadByte 0x%02X %c\r\n" ),
+                   'A' + channel, val, val >= 0x20 && val < 0x7F ? val : '.' );
   return val;
 }
 
 
 uint8_t SC16IS752_TxSpaceAvailable(uint8_t channel) {
   uint8_t avSpc = SC16IS752_ReadRegister(channel, SC16IS752_REG_TXLVL);
-  if ( verbosity > 2 ) {
-    Serial.print(F("???SIO: Tx FIFO Space: "));
-    Serial.println(avSpc, DEC);
-  }
+  if ( verbosity > 3 )
+    Serial.printf(F("????SIO%c: Tx FIFO Space: %d\r\n"), 'A' + channel, avSpc );
   return avSpc;
 }
 
 
 uint8_t SC16IS752_RxDataAvailable(uint8_t channel) {
   uint8_t avDat = SC16IS752_ReadRegister(channel, SC16IS752_REG_RXLVL);
-  if ( verbosity > 2 ) {
-    Serial.print(F("???SIO: Rx FIFO Level: "));
-    Serial.println(avDat, DEC);
-  }
+  if ( verbosity > 3 )
+    Serial.printf( F("????SIO%c: Rx FIFO Level: %d\r\n"), 'A' + channel, avDat );
   return avDat;
 }
 
@@ -107,12 +105,10 @@ int32_t SC16IS752_SetBaudrate(uint8_t channel, uint32_t baudrate) { // return ba
 
   actual_baudrate = SC16IS752_CRYSTAL_FREQ / 16 / prescaler / divisor;
   if ( verbosity > 1 ) {
-    Serial.print(F("??SIO: Desired baudrate: "));
-    Serial.println(baudrate,DEC);
-    Serial.print(F("??SIO: Calculated divisor: "));
-    Serial.println(divisor,DEC);
-    Serial.print(F("??SIO: Actual baudrate: "));
-    Serial.println(actual_baudrate,DEC);
+    const char c = 'A' + channel;
+    Serial.printf(F("??SIO%c: Desired baudrate: %d\r\n"), c, baudrate );
+    Serial.printf(F("??SIO%c: Calculated divisor: %d\r\n"), c, divisor );
+    Serial.printf(F("??SIO%c: Actual baudrate: %d\r\n"), c, actual_baudrate );
   }
   return actual_baudrate;
 }
@@ -163,10 +159,8 @@ void SC16IS752_SetLine(uint8_t channel, uint8_t data_length, uint8_t parity_sele
     break;
   }
 
-  if ( verbosity ) {
-    Serial.print(F("?SIO: LCR Register:0x"));
-    Serial.println(temp_lcr,DEC);
-  }
+  if ( verbosity )
+    Serial.printf( F("?SIO%c: LCR Register: 0x%02x\r\n" ), channel, temp_lcr );
 
   SC16IS752_WriteRegister(channel, SC16IS752_REG_LCR,temp_lcr);
 }
@@ -185,8 +179,8 @@ void SC16IS752_FIFOEnable(uint8_t channel, uint8_t fifo_enable) {
 
 void SC16IS752_SetAutoHandshake(uint8_t channel, uint8_t AutoRTS, uint8_t AutoCTS) {
   if ( verbosity > 2 )
-    Serial.printf(F("???SIO: SetAutoHandshake ch%d, %d, %d\r\n"),
-                  channel, AutoRTS, AutoCTS);
+    Serial.printf(F("???SIO%c: SetAutoHandshake %d, %d\r\n"),
+                  'A' + channel, AutoRTS, AutoCTS);
   uint8_t temp_lcr = SC16IS752_ReadRegister(channel, SC16IS752_REG_LCR);
   SC16IS752_WriteRegister(channel, SC16IS752_REG_LCR, 0xBF);    // Enable EFR access
   uint8_t temp_efr = SC16IS752_ReadRegister(channel, SC16IS752_REG_EFR);  // save EFR status
@@ -203,8 +197,8 @@ void SC16IS752_SetAutoHandshake(uint8_t channel, uint8_t AutoRTS, uint8_t AutoCT
 
 void SC16IS752_FIFOSetTriggerLevel(uint8_t channel, uint8_t rx_fifo, uint8_t length) {
   if ( verbosity > 2 )
-    Serial.printf(F("???SIO: FIFOSetTriggerLevel(ch%d, %s, length: &d\r\n"),
-                  channel, rx_fifo ? "RX" : "TX", length);
+    Serial.printf(F("???SIO%c: FIFOSetTriggerLevel(%s_FIFO: &d\r\n"),
+                  'A' + channel, rx_fifo ? "RX" : "TX", length);
   uint8_t temp_reg = SC16IS752_ReadRegister(channel, SC16IS752_REG_MCR);
   SC16IS752_WriteRegister(channel, SC16IS752_REG_MCR,temp_reg | 0x04);   //SET MCR[2] to '1' to use TLR register or trigger level control in FCR register
   temp_reg = SC16IS752_ReadRegister(channel, SC16IS752_REG_LCR);  // save LCR
@@ -270,18 +264,18 @@ uint8_t SC16IS752_ReadRegister(uint8_t channel, uint8_t reg_addr) {
   Wire.endTransmission(0);
   Wire.requestFrom(SC16IS752_ADDRESS, 1);
   result = Wire.read();
-  if ( verbosity > 3 ) {
-    Serial.printf( F( "????SIO: ReadRegister ch%d addr=0x%02X (%s) res=0x%02X\r\n" ),
-      channel, reg_addr, regRdNames[ reg_addr ], result );
+  if ( verbosity > 4 ) {
+    Serial.printf( F( "?????SIO%c: ReadRegister 0x%02X (%s) res=0x%02X\r\n" ),
+      'A' + channel, reg_addr, regRdNames[ reg_addr ], result );
   }
   return result;
 }
 
 
 void SC16IS752_WriteRegister(uint8_t channel, uint8_t reg_addr, uint8_t val) {
-  if ( verbosity > 3 ) {
-    Serial.printf( F( "????SIO: WriteRegister ch%d addr=0x%02X (%s) val=0x%02X\r\n" ),
-                  channel, reg_addr, regWrNames[ reg_addr ], val );
+  if ( verbosity > 4 ) {
+    Serial.printf( F( "?????SIO%c: WriteRegister 0x%02X (%s) val=0x%02X\r\n" ),
+                  'A' + channel, reg_addr, regWrNames[ reg_addr ], val );
   }
   Wire.beginTransmission(SC16IS752_ADDRESS);
   Wire.write((reg_addr<<3 | channel<<1));
