@@ -2346,7 +2346,7 @@ void loop() {
                     //
                     // NOTE: a value 0x40 is forced if the SIO Option is not present
                     if ( moduleSIO ) {
-                        ioData = SC16IS752_RxDataAvailable( OPC_SIOA_RxSTAT ? 0 : 1 );
+                        ioData = SC16IS752_RxDataAvailable( ioOpcode == OPC_SIOA_RxSTAT ? 0 : 1 );
                     } else
                         ioData = 0x40; // RxFIFO full - USED BY CP/M CHARIO.MAC
                     break;
@@ -2361,7 +2361,7 @@ void loop() {
                     //
                     // NOTE: a value 0x40 is forced if the SIO Option is not present
                     if ( moduleSIO ) {
-                        ioData = SC16IS752_TxSpaceAvailable( OPC_SIOA_TxSTAT ? 0 : 1 );
+                        ioData = SC16IS752_TxSpaceAvailable( ioOpcode == OPC_SIOA_TxSTAT ? 0 : 1 );
                     } else
                         ioData = 0x40; // Tx FIFO empty - USED BY CP/M CHARIO.MAC
                     break;
