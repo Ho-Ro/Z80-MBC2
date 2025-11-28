@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""
+iload.py - Send text, Intel HEX, or binary-as-Intel-HEX to a serial port.
+
+Uses pyserial for portable, reliable serial communications.
+
+Features:
+- Text mode with optional HEX checksum validation
+- Binary mode: convert .bin to Intel HEX starting at required address
+- Optional --eof adds a CTRL-Z byte after transfer
+- Configurable baudrate, line endings, delay, verbose debug
+"""
+
+import sys
+import time
+import argparse
+import re
+import serial
+import os
+
+# Intel HEX format detection
+HEX_LINE_RE = re.compile(r"^:[0-9A-Fa-f]{2}(?:[0-9A-Fa-f]{4}[0-9A-Fa-f]{2}(?:[0-9A-Fa-f]{2})*)?[0-9A-Fa-f]{2}$")
+
+def is_hex_candidate(line: str) -> bool:
+    return bool(HEX_LINE_RE.match(line.strip()))
+
+def is_valid_intel_hex(line: str) -> bool:
+    line = line.strip()
+    if len(line) < 11:
+        return False
+    if not is_hex_candidate(line):
+        return False
+    try:
+        data = bytes.fromhex(line[1:])
+    except ValueError:
+        return False
+    checksum = sum(data) & 0xFF
+    return checksum == 0
+
+def make_hex_line(addr, chunk):
+    """Create a complete Intel HEX line for a given address and data block."""
+    ll = len(chunk)
+    a_hi = (addr >> 8) & 0xFF
+    a_lo = addr & 0xFF
+    record = [ll, a_hi, a_lo, 0x00] + list(chunk)
+    checksum = (-sum(record)) & 0xFF
+    hexdata = "".join(f"{b:02X}" for b in record)
+    return f":{hexdata}{checksum:02X}"
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Send text, Intel HEX, or binary data to a serial port."
+    )
+
+    parser.add_argument("textfile", nargs="?", help="Input file (or stdin if omitted)")
+    parser.add_argument("-p", "--port", default="/dev/ttyUSB0",
+                        help="Serial port (default: /dev/ttyUSB0)")
+    parser.add_argument("--baud", type=int, default=115200,
+                        help="Baud rate (default: 115200)")
+    parser.add_argument("-d", "--delay", type=float, default=50,
+                        help="Delay between lines in ms (default: 50)")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Verbose output")
+    parser.add_argument("-t", "--text", action="store_true",
+                        help="Treat input as plain text (disable HEX checking)")
+
+    parser.add_argument("--eof", action="store_true",
+                        help="Send CTRL-Z (0x1A) after transmission")
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-c", "--crlf", action="store_true", help="Use CRLF (\\r\\n)")
+    group.add_argument("-l", "--lf", action="store_true", help="Use LF (\\n)")
+    group.add_argument("-r", "--cr", action="store_true", help="Use CR (\\r)")
+
+    parser.add_argument(
+        "-b", "--binary",
+        metavar="ADDR",
+        help="Binary mode: required starting hex address, e.g. -b 4000"
+    )
+
+    args = parser.parse_args()
+    delay_seconds = args.delay / 1000.0
+
+    # Decide line ending
+    if args.crlf:   forced_ending = b"\r\n"
+    elif args.lf:   forced_ending = b"\n"
+    elif args.cr:   forced_ending = b"\r"
+    else:           forced_ending = None
+
+    #
+    # Open the serial port using pyserial
+    #
+    try:
+        ser = serial.Serial(
+            port=args.port,
+            baudrate=args.baud,
+            timeout=1,
+            write_timeout=1
+        )
+    except serial.serialutil.SerialException as e:
+        print(f"Serial error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.verbose:
+        print(f"[VERBOSE] Opened port {args.port} at {args.baud} baud")
+
+    #
+    # ---- BINARY MODE ----
+    #
+    if args.binary is not None:
+        try:
+            start_addr = int(args.binary, 16)
+        except ValueError:
+            print(f"Error: invalid hex address '{args.binary}'", file=sys.stderr)
+            sys.exit(1)
+
+        if args.textfile:
+            if not os.path.isfile(args.textfile):
+                print(f"Error: file '{args.textfile}' not found.", file=sys.stderr)
+                sys.exit(1)
+            with open(args.textfile, "rb") as f:
+                data = f.read()
+        else:
+            data = sys.stdin.buffer.read()
+
+        if args.verbose:
+            print(f"[VERBOSE] Binary→HEX, start addr = 0x{start_addr:04X}, {len(data)} bytes")
+
+        addr = start_addr
+        block_size = 16
+
+        for offset in range(0, len(data), block_size):
+            chunk = data[offset : offset + block_size]
+            line = make_hex_line(addr, chunk)
+            ser.write(line.encode("ascii") + b"\n")
+            ser.flush()
+            if args.verbose:
+                print(f"[HEX] {line}")
+            addr += len(chunk)
+            time.sleep(delay_seconds)
+
+        eof = ":00000001FF"
+        ser.write(eof.encode("ascii") + b"\n")
+        ser.flush()
+        if args.verbose:
+            print(f"[HEX] {eof}")
+
+        if args.eof:
+            ser.write(b"\x1A")
+            ser.flush()
+            if args.verbose:
+                print("[VERBOSE] Sent EOF byte (CTRL-Z)")
+
+        ser.close()
+        return
+
+    #
+    # ---- TEXT or TEXT+HEX MODE ----
+    #
+    infile = open(args.textfile, "r") if args.textfile else sys.stdin
+
+    for lineno, original_line in enumerate(infile, 1):
+        # Strip line ending
+        if original_line.endswith("\r\n"):
+            base = original_line[:-2]
+            original_ending = b"\r\n"
+        elif original_line.endswith("\n"):
+            base = original_line[:-1]
+            original_ending = b"\n"
+        elif original_line.endswith("\r"):
+            base = original_line[:-1]
+            original_ending = b"\r"
+        else:
+            base = original_line
+            original_ending = b""
+
+        stripped = base.strip()
+
+        if not args.text and is_hex_candidate(stripped):
+            if not is_valid_intel_hex(stripped):
+                print(f"Warning: invalid HEX checksum at line {lineno}, skipped.",
+                      file=sys.stderr)
+                continue
+            else:
+                if args.verbose:
+                    print(f"[VERBOSE] HEX OK line {lineno}")
+
+        # Choose the outgoing newline
+        newline = forced_ending if forced_ending is not None else original_ending
+
+        # Send
+        ser.write(base.encode("ascii", errors="replace") + newline)
+        ser.flush()
+
+        if args.verbose:
+            print(f"[SEND] {repr(base + newline.decode(errors='replace'))}")
+
+        time.sleep(delay_seconds)
+
+    if args.eof:
+        ser.write(b"\x1A")
+        ser.flush()
+        if args.verbose:
+            print("[VERBOSE] Sent EOF byte (CTRL-Z)")
+
+    ser.close()
+
+
+if __name__ == "__main__":
+    main()
