@@ -95,7 +95,7 @@ loader3b.tmp:
 .PHONY:		clean
 clean:
 	rm -f *.hex *.lst *.rel *.sym *.tra *.rsx *.spr \
-	*.mod *.obj *.prn *.prl loader*.tmp ~*
+	*.mod *.obj *.prn *.prl loader*.tmp *~
 
 .PHONY:		distclean
 distclean:	clean

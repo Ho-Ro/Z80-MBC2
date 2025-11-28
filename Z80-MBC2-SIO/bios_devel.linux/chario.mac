@@ -29,7 +29,7 @@ lf	equ	0ah
 
 	dseg
 ?chario$ver:
-	defb	'CHARIO S210918-R210923-D150225',cr,lf,0
+	defb	'CHARIO S210918-R210923-D281125',cr,lf,0
 
 	public	?chario$ver
 
@@ -494,7 +494,7 @@ cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
 				; md 7..6: 00 - no change
 				;          10 - enable RTS/CTS
 				;          01 - enable XON/XOFF (NYI)
-				;          11 - disable all handshake
+				;          11 - reserved, no change
     if	DBG
 	push	hl
 	ld	a,(ctbl2$md)	; handshake request
@@ -545,7 +545,7 @@ cist2a:	ld	a,0ffh		; signal ready
 ci2:				; DEVICE 2 INPUT (Z80-MBC2)
 	ld	a,(sioa$rfa)	; available FIFO data
 	or	a
-	jr	c,ci2a		; already zero, do not decrement
+	jr	z,ci2a		; already zero, do not decrement
 	dec	a		; get one more slot data
 	ld	(sioa$rfa),a
 ci2a:	ld	a,sioa$rxd	; "RX from SIO" cmd
@@ -647,7 +647,7 @@ cist3a:	ld	a,0ffh		; signal ready
 ci3:				; DEVICE 3 INPUT (Z80-MBC2)
 	ld	a,(siob$rfa)	; available FIFO data
 	or	a
-	jr	c,ci3a		; already zero, do not decrement
+	jr	z,ci3a		; already zero, do not decrement
 	dec	a		; get one more slot data
 	ld	(siob$rfa),a
 ci3a:	ld	a,siob$rxd	; "RX from SIO" cmd
@@ -697,7 +697,7 @@ siob$rfa:			; Rx FIFO data available
 null$cist:
 null$cost:
 	xor	a		; RETURN A FALSE STATUS RESULT
-	jr null$ret
+	ret
 null$ci:
 	ld	a,1ah		; FOR INPUT RETURN A CNTL-Z (EOF)
 null$init:
