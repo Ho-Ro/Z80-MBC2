@@ -1,3 +1,5 @@
 # continuous im memory file (=*.bin)
 *.cim
 
+# basic test files
+*.bas
