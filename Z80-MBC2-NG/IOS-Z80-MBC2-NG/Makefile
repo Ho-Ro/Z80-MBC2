@@ -1,11 +1,11 @@
-#################################
-# Makefile for project Z80-MBC2 #
-#    build with arduino-cli     #
-#  under Debian Linux (stable)  #
-#################################
+####################################
+# Makefile for project Z80-MBC2-NG #
+#      build with arduino-cli      #
+#    under Debian Linux (stable)   #
+####################################
 
 # IOS project
-PRJ = S220718-D160125_IOS-Z80-MBC2-SIO
+PRJ = IOS-Z80-MBC2-NG
 
 
 # fully qualified board name for ATmega32

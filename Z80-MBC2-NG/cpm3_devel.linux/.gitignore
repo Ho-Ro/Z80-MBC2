@@ -1,0 +1,11 @@
+*.hex
+*.prn
+*.prl
+*.rel
+*.sym
+
+*.tmp
+
+# linux binaries
+hexcom
+hexpat

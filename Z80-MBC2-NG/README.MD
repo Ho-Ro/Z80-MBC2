@@ -1,4 +1,4 @@
-# BIOS for Z80-MBC2-SIO modification
+# Z80-MBC2-NG - The Next Generation
 
 The zipped disk drive image `DS2N13.DSK.zip` (CP/M3 drive `N:`) contains the
 source code, all build tools, and the binaries for a banked CP/M3 BIOS with
@@ -52,21 +52,21 @@ e.g. as `DS2N00.SAV`. In case of trouble you can always go back.
 ### IOS update
 
 The new BIOS requires an updated IOS, ver. S220718-R290823-D260125 or later.
-Program one of the `S220718-D??????-IOS-Z80-MBC2-SIO_??MHz.hex` files on your
+Program one of the `IOS-Z80-MBC2-NG_??MHz.hex` files on your
 AVR, using a programmer HW with a tool like e.g. `avrdude`. Chose the correct
 clock frequency 16MHz or 20 MHz, depending on your XTAL.
 
 #### Update IOS using a bootloader
 
 1. If you want to update via the serial bootloader then load one of the
-`S220718-D??????-IOS-Z80-MBC2-SIO_BL_??MHz.hex` files initially (unless you
+`IOS-Z80-MBC2-NG_BL_??MHz.hex` files initially (unless you
 have already installed a bootloader, in which case you can proceed directly to 2.).
 Check/set the correct AVR fuse values
 lfuse = 0xAF, hfuse = 0xD6 (avrdude: `-U lfuse:w:0xAF:m -U hfuse:w:0xD6:m`)
 and program the hex file with your programmer.
 
 2. Later updates can be done via the serial interface using the Arduino IDE
-or the `urboot` loader (`avrdude -p m32 -c urclock -U S22...-SIO_xxMHz.hex`),
+or the `urboot` loader (`avrdude -p m32 -c urclock -U IOS-Z80-MBC2-NG_xxMHz.hex`),
 no need to attach the HW programmer again.
 The bootloader option depends on the serial DTR-Reset.
 
@@ -98,10 +98,9 @@ C:\Users\<username>\AppData\Local\Arduino15\packages\MightyCore\hardware\avr\3.0
 
 ### iLoad
 
-The file "boot_A_.h" is built from the source code in "iLoad.asm" that was created
-by disassembling the hex content of "boot_A_[]" inside the IOS source code.
-This source code is heavily commented by comparing against the code of the older source
-"iLoad_S260117.asm". The content of "boot_A_.h" is byte-by-byte identical to "boot_A_[]" below.
+The file `boot_A_.h` is built from the source code in `iLoad.asm` that was found
+on [SvenMb's repo](https://github.com/SvenMb/z80-mbc2-emu/blob/ios_ram/iLoad/S200718%20iLoad.asm)
+The content of `boot_A_.h` is byte-by-byte identical to `boot_A_[]` in the original `IOS*.ino`.
 It can be assembled with the linux [z80assembler](https://github.com/Ho-Ro/Z80DisAssembler).
 
 
@@ -114,10 +113,15 @@ This boots your system with the new BIOS showing someting like:
 ...
 60K TPA
 
-Z80-MBC2 128KB (Banked) CP/M V3.0 with ZPM3
-Z80-MBC2 CPMX BIOS: BIOSKRNL S170319, BOOT S220918-R180319
-CHARIO S210918-R210923-D160125, MOVE S290918, SCB -, VDISK S200918
-...
+Z80-MBC2 512 KB (Banked) CP/M Plus with ZPM3 - BIOS:
+BIOSKRNL S170319
+BOOT S220918-R031125
+CHARIO S210918-R210923-D281125
+MOVE S290918
+SCB stable
+VDISK S200918-D261025
+
+A>
 ```
 
 Pressing the `RESET` button brings you back to the original system.

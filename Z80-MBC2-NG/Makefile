@@ -1,8 +1,8 @@
 #
-# Makefile to build the AVR IOS and CP/M BIOS for Z80-MBC2 with I2C SIO module
+# Makefile to build the AVR IOS and CP/M BIOS for Z80-MBC2-NG
 #
 
-AVR_IOS = S220718-D160125_IOS-Z80-MBC2-SIO
+AVR_IOS = IOS-Z80-MBC2-NG
 CPM_BIOS = bios_devel.linux
 
 .PHONY: all

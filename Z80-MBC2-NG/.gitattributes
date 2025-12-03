@@ -4,3 +4,5 @@ README.MD text
 *.c text
 *.cpp text
 *.h text
+
+*.hex text eol=crlf

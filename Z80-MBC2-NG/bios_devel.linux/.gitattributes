@@ -1,5 +1,3 @@
-gencpm.dat text eol=crlf
-gencpm.md text eof=crlf
 *.DOC text eof=crlf
 *.ASM text eol=crlf
 *.asm text eol=crlf
@@ -21,3 +19,6 @@ gencpm.md text eof=crlf
 *.z80 text eol=crlf
 *.HEX text eol=crlf
 *.hex text eol=crlf
+
+gencpm.dat text eol=crlf
+gencpm.md text eof=crlf
