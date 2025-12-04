@@ -1,0 +1,6 @@
+#
+# Minicom script for the automated SDCC toolchain for the Z80-MBC2
+#
+sleep 3
+! ascii-xfr -s -n -l 100 load.hex
+sleep 1

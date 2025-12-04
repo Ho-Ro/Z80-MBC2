@@ -1,0 +1,5563 @@
+	.Z80
+;		      SUPER DIRECTORY PROGRAM
+;			      SD138
+;			     20 AUG 89
+;
+;    Read SD.INF for detailed instructions on configuring SD for your
+;    system.  For information regarding this utility's modification
+;    history, read SD.HIS.
+;
+;		This program is being distributed ready
+;		to use on a CP/M v2.2 computer with two
+;		disk drives , no Z80DOS, and no ZCPR in use.
+;
+;		(Options often changed for RCPM use are
+;		marked with an asterisk.)  The typical
+;		RCPM Sysop might change only these:
+;
+;		    a)	3 options starting at MAXDRV
+;		    b)	how many drives at LODRV and
+;		    c)	6 options starting at USEF
+;		    d)	USELCW needs wheel to prevent
+;			   showing archive bits
+;
+;
+;	     NOTE:  This version can be assembled with
+;		    ASM, LASM, M80, MAC or SLRMAC.
+;
+; SD displays the directory of a CP/M disk, sorted alphabetically, with
+; the file size in k, rounded to the nearest CP/M block size.  It also
+; displays library and archive files with the file size in k, if the $L
+; option is selected.
+;
+; Current versions of SD automatically adjust for any block size and di-
+; rectory length under CP/M 2.2,  3.0 or MP/M.	They can also handle any
+; number of disk drives or skip those not available.  Current features:
+;
+;	 1) Automatic pauses when the screen fills up except when the
+;	    F, N, or P options are specified
+;	 2) Searching individual or multiple drives and/or user areas
+;	 3) Unconditional or optional disk system reset before execution
+;	    begins
+;	 4) Directing output to a disk file called DISK.DIR and append-
+;	    ing to that file on subsequent runs
+;	 5) Summary line output giving drive and user information, num-
+;	    ber of files matched, how much space they consume and free
+;	    space remaining on the disk
+;	 6) Displaying or suppressing "system" files
+;	 7) Accepting ambiguous filenames with or without a drive name
+;	 8) Printer output (automatically suppresses the [more] pauses)
+;	 9) Optional help menu with '?'
+;	10) Displaying number of records used by files
+;	11) Alphabetization of files sorted by type (extent)
+;	12) Selecting alternate list format - vertical if horizontal
+;	    is default, and vice versa.
+;	13) Shows contents of .ARC, .ARK or .LBR files with $L option
+;	14) Summary line output optionally contains name of ZCPR3 named
+;	    directory, if selected
+;	15) ZCPR3 named directory may be used in command line instead
+;	    of DU: if selected
+;	16) ZCPR3 Public user areas may be displayed with or without
+;	    WHEEL byte
+;	17) ZCPR3+ ENViorment support of wheel, maxdrv, maxusr location, and
+;	    TCAP for REVID,ULINE string
+;	18) If are using ZCPR34+, then have the capability of
+;	    having the program build the LODRV-HIDRV table if DRVVEC
+;	    equate is YES
+;	19) Normal multi-page vertical sort or single page vertical sort
+;	20) Choose files based upon attributes 1-4
+;	21) Summary totals now supplied if /A,/D,/H (or combo).
+;	22) Z80DOS time stamping and SETD22 type stamping of .LBR's
+;	    supported via Z80DOS equate.
+;	23) With Z80DOS, many features of date specification for file
+;	    selection available
+;-----------------------------------------------------------------------
+;
+		ASEG	; Needed for M80 and RMAC, ignore error
+;
+		ORG	0100H
+;
+		JP	START
+;
+NO		EQU	0
+YES		EQU	NOT NO	; (Some assemblers don't like 0FFh)
+;
+; Define version number
+;
+MAIN		EQU	1	; Main block number
+VER		EQU	38	; Current version
+MONTH		EQU	8	; Month
+DAY		EQU	20	; Day
+YEAR		EQU	89	; Year
+;
+;-----------------------------------------------------------------------
+;			     options
+;
+MAXDRV		EQU	NO	; *Yes if MAXD byte is supported
+MAXUR		EQU	NO	; *Yes if MAXU byte is supported
+WHEEL		EQU	NO	; *Yes if using ZCPR wheel byte
+
+; If using equate ZCPR3P set to YES, then the following 3 will be
+; taken from the ENV descriptor automaticaly if the corresponding
+; MAXDRV, MAXUR, or WHEEL equate is set YES
+
+MXDRV		EQU	3DH	; *Set to max drive address if MAXDRV=Yes
+MXUSR		EQU	3FH	; *Set to max user  address if MAXUR=Yes
+WHLOC		EQU	3EH	; *Set to wheel location if WHEEL=Yes
+
+MXZUSR		EQU	15	; Maximum user # allowed with WHEEL set
+; NOTE: OVERRIDES even MXUSR as specified
+; in ENV if ZCPR3P and MAXUR is YES
+
+PRBRDR		EQU	NO	; Yes = print quasi-borders for libraries
+WMBOOT		EQU	NO	; If warmboot is needed on exit
+VLIST		EQU	YES	; Yes for vertical alphabetization
+VSPAGE		EQU	YES	; If Vertical sort is to be by page
+
+DRVVEC		EQU	NO	; Set to YES if want support of Z34
+; drive vector, NOTE: MUST HAVE
+; ZCPR3P SET YES
+
+		DB	'Z3ENV'	; For ZCPR3 Environment ID
+		DB	1	; Class 1, External
+Z3ENV:		DW	0	; Environment Address.	If using ZCPR33
+; This can be left as is.
+
+HEIGHT		EQU	24	; Default screen height
+COLUMNS		EQU	4	; MUST BE 4 AT THE MOMENT (under devel)
+ZDCOLS		EQU	COLUMNS/2 ; less columns for Z80DOS due to date
+HEIGHT_		DW	HEIGHT-1 ; will be changed to real SCB value
+;-------------------------------
+;
+; Drive/User area lookup table:
+; ----------------------------
+; Change the following table as appropriate for your version of CP/M.
+; You can limit the maximum user area without wheel byte independently
+; for any drive available.  Use 0FFh for drives that are not available.
+;
+;		CP/M  v2.2 has 16 user areas, 0-15
+;		CP/M  v3.0 has 32 user areas, 0-31
+;
+; NOTE: Use your editor to move the "HIDRV" line below the correct
+; number of drives for your system.  This not only saves time when the
+; highest drive has been reached, but will display a drive/user error
+; message which otherwise will not be shown.
+;
+LODRV		EQU	$	; Mark beginning of drive/user table
+
+		DB	31	; Maximum user area for drive A
+		DB	31	; "	  "    "    "	"     B
+		DB	31	; "	  "    "    "	"     C
+		DB	31	; "	  "    "    "	"     D
+		DB	31	; "	  "    "    "	"     E
+		DB	31	; "	  "    "    "	"     F
+		DB	31	; "	  "    "    "	"     G
+		DB	31	; "	  "    "    "	"     H
+		DB	31	; "	  "    "    "	"     I
+		DB	31	; "	  "    "    "	"     J
+		DB	31	; "	  "    "    "	"     K
+		DB	31	; "	  "    "    "	"     L
+		DB	31	; "	  "    "    "	"     M
+		DB	31	; "	  "    "    "	"     N
+		DB	31	; "	  "    "    "	"     O
+		DB	31	; "	  "    "    "	"     P
+
+		IF	NOT DRVVEC
+; Use this as end of table if
+; are not using Z34+ drive vector
+HIDRV		EQU	$	; Mark end of drive/user table
+		ENDIF	; NOT DRVVEC
+
+		IF	DRVVEC
+; Table filled in automatically if
+; using Z34+ drive vector
+HIDRV		EQU	$	; Mark end of drive/user table
+		ENDIF	; DRVVEC
+;
+;-------------------------------
+;
+; Command line options:
+; --------------------
+; If any of the following equates are set NO, it prevents their use by
+; any user (including the SYSOP) unless the wheel byte has been set for
+; SYSOP use.  If running an RCPM, you may wish to say NO for those with
+; an asterisk, such as USEF, USERO, USEP and USES to prevent others from
+; using them - the wheel byte makes them available for SYSOP use.
+;
+; NOTE:  For RCPM use, all 5 would normally be set to "NO" to prevent
+; remote use, but would be available to the Sysop with the WHEEL byte.
+;
+USEF		EQU	YES	; *Allow making a local disk copy?
+USEO		EQU	YES	; *Allow showing only $SYS files?
+USEP		EQU	YES	; *Allow making local printer listing?
+USER		EQU	YES	; *Allow disk system reset?
+USES		EQU	YES	; *Allow showing all, and $SYS files?
+
+; Above note goes for the following
+USEA		EQU	YES	; *Allow specifying attributes 1-4?
+
+;
+;-------------------------------
+;
+; Showing tagged attributes
+; -------------------------
+; Displaying files with tagged attributes ($R/O, $SYS, $ARC etc.) in an
+; in an unique manner so they are easy to find, if present.
+;
+;	Example:
+;		FILENAME.SyS	-  $SYS attribute set
+;		FILENAME.doC	-  $SYS and $R/O both set
+;		FILENAME.com	-  $SYS, $R/O and $ARC all set
+;
+; The following equates will permit SD to display the files with tagged
+; attributes in lower case letters (a-z) as in example above.
+;
+USELC		EQU	NO	; Allow lower case letters (a-z)
+USELCW		EQU	NO	; *Allow lower case without wheel byte?
+;
+;
+;-------------------------------
+;
+; Time/date options
+; -----------------
+; The following equate will get the TIMEON from BYE, if BYE is active.
+; The message "Time on system is xx Minutes" will be displayed.
+;
+TIMEON		EQU	NO	; Yes, gets TIMEON from BYE5
+;
+; The following equate will permit the date to be displayed using the
+; European system DD/MM/YY or the American system MM/DD/YY.  This only
+; shows when using 'V' to display version number.
+;
+EDATE		EQU	NO	; Yes = European, No = American
+;
+;-------------------------------
+;
+; If using Z80DOS and you want date stamping support, set the following
+; to YES.
+;
+Z80DOS		EQU	NO
+;
+;-------------------------------
+;
+; If want to be able to specify files to be displayed based upon attribute
+;	1 thru 4 , set the following to yes
+;
+FATTRIB		EQU	YES
+;
+
+;-------------------------------
+;
+; Z3CPR options
+; -------------
+;
+ZCPR3P		EQU	NO	; Allow ENV support of MAXDRV,WHEEL,MAXUSR,
+; TCAP REVID/ULINE
+NDIRS		EQU	NO	; To display directory names
+SHOPUB		EQU	NO	; To display ZRDOS Public Directories
+WHLPUB		EQU	NO	; To make SHOPUB wheel dependent
+ZRDOS		EQU	NO	; Set to yes if using ZRDOS
+Z3DRV		EQU	44	; Offset from ENV location to find drive max
+Z3USR		EQU	45	; Offset from ENV location to find user max
+Z3WHL		EQU	41	; Offset from ENV location to find wheel address
+Z3NDR		EQU	21	; Offset from ENV location to find NDIR address
+ZDRVEC		EQU	34H	; Offset from ENV location to find DRVVEC
+Z3TCAP		EQU	80H	; Offset from ENV location to find TCAP
+
+;-----------------------------------------------------------------------
+;
+; Reverse video options
+; ---------------------
+; The following equate will permit SD to display the files with tagged
+; attributes in either reverse video or bright/dim modes.  This will al-
+; low any character tagged to be visible, as opposed to the USELD method.
+; Up to 7 bytes for enter and exit video modes are provided.  These can
+; be easily patched with DDT, etc.
+;
+		IF	NOT ZCPR3P
+; Use this equate to control REVID
+; if ARE NOT using ZCPR3+
+REVID		EQU	YES	; Yes = inverse or bright/dim display
+		ENDIF
+
+		IF	ZCPR3P
+REVID		EQU	YES	; Video codes will be taken from
+; ENV TCAP if ZCPR3+
+		ENDIF
+
+;------------------------------------------
+;
+; The following equate will allow a SYSOP to control
+; ULINE activation if BYE is active
+; Set to YES if you want BYE running to disable underline
+; Set to NO if you want ULINE to control underline
+
+BYEULI		EQU	NO
+
+;
+; The following equate will highlight/underline the summary line
+;
+		IF	NOT ZCPR3P
+; Use this equate to control REVID
+; if ARE NOT using ZCPR3+
+ULINE		EQU	YES	; Yes = highlight/underline summary
+		ENDIF	; NOT ZCPR3P
+
+		IF	ZCPR3P
+ULINE		EQU	YES	; ULINE will use SO codes from ENV TCAP
+		ENDIF
+;
+;
+; Reverse video control bytes
+; ---------------------------
+; If byte at RVON is 0, simple lower case will be used to display file
+; attributes.
+;
+		IF	REVID OR ZCPR3P
+; These will be filled in automatically
+; if ZCPR3+
+
+RVON:		DB	1BH,'[4m'	; Up to 7 characters for ENTER ULINE
+		DB	0	; String Terminator MUST BE 0
+;
+RVOFF:		DB	1BH,'[0m'	; Up to 7 characters for EXIT ULINE
+		DB	0	; String Terminator MUST BE 0
+		ENDIF	; REVID OR ZCPR3P
+;
+; If byte at ULON is 0, no highlighting/underlining will be used in the
+; banner line.
+;
+		IF	ULINE OR ZCPR3P
+; These will be filled in automatically
+; if ZCPR3+
+ULON:		DB	1BH,'[1m'	; Up to 7 characters for ENTER REVERSE
+		DB	0	; String Terminator, MUST BE 0
+;
+ULOFF:		DB	1BH,'[0m'	; Up to 7 characters for EXIT REVERSE
+		DB	0	; String Terminator MUST BE 0
+		ENDIF	; ULINE OR ZCPR3P
+
+;
+;			end of options
+;-----------------------------------------------------------------------
+;
+; Reference items
+; ---------------
+RECORD		EQU	36
+FRN		EQU	33
+FCR		EQU	32
+READRN		EQU	33
+HDRSIZ		EQU	27
+ARCMAR		EQU	26
+SBCDE		EQU	52EDH
+TMPLT0		EQU	$	; Start of initialization template
+
+		IF	VLIST
+		DB	0
+		ENDIF	; VLIST
+
+		IF	NOT VLIST
+		DB	0FFH
+		ENDIF	; NO VLIST
+
+		DB	'A'	; All-users option flag
+		DB	'C'	; File size in records option
+		DB	'D'	; Multi-disk option flag
+		DB	'E'	; To show only LBR/ARC members
+		IF	USEF
+		DB	'F'	; DISK.DIR file output option
+		ENDIF	; USEF
+
+		IF	NOT USEF
+		DB	'F'+80H
+		ENDIF	; NOT USEF
+
+		DB	'H'	; Show areas from current to highest
+		DB	'L'	; Display library members flag
+		DB	'N'	; No page-pause option flag
+
+		IF	USEO
+		DB	'O'	; To show $SYS files only
+		ENDIF	; USEO
+
+		IF	NOT USEO
+		DB	'O'+80H
+		ENDIF	; NOT USEO
+
+		IF	USEP
+		DB	'P'	; Printer output option
+		ENDIF	; USEP
+
+		IF	NOT USEP
+		DB	'P'+80H
+		ENDIF	; NOT USEP
+
+		DB	'Q'	; To show only non-$ARC files
+
+		IF	USER
+		DB	'R'	; Optional reset of disk system
+		ENDIF	; USER
+
+		IF	NOT USER
+		DB	'R'+80H
+		ENDIF	; NOT USER
+
+		IF	USES
+		;DB	'S'	; Include $SYS files
+		DB	0	; HORO: Always include $SYS files
+		ENDIF	; USES
+
+		IF	NOT USES
+		DB	'S'+80H
+		ENDIF	; NOT USES
+
+		DB	'T'	; Primary sort by file type
+		DB	'V'	; Show SD version
+		DB	'X'	; Alternate alphabetization
+
+		IF	Z80DOS
+		DB	'='	; Look for exact match of date given
+		DB	'+'	; Look for files of date GE date given
+		DB	'-'	; Look for files of date LT date given
+		DB	'!'	; Match with creation date
+		DB	'%'	; Match with alteration date
+		DB	'@'	; Match with access date
+		DB	'Z'	; Do not show dates
+		ENDIF	;Z80DOS
+
+;	 IF	FATTRIB		; Allow spec of file attributes 1-4?
+		IF	USEA AND FATTRIB
+		DB	'1'	; Only files with attrib 1
+		ENDIF	;USEA
+
+		IF	NOT USEA AND FATTRIB
+		DB	80H+'1'
+		ENDIF	;NOT USEA
+
+		IF	USEA AND FATTRIB
+		DB	'2'	; Only files woth attrib 2
+		ENDIF	;USEA
+
+		IF	NOT USEA AND FATTRIB
+		DB	80H+'2'
+		ENDIF	;NOT USEA
+
+		IF	USEA AND FATTRIB
+		DB	'3'	; Only files with attrib 3
+		ENDIF	;USEA
+
+		IF	NOT USEA AND FATTRIB
+		DB	80H+'3'
+		ENDIF	;NOT USEA
+
+		IF	USEA AND FATTRIB
+		DB	'4'	; Only files with attrib 4
+		ENDIF	;USEA
+
+		IF	NOT USEA AND FATTRIB
+		DB	80H+'4'
+		ENDIF	;NOT USEA
+
+;	 ENDIF		;FATTRIB
+;
+; End of option lookup table
+;
+		DW	OUTBUF	; Next location in output buffer
+		DB	128	; # of bytes left in output buffer
+		DB	0,'--DISK--DIR'	; Output Filename.typ
+;
+TMPLT1		EQU	$	; End of initialization data template
+
+VERNAME:	DB	13,10,'SD',MAIN+'0'
+		DB	VER/10+'0',VER MOD 10+'0','B -- '
+
+		IF	NOT EDATE
+		DB	MONTH/10+'0',MONTH MOD 10+'0','/'
+		ENDIF	; NOT EDATE
+
+		DB	DAY/10+'0',DAY MOD 10+'0','/'
+
+		IF	EDATE
+		DB	MONTH/10+'0',MONTH MOD 10+'0','/'
+		ENDIF	; EDATE
+
+		DB	YEAR/10+'0',YEAR MOD 10+'0'
+
+		IF	Z80DOS
+		DB	', Z80DOS'
+		ENDIF
+
+		IF	ZCPR3P;
+		DB	', ZCPR3+/ARC/ARK Version'
+		ENDIF	; ZCPR3
+
+
+		DB	0
+;
+;-----------------------------------------------------------------------
+;			 Program starts here
+;-----------------------------------------------------------------------
+;
+ScbPb:	DB	1Ch,0,0,0	; SCB - get screen height
+;
+
+
+START:		LD	HL,0
+		ADD	HL,SP	; HL=old stack
+		LD	(STACK),HL	; Save it
+		LD	SP,STACK	; Get new stack
+
+		LD	C,CPMVER	; CP/M "get version function"
+		CALL	BDOS
+		CP	31h		; CP/M Plus?
+		JR	C,START1	; Skip if not
+		LD	C,SCBA		; SCB access function
+		LD	DE,ScbPb	; Pre-conditioned for screen height
+		CALL	BDOS		; height-1 comes back in A and L
+		LD	(HEIGHT_),A
+START1:
+		IF	ZCPR3P
+		LD	HL,(Z3ENV)	; Get ENV address
+		PUSH	HL
+		LD	DE,Z3DRV	; Point to max drv byte
+		ADD	HL,DE
+		LD	(Z3DRVL),HL	; Save location away, only used if DRVVEC
+; equate YES
+		POP	HL
+		PUSH	HL
+		LD	DE,Z3USR	; Point to maxuser byte
+		ADD	HL,DE
+		LD	(Z3USRL),HL	; Save location away
+		POP	HL
+		PUSH	HL
+		LD	DE,Z3WHL	; Point to address pointer of wheel
+		ADD	HL,DE
+		LD	E,(HL)	; Get address of wheel byte
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL
+		LD	(Z3WHLL),HL	; Save it away
+		POP	HL
+		PUSH	HL	; ENV pointer back
+		LD	DE,Z3TCAP
+		ADD	HL,DE	; point to TCAP
+		LD	A,(HL)
+		CP	' '+1	; Any TCAP?
+		JP	C,NOSTND	; C=NO
+		LD	DE,17H	; And then to CLS string
+		ADD	HL,DE
+		CALL	VIDSKP	; Move on to SO string
+		CALL	VIDSKP
+		CALL	VIDSKP
+		LD	A,(HL)
+		OR	A
+		JP	Z,NOSTND	; Z=no SO string
+		LD	DE,RVON	; Fill in out data base
+		LD	BC,ULON
+MOVSTO:		LD	A,(HL)
+		OR	A
+		JP	Z,OSTNDO	; Z=done
+		LD	(BC),A
+		LD	(DE),A
+		INC	HL
+		INC	DE
+		INC	BC
+		JP	MOVSTO
+OSTNDO:		INC	HL	; Point to SI string
+		LD	A,(HL)
+		OR	A
+		JP	Z,NOSTND	; Z=none
+		LD	DE,RVOFF	; Fill our data base in
+		LD	BC,ULOFF
+MOVSTD:		LD	A,(HL)
+		OR	A
+		JP	Z,NOSTND
+		LD	(DE),A
+		LD	(BC),A
+		INC	HL
+		INC	DE
+		INC	BC
+		JP	MOVSTD
+
+; FROM VLIB Module Name:  VIDA
+; Author:  Richard Conn
+; VLIB  Version Number:  1.1
+; Module Version Number:  1.1
+;
+;  VIDSKP - Skip over video string pted to by HL; pt to byte after string
+;
+VIDSKP:
+		LD	A,(HL)	;get next char
+		INC	HL	;pt to next
+		OR	A	;done if zero
+		RET	Z
+		CP	'/'	;literal value?
+		JP	NZ,VIDSKP	;continue if not
+		INC	HL	;pt to after literal value
+		JP	VIDSKP
+NOSTND:
+		POP	HL
+		ENDIF	; ZCPR3P
+
+		IF	DRVVEC AND ZCPR3P
+		PUSH	HL
+		LD	DE,ZDRVEC	; Add offset to DRVVEC
+		ADD	HL,DE
+		LD	E,(HL)	; Get the vector
+		INC	HL
+		LD	D,(HL)
+		LD	HL,(Z3USRL)
+		LD	B,(HL)	; Get MAXUSER from ENV
+
+		LD	HL,LODRV	; Fill in our drive table
+		LD	C,10H	; Do 16 drives
+STDRVV:
+		LD	A,D	; Shift the vector right
+		OR	A
+		RRA
+		LD	D,A
+		LD	A,E
+		RRA
+		LD	E,A
+		LD	(HL),0FFH	; Assume no drive
+		JP	NC,NDRVV
+		LD	(HL),B	; Drive found, load maxuser allowed
+NDRVV:		INC	HL
+		DEC	C
+		JP	NZ,STDRVV
+		POP	HL
+		ENDIF	;DRVVEC AND ZCPR3P
+
+		IF	NDIRS
+		LD	HL,(Z3ENV)	; Get Environment Address
+		LD	DE,Z3NDR	; Point to named directory space
+		ADD	HL,DE
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)	; DE Now contains NDR Address
+		INC	HL
+		LD	A,(HL)
+		ADD	A,1
+		LD	(NUMDIR),A	; Maximum number of entries plus 1
+		EX	DE,HL
+		LD	(NAMADR),HL	; Keep Address for later
+		ENDIF	; NDIRS
+;
+; Clear Public User Areas so they can be displayed
+;
+		IF	SHOPUB
+		LD	HL,(0109H)	; Get Environment Address
+		LD	D,0
+		LD	E,07EH
+		ADD	HL,DE	; HL Points to Public Drive Byte
+		LD	A,(HL)	; Get public DRV byte
+		LD	(PUBDRV),A
+		INC	HL
+		LD	A,(HL)	; Get public USR byte
+		LD	(PUBUSR),A
+		ENDIF	; SHOPUB
+
+;	 IF	WHLPUB
+
+		IF	ZCPR3P AND WHLPUB
+		PUSH	HL
+		LD	HL,(Z3WHLL)	; Point to ENV
+		LD	A,(HL)	; Get wheel
+		POP	HL
+		ENDIF	;ZCPR3P
+
+		IF	NOT ZCPR3P AND WHLPUB
+		LD	A,(WHLOC)	; Load wheel byte
+		ENDIF	; NOT ZCPR3P
+
+		IF	WHLPUB
+		OR	A
+		JP	Z,NOPUB
+		ENDIF	; WHLPUB
+
+		IF	SHOPUB
+		DEC	HL
+		LD	A,0	; Clear Public Areas temporarily
+		LD	(HL),A
+		INC	HL
+		LD	(HL),A
+		ENDIF	; SHOPUB
+
+		IF	WHLPUB AND SHOPUB
+NOPUB:		DS	0
+		ENDIF	; WHLPUB
+;
+; (WHLPUB enabled, the R option is redundant)
+;
+;	 ENDIF			; SHOPUB
+;
+; See if help is wanted
+;
+		LD	HL,FCB+1	; Filename
+		LD	A,(HL)	; 1st Character
+
+		IF	NOT ZCPR3P
+		CP	'?'	; Is it "?"
+		JP	NZ,INIT	; No, Continue
+		INC	HL	; Yes, Next Char
+		LD	A,(HL)	; 2nd Character
+		CP	' '	; Is it " "
+		JP	NZ,INIT	; If not, did not want help guide
+		LD	A,(FCB+9)	; Check for any extent
+		CP	' '
+		JP	Z,HELPME	; If none, wanted help
+		ENDIF	; NOT ZCPR3P
+
+		IF	ZCPR3P
+		CP	'?'	; Is it "?"
+		JP	NZ,CHKSLH	; No, Continue
+		INC	HL	; Yes, Next Char
+		LD	A,(HL)	; 2nd Character
+		CP	' '	; Is it " "
+		JP	NZ,INIT	; If not, did not want help guide
+		LD	A,(FCB+9)	; Check for any extent
+		CP	' '
+		JP	Z,HELPME	; If none, wanted help
+		JP	INIT
+CHKSLH:		CP	'/'	; Is it a slash?
+		JP	NZ,INIT
+		INC	HL
+		LD	A,(HL)	; two slashes gets help
+		CP	'/'
+		JP	Z,HELPME
+		ENDIF	; ZCPR3P
+
+;
+; Zero out the entire initialization data area
+;
+INIT:		LD	HL,DATA0	; Point to start of initialized data area
+		PUSH	HL	; Save for non-zero filling later
+		LD	C,DATA1-DATA0	; Data area length
+		XOR	A	; Clear the "A" register
+
+ZFILL:		LD	(HL),A	; Null the address
+		INC	HL	; Pointer+1
+		DEC	C	; One less to go
+		JP	NZ,ZFILL
+
+		IF	SHOPUB	; In order for the Public Directories
+		LD	A,0FFH	; To be displayed, Option 'R' must be
+		LD	(ROPFLG),A	; Forced true.
+		ENDIF	; SHOPUB
+;
+; Now copy non-zero initialization data from the template area
+;
+		POP	HL	; Load A(DATA0)
+		LD	DE,TMPLT0	; Load A(TMPLT0)
+		LD	C,TMPLT1-TMPLT0	; Template area length
+
+NZFILL:		LD	A,(DE)	; Load template byte
+		LD	(HL),A	; Move to data area
+		INC	DE	; Next location to store data
+		INC	HL	; Next location to get data
+		DEC	C	; One less to go
+		JP	NZ,NZFILL
+
+		LD	HL,0	; Clear HL
+
+		IF	ZRDOS
+		LD	C,ZRDVER	; Get ZRDOS version
+		CALL	BDOS
+		LD	A,L	; ZRDOS Version #
+		LD	(ZRDFLG),A	; Save it
+		ENDIF	; ZRDOS
+
+		LD	C,CPMVER	; Get CP/M  version
+		CALL	BDOS
+		LD	A,L	; CP/M Version number
+		LD	(VERFLG),A	; Save it
+		LD	(SOHFLG),A	; Prevents initial unwanted CRLF
+		CP	20H	; Set carry if CP/M 1.4
+		PUSH	AF	; Save for BYE test
+		LD	E,0FFH	; Load current user number if CP/M 2
+		LD	C,STUSER	; Fall through with A=0 if not
+		CALL	NC,CPM	; Only if CP/M 2.0 or ZRDOS
+		LD	(OLDUSR),A	; Initial user number
+		LD	(NEWUSR),A	; New user = Initial user
+		LD	(BASUSR),A	; Directories
+		POP	AF	; Recover Version Flag
+		LD	E,241	; Special BYE5xx Call
+		LD	C,STUSER	; Returns 77 if BYE5xx active
+		CALL	NC,CPM	; BYE5nn not on CP/M 1.4 system
+		SUB	77	; Return code expected
+		LD	(BYEACT),A	; BYEACT = 0, BYE5nn active
+
+		IF	TIMEON
+		CALL	TIME
+		ENDIF	; TIMEON
+
+		IF	ZCPR3P
+		LD	A,(FCB+13)	; Point to command line buffer (CLB)
+		LD	(NEWUSR),A
+		ENDIF	; ZCPR3P
+
+		IF	NOT ZCPR3P
+		LD	HL,TBUF+1	; Point to command line buffer (CLB)
+		LD	A,(HL)	; CLB Character
+		CP	'['	; CP/M 3.0 style delimiter
+		JP	Z,CLOK	; (may follow command in CP/M 3.0)
+		INC	HL	; CLB pointer +1
+		OR	A	; Terminator?
+		JP	NZ,CLOK	; No, continue
+		LD	(HL),A	; Yes, set 2nd terminator
+
+CLOK:		LD	DE,FCB	; A(file control block)
+		CALL	FNAME	; Process filename.typ
+		LD	A,B	; Disk specification
+		CP	0FFH	; Current?
+		JP	Z,CLUS	; Yes
+		LD	(DE),A	; No, set disk specification
+
+CLUS:		LD	A,C	; User specification
+		CP	0FFH	; Current?
+		JP	Z,CLNON	; Yes
+		LD	(NEWUSR),A	; No, set user specification
+		LD	(BASUSR),A
+		ENDIF	; NOT ZCPR3P
+
+CLNON:		LD	C,CURDSK
+		CALL	CPM	; Load current disk number
+		LD	(OLDDSK),A	; Save for reset if needed
+		INC	A	; Adjust
+		LD	(OUTFCB),A	; Save directory file drive
+		LD	HL,FCB	; A(file control block)
+		LD	A,(HL)	; Load directory search drive
+		OR	A	; Any specified?
+		JP	NZ,START1	; Yes, skip next routine
+		LD	A,(OLDDSK)	; Otherwise, get default disk
+		INC	A	; Adjust
+		JP	START2
+
+START1:		PUSH	AF	; Save status
+		LD	A,1
+		LD	(DRVFLG),A	; Set DRVFLG = 1
+		POP	AF	; Load status
+
+START2:		LD	(HL),A	; Absolute drive code in directory FCB
+;
+; If at least one option is allowed,  scan command line for the option
+; field delimiter. The option field delimiter is considered valid only
+; if it is preceded by at least 1 space  (otherwise may be part of the
+; directory filename).	 Any unrecognized options/illegal user numbers
+; will be flagged.(We scan the command line buffer rather than the 2nd
+; default FCB because all 8 options + 2 digit user number will not fit
+; in the 2nd FCB name field).
+;
+		LD	HL,TBUF	; CLB pointer
+		LD	B,(HL)	; CLB length
+;
+; Search for valid command line delimiter, if not found, assume no
+; options.  Show help menu if single "?" entered.
+;
+SCNDOL:		INC	HL	; CLB PTR+1
+		DEC	B	; CLB LEN-1
+		JP	M,DOPTN	; Exit if command line buffer empty
+		LD	A,(HL)	; CLB Character
+		CP	'['	; CPM+ style delimiter?
+		JP	Z,OPTDLM	; Yes
+		CP	'$'	; CPM2 style delimiter?
+		JP	Z,SPB4	; Yes
+		CP	'/'	; ZCPR style delimiter?
+		JP	NZ,SCNDOL	; No
+
+SPB4:		DEC	HL	; '$' found, space must precede
+		LD	A,(HL)	; Previous character
+		INC	HL
+		CP	' '
+		JP	NZ,SCNDOL	; No space, ignore '$'
+;
+; Valid delimiter found.  Scan the rest of the buffer for options.
+; Errors past this point cause an abort.
+;
+OPTDLM:		EX	DE,HL	; DE = CLB pointer (swap pointers)
+
+SCNOPT:		INC	DE	; CLB PRT+1
+		DEC	B	; CLB LEN-1
+		JP	M,DOPTN	; If option field exhausted, exit
+
+SCNAGN:		LD	A,(DE)	; Load option character
+		CP	' '	; Is it " "?
+
+		IF	Z80DOS
+		JP	Z,LOKDAT	; Space, go look for date info
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		JP	Z,SCNOPT	; Yes, Ignore it
+		ENDIF	;NOT Z80DOS
+
+		CP	']'	; CPM+ style terminator?
+		JP	Z,SCNOPT	; Options may follow terminator
+		LD	HL,OTBL-1	; OTBL pointer
+		LD	C,OEND-OTBL+1	; OTLB length
+
+NOMACH:		INC	HL	; OTLB pointer+1
+		DEC	C	; OTLB length-1
+		JP	Z,CLERR	; Error if option table end
+
+		IF	WHEEL	; ZCMD/ZCPR2/ZCPR3?
+		PUSH	AF	; Save "A" value
+		ENDIF	; WHEEL
+
+		IF	ZCPR3P AND WHEEL
+		PUSH	HL
+		LD	HL,(Z3WHLL)	; Point to ENV
+		LD	A,(HL)	; Get wheel
+		POP	HL
+		ENDIF	;ZCPR3P AND WHEEL
+
+		IF	NOT ZCPR3P AND WHEEL
+		LD	A,(WHLOC)	; Load wheel byte
+		ENDIF	; NOT ZCPR3P AND WHEEL
+
+		IF	WHEEL
+		OR	A	; Set Flags
+		JP	Z,NOMAC1	; Not set, so forget it
+		LD	A,(HL)	; Load the table option
+		ENDIF	;WHEEL
+
+		IF	FATTRIB AND WHEEL
+		AND	7FH
+		ENDIF	;FATTRIB
+
+		IF	NOT FATTRIB AND WHEEL
+		AND	5FH	; Allow the option
+		ENDIF	;NOT FATTRIB
+
+		IF	WHEEL
+		LD	(HL),A	; Stuff back in table
+
+NOMAC1:		POP	AF	; Restore "A" value
+		ENDIF	; WHEEL
+
+		CP	(HL)	; Compare with table entry
+		JP	NZ,NOMACH	; If no match, check next
+		LD	(HL),0	; Else, activate the option
+		JP	SCNOPT	; Continue scan
+;
+;
+; Playback the command line up to the character that stopped the scan
+; and exit
+;
+CLERR:		XOR	A	; Clear "A" register
+		INC	DE	; Tag end of CLB
+		LD	(DE),A	; With terminator
+		CALL	CRLF	; New line
+		LD	DE,ERRMS2	; 'Error'
+		CALL	PUTS
+		LD	DE,ERRTAG	; '->'
+		CALL	PUTS
+		LD	HL,TBUF+1	; Playback CLB to error point
+
+CLELP:		LD	A,(HL)	; Character
+		OR	A	; Zero?
+		JP	Z,CLEX	; Yes, exit
+		CALL	PUTCHR	; No, output to console
+		INC	HL	; CLB pointer+1
+		JP	CLELP	; Continue
+
+CLEX:		LD	A,'?'	; Tag line with a '?' field
+		CALL	PUTCHR
+		CALL	CRLF	; New Line
+
+		IF	SHOPUB
+		CALL	RSTPUB
+		ENDIF	; SHOPUB
+
+;;;;;	JMP	0000H		; And reset CCP, all finished
+		JP	EXIT2
+
+		IF	Z80DOS
+LOKDAT:		INC	DE
+		LD	A,(DE)	; Check to see if * was entered meaning
+		CP	'*'	; use current system time
+		JP	NZ,LOKDAT1	; NZ=no
+		CALL	SYSTIM	; Get the current system time
+		JP	LOKDAT2	; And continue
+LOKDAT1:
+		CALL	EVAL10	; convert month to binary
+		OR	A	; month can't be 0
+		JP	Z,BADDATE
+		CP	13	; can't be >12
+		JP	NC,BADDATE
+		LD	(MONTHS),A	; store month
+		LD	A,(DE)	; End of input line?
+		OR	A
+		JP	Z,BADDATE	; Z=yes, a no-no
+		INC	DE	; Skip /
+		CALL	EVAL10	; convert
+		OR	A	; day can't be 0
+		JP	Z,BADDATE
+		CP	32	; or >31
+		JP	NC,BADDATE
+		LD	(DAYS1),A	; store day
+		LD	A,(DE)	; End of input line?
+		OR	A
+		JP	Z,BADDATE	; Z=yes, a no-no
+		INC	DE	; Skip /
+		CALL	EVAL10
+		LD	(YEARS1),A	; store year
+		PUSH	DE
+		LD	HL,YEARS1	; pt at date
+		CALL	BIN2JUL	; get jul date in hl
+		POP	DE
+LOKDAT2:
+		CALL	DOPLMI	; Process any + or - operators
+		LD	(DATCHK),HL
+		LD	A,(DE)
+		CP	' '	; Next char a space?
+		JP	NZ,DOPTN	; NZ=no, continue
+;	LHLD	DATCH1
+;	MOV	A,H
+;	ORA	L
+;	JZ	CLERR
+		LD	HL,(DATCHK)	; set last input date=first input date
+		LD	(DATCH1),HL
+		JP	LOKDAT	; And go try to get some more dates
+
+SYSTIM:
+		PUSH	DE	; Save pointer to input line
+		LD	DE,ASCII	; Tell Z80DOS to put time here
+		LD	C,105
+		CALL	5	; Go get the time
+		LD	DE,ASCII
+		LD	A,(DE)	; Get LSB of JDAY
+		LD	L,A
+		INC	DE
+		LD	A,(DE)	; Get MSB of JDAY
+		LD	H,A
+		POP	DE	; Get input pointer back
+		INC	DE	; Point ot next
+DOPLMI:		LD	A,(DE)
+		CP	'-'	; Does operator want a subtraction?
+		JP	Z,SUBDAT
+		CP	'+'	; an add?
+		RET	NZ	; NZ=no
+		LD	A,1
+		LD	(DATPLS),A
+		JP	OPDAT
+SUBDAT:		XOR	A
+		LD	(DATPLS),A
+OPDAT:		INC	DE
+		CALL	EVAL10	; Yes go get number
+		PUSH	DE
+		LD	E,A
+		XOR	A
+		LD	D,A
+		LD	A,(DATPLS)	; Chec if adding
+		OR	A
+		JP	NZ,DTIPLS	; NZ=yes
+		LD	A,L
+		SBC	A,E
+		LD	L,A
+		LD	A,H
+		SBC	A,D
+		LD	H,A
+		POP	DE
+		RET
+DTIPLS:
+		ADD	HL,DE
+		POP	DE
+		RET
+
+
+EVAL10:
+		XOR	A
+		LD	B,A	; B holds current number input
+EVAL1:		LD	A,(DE)	; Get input
+		CP	'/'	; / is seperator
+		JP	Z,DEVAL10	; Z= done
+		CP	' '
+		JP	Z,DEVAL10
+		CP	'+'
+		JP	Z,DEVAL10
+		CP	'-'
+		JP	Z,DEVAL10
+		OR	A
+		JP	Z,DEVAL10	; Z= at end of line
+		SUB	'0'	; Verify ascii 0-9
+		JP	C,BADDATE
+		CP	10
+		JP	NC,BADDATE
+		INC	DE
+		LD	C,A	; Old*10+new
+		LD	A,B
+		ADD	A,A
+		ADD	A,A
+		ADD	A,B
+		ADD	A,A
+		ADD	A,C
+		LD	B,A	; B has current
+		JP	EVAL1
+DEVAL10:
+		LD	A,B
+		RET
+BADDATE:
+		PUSH	DE
+		LD	DE,BDTMES
+		CALL	PUTS
+		POP	DE
+		JP	CLERR
+BDTMES:
+		DB	13,10,13,10
+		DB	' *** Illegal Date Entered, form MM/DD/YY or MM/D/YY or M/DD/YY'
+		DB	13,10,13,10,0
+
+;
+;	Binary to Julian Date routine.
+;
+; >>	hl -> yr,mo,da in bin
+; << 	hl = Julian date
+;
+;	Convert to 8080 code from the original
+;	BCD2JUL
+;	by Bridger Mitchel and Howard Goldstein - 4/16/88
+;
+BIN2JUL:
+		PUSH	AF
+		PUSH	BC
+		PUSH	DE
+		LD	A,(HL)	; A=yr
+		INC	HL
+		LD	C,(HL)	;c = mo
+		INC	HL
+		PUSH	HL	;save ptr to day
+		PUSH	AF	;save year
+;
+; set hl= initial julian value of 77/12/31
+;
+		LD	HL,0
+		SUB	78
+		JP	Z,B2JUL3
+		JP	NC,B2JUL0
+		ADD	A,100	;<78, assume next century
+B2JUL0:		LD	B,A	;b = # yrs > 78
+		LD	A,1	;init modulo 4 counter
+		LD	DE,365	;days/yr
+B2JUL1:		ADD	HL,DE	;calc julian val. of  (yr/01/01 - 1)
+		INC	A
+		AND	3	;every 4 yrs,
+		JP	NZ,B2JUL2
+		INC	HL	;..add 1 for leap year
+B2JUL2:		DEC	B
+		JP	NZ,B2JUL1
+;
+; 	hl now = # days in years before current year
+;
+B2JUL3:		POP	AF
+		AND	3	;if current yr == leap year
+		JP	NZ,B2JUL5
+		LD	A,C
+		CP	3	;..and mo >= march
+		JP	C,B2JUL5
+		INC	HL	;..add the extra day (Feb 29)
+;
+B2JUL5:		LD	B,C	; b = month = # months +1 to sum
+		LD	DE,DPERMO	;point at table
+		JP	B2JUL7
+;
+B2JUL6:		CALL	ADDHL	;add # days in this month
+		INC	DE	;bump tbl ptr
+B2JUL7:		DEC	B
+		JP	NZ,B2JUL6
+;
+		POP	DE	;ptr to day
+		CALL	ADDHL
+		POP	DE
+		POP	BC
+		POP	AF
+		RET
+
+ADDHL:		LD	A,(DE)	;add day of current month
+;
+ADDA2HL:
+		ADD	A,L
+		LD	L,A
+		RET	NC
+		INC	H
+		RET
+
+;
+; table of days per month (non-leap year)
+;
+
+DPERMO:		DB	31	;jan
+		DB	28	;feb
+		DB	31	;mar
+		DB	30	;apr
+		DB	31	;may
+		DB	30	;jun
+		DB	31	;jul
+		DB	31	;aug
+		DB	30	;sep
+		DB	31	;oct
+		DB	30	;nov
+		DB	31	;dec
+
+		ENDIF	;Z80DOS
+
+
+
+;.....
+;
+; Options input or not specified, and associated flags set.
+;
+; If D-option, swap error vectors, then start at drive A if no
+; drive specified on command line.
+;
+DOPTN:
+		IF	Z80DOS
+		LD	HL,(DATCH1)
+		LD	A,H
+		OR	L
+		JP	Z,DOPTN1
+		EX	DE,HL
+		LD	HL,(DATCHK)
+		OR	A
+		DW	SBCDE
+		JP	Z,CLERR
+		JP	NC,DOPTN1
+		LD	HL,(DATCHK)
+		LD	(DATCH1),HL
+		EX	DE,HL
+		LD	(DATCHK),HL
+DOPTN1:
+		ENDIF	; Z80DOS
+
+		LD	A,(DOPFLG)	; If multi-disk flag set,
+		OR	A	; Need to set error traps
+		JP	NZ,AOPTN	; If not, go check A-option
+		CALL	SWAPEM	; Swap BDOS error vector tables
+		LD	A,(DRVFLG)	; Directory drive specified?
+		OR	A
+		JP	NZ,AOPTN	; No, don't reset
+		LD	A,1	; Yes, Set FCB to A:
+		LD	(FCB),A
+;
+; Start user at 0 if A-option selected without U-option
+;
+AOPTN:		LD	A,(AOPFLG)	; Check All-users option
+		OR	A
+		JP	NZ,COPTN	; Jump if not
+		LD	A,(HOPFLG)	; Asking to show all from current?
+		OR	A
+		JP	Z,COPTN	; If yes, do not reset "A" to zero
+		XOR	A	; No, Start at user 0
+		LD	(NEWUSR),A
+		LD	(BASUSR),A
+;
+; Test if C-option and set indicator character 'r', else 'k'
+;
+COPTN:		LD	A,(COPFLG)	; File sizes wanted in records?
+		OR	A
+		LD	A,'k'
+		JP	NZ,COPTN1	; Jump if not
+		LD	A,'r'
+
+COPTN1:		LD	(FSIZEC),A	; Indicator char after size
+;
+; Determine whether horizontal or vertical alphabetization.
+; If X-option selected, use alternate format.
+; Set flag and fence character accordingly.
+;
+		LD	A,(EOPFLG)	; If E selected then force vertical for
+		OR	A	; later tests - overrides X option
+		JP	NZ,COPTN2
+		XOR	A
+		LD	(VFLAG),A
+		JP	XOPTN1
+
+COPTN2:		LD	A,(XOPFLG)	; Check for X option
+		OR	A
+		LD	A,(VFLAG)	; Get vertical flag
+		JP	NZ,XOPTN1	; Jump if no X option
+		CPL	; Else swap vertical/horizontal indicator
+		LD	(VFLAG),A	; And change VFLAG other way
+
+XOPTN1:		DS	0
+;
+; The following optionally resets the disk system.  The reset must
+; be done OUTSIDE of the multiple drive loop if the $F option is
+; enabled because CP/M 1.4 will clobber the DMA buffer on reset.
+;
+		LD	A,(ROPFLG)	; Reset Disk?
+		OR	A
+		JP	NZ,NOOPT
+;
+; Disk reset if R option entered on command line
+;
+		LD	C,RESET
+		CALL	CPM
+;
+; Validate drive code and user area numbers from the drive table
+;
+NOOPT:		LD	DE,DRUMSG	; Get drive/user error message
+		PUSH	DE
+		LD	A,(FCB)	; Get directory drive code
+		DEC	A	; Normalize to range of 0-31
+		CP	HIDRV-LODRV	; Compare with max drives on-line
+		JP	NC,ERXIT	; Drive error exit if out of range
+
+;	 IF	MAXDRV		; Look for MXDRV
+
+		IF	ZCPR3P AND MAXDRV
+		LD	HL,(Z3DRVL)	; Point to ENV as loaded
+		ENDIF	;ZCPR3P AND MAXDRV
+
+		IF	NOT ZCPR3P AND MAXDRV
+		LD	HL,MXDRV	; A(MXDRV) to HL
+		ENDIF	;NOT ZCPR3P AND MAXDRV
+
+		IF	MAXDRV
+		LD	L,(HL)	; (MXDRV) to L
+		ENDIF	; MAXDRV
+
+;	 IF	MAXDRV
+
+		IF	NOT ZCPR3P AND MAXDRV
+		INC	HL	; +1
+		ENDIF	; NOT ZCPR33 AND MAXDRV
+
+		IF	MAXDRV AND NOT DRVVEC
+		CP	L	; Check it
+		JP	NC,ERXIT	; Oops if not bigger
+		ENDIF	; MAXDRV AND NOT DRVVEC
+;
+; Skips any drives marked 0FFh, some computers do not have contiguous
+; drives, such as Heath H89, etc.
+;
+		LD	E,A	; Drive code = table index
+		LD	D,0
+		LD	HL,LODRV	; DUTBL Pointer
+		ADD	HL,DE	; DUTBL Pointer+INDEX
+		LD	A,(HL)	; User Number
+		OR	A	; Set Status
+		JP	M,NDSK	; If negative, ignore drive
+
+;	 IF	WHEEL
+
+		IF	ZCPR3P AND WHEEL
+		PUSH	HL
+		LD	HL,(Z3WHLL)	; Point to enviorment
+		LD	A,(HL)	; Get it
+		POP	HL
+		ENDIF	;ZCPR3P AND WHEEL
+
+		IF	NOT ZCPR3P AND WHEEL
+		LD	A,(WHLOC)	; Get wheel byte
+		ENDIF	;NOT ZCPR3P AND WHEEL
+
+		IF	WHEEL
+		OR	A	; Check it
+		JP	Z,USRCK	; If reset, restrict user
+		LD	A,MXZUSR	; If set, max user = MXZUSR
+		JP	USRCK1
+		ENDIF	; WHEEL
+
+USRCK:		LD	HL,LODRV	; DUTBL PTR
+		ADD	HL,DE	; DUTLB PTR+INDEX
+		LD	A,(HL)	; Load max user for this drive
+
+		IF	MAXUR	; Use low memory values if smaller
+		LD	H,A	; Current value of MAXUSR
+		ENDIF	;MAXUR
+
+		IF	ZCPR3P AND MAXUR
+		PUSH	HL
+		LD	HL,(Z3USRL)	; Point to ENV
+		LD	A,(HL)	; Get user
+		POP	HL
+		ENDIF	;ZCPR3P AND MAXUR
+
+		IF	NOT ZCPR3P AND MAXUR
+		LD	A,(MXUSR)	; Alternate value
+		ENDIF	;NOT ZCPR3P AND MAXUR
+
+;	 ENDIF			; MAXUR
+
+		IF	MAXUR AND NOT ZCPR3P
+		SBC	A,1	; MAXUSR is really maximum user+1
+		ENDIF	; MAXUR AND NOT ZCPR3P
+
+		IF	MAXUR
+		CP	H	; Compare the two
+		JP	NC,USRCK1	; OK if MAXU <= table value
+		LD	(MAXUSR),A	; Else replace it
+		ENDIF	; MAXUR
+
+USRCK1:		LD	B,A	; Save max user for later testing
+		AND	1FH	; Insure in range 0-31
+		LD	(MAXUSR),A	; Save it for later
+		LD	HL,NEWUSR	; Point to directory user area
+		CP	(HL)	; Compare with the maximum
+		JP	C,ERXIT	; User number illegal, error exit
+		POP	DE	; Destroy error message pointer
+		LD	A,B	; Check to see if this drive
+		OR	A	; Has been mapped out
+		JP	M,NDSK	; Yes, skip this drive
+		LD	HL,FCB+1	; No, point to name
+		LD	A,(HL)	; Any name specified?
+		CP	'$'	; Delimiter?
+		JP	Z,WCD	; Yes, All files
+		CP	'/'	; Unix/ZCPR3 delimiter?
+		JP	Z,WCD	; Yes, All files
+		CP	'['	; CP/M+ delimiter?
+		JP	Z,WCD
+		CP	' '	; No, Filename specified
+		JP	NZ,GOTFCB
+;
+; No FCB - make FCB all '?'
+;
+WCD:		LD	B,11	; Filename+typ length
+
+QLOOP:		LD	(HL),'?'	; Store "?" in FCB
+		INC	HL	; FCB pointer+1
+		DEC	B	; FCB length-1
+		JP	NZ,QLOOP	; Continue
+
+GOTFCB:		LD	A,'?'	; Force wild extent
+		LD	(FCB+12),A
+		CALL	SETSRC	; Set DMA for BDOS media change check
+		LD	HL,FCB	; Point to FCB drive code for directory
+		LD	E,(HL)	; Load drive code from FCB
+		DEC	E	; Normalize drive code for select
+		LD	C,SELDSK	; Select directory drive to retrieve
+		CALL	CPM	; The proper allocation vector
+		CALL	CKVER	; Check version
+		JP	C,V14	; Pre-2.x...get parameters the 1.4 way
+		LD	C,DSKPAR	; If 2.2 or MP/M...request DPB
+		CALL	BDOS
+		INC	HL
+		INC	HL
+		LD	A,(HL)	; Load block shift
+		LD	(BLKSHF),A	; Block Shift
+		INC	HL	; Bump to block mask
+		LD	A,(HL)	; Load block mask
+		LD	(BLKMSK),A	; Block Mask
+		INC	HL
+		INC	HL
+		LD	E,(HL)	; Get maximum block #
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL
+		LD	(BLKMAX),HL	; Maximum Block #
+		EX	DE,HL
+		INC	HL
+		LD	E,(HL)	; Load directory size
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL
+		JP	FREE
+
+V14:		LD	HL,(BDOS+1)	; Get parameters 1.4 style
+		LD	L,3BH	; Point to directory size
+		LD	E,(HL)	; Get it
+		LD	D,0	; Force high order to 0
+		PUSH	DE	; Save for later
+		INC	HL	; Point to block shift
+		LD	A,(HL)	; Fetch
+		LD	(BLKSHF),A	; Save
+		INC	HL	; Point to block mask
+		LD	A,(HL)	; Fetch it
+		LD	(BLKMSK),A	; And save it
+		INC	HL
+		LD	E,(HL)	; Get maximum block #
+		LD	D,0
+		EX	DE,HL
+		LD	(BLKMAX),HL	; Save it
+		POP	HL	; Restore directory size
+		JP	FREE20	; Calculate free space from alloc vector
+;
+; Calculate number of K free on selected drive now so the FREE figure
+; will not reflect either creation or additions to the DISK.DIR file.
+; Note: This routine will not always function correctly as coded.  To
+; insure the proper calculation when the $F option is specified and
+; cataloging multiple disks on a single drive, you should do a CTL-C
+; AFTER the disk to be cataloged has been readied.
+;
+FREE:		LD	(DIRMAX),HL	; Save max number of directory entries
+		LD	A,(VERFLG)	; Check version number
+		CP	30H	; CP/M 3.0?
+		JP	C,FREE20	; No, Use old method
+		LD	A,(FCB)	; Load drive number
+		DEC	A	; Normalize
+		LD	E,A	; Use compute free space BDOS call
+		LD	C,46	; Calculate free space
+		CALL	CPM
+		LD	C,3	; Answer is a 24-bit integer
+
+FRE3L1:		LD	HL,TBUF+2	; Answer in 1st 3 bytes of TBUF
+		LD	B,3	; Convert from records to k
+		OR	A	; By dividing by 8
+
+FRE3L2:		LD	A,(HL)	; LS byte record count
+		RRA	; /2
+		LD	(HL),A	; Replace
+		DEC	HL	; Next byte record count
+		DEC	B;
+		JP	NZ,FRE3L2	; Loop for 3 bytes
+		DEC	C
+		JP	NZ,FRE3L1	; Shift 3 times
+		LD	HL,(TBUF)	; Now get result in k
+		JP	SAVFRE	; Save Free Space
+
+FREE20:		LD	C,DSKALL	; Allocation vector address
+		CALL	BDOS
+		EX	DE,HL
+		LD	HL,(BLKMAX)	; Max Block Number
+		INC	HL
+		LD	BC,0	; Init block count = 0
+
+GSPBYT:		PUSH	DE	; Save allocation address
+		LD	A,(DE)
+		LD	E,8	; Set to process 8 blocks
+
+GSPLUP:		RLA	; Test bit
+		JP	C,NOTFRE
+		INC	BC
+
+NOTFRE:		LD	D,A	; Save bits
+		DEC	HL	; Count down blocks
+		LD	A,L
+		OR	H
+		JP	Z,ENDALC	; Quit if out of blocks
+		LD	A,D	; Restore bits
+		DEC	E	; Count down 8 bits
+		JP	NZ,GSPLUP	; Do another bit
+		POP	DE	; Bump to next byte of allocation vector
+		INC	DE
+		JP	GSPBYT	; Process it
+
+ENDALC:		POP	DE	; Clear stack of allocation vector pointer
+		LD	L,C	; Copy blocks to HL
+		LD	H,B
+		LD	A,(BLKSHF)	; Load block shift factor
+		SUB	3	; Convert from records to k
+		JP	Z,SAVFRE	; Skip shifts if 1k blocks return free in HL
+
+FREKLP:		ADD	HL,HL	; Multiply blocks by k/block
+		DEC	A
+		JP	NZ,FREKLP
+;
+SAVFRE:		LD	(FREEBY),HL	; Save free space for output later
+		EX	DE,HL
+		LD	HL,(TOTFRE)
+		ADD	HL,DE
+		LD	(TOTFRE),HL
+;
+; Reenter here on subsequent passes while in the all-users mode
+;
+SETTBL:		LD	HL,(DIRMAX)	; Load directory maximum size
+		INC	HL	; Directory size is DIRMAX+1
+		ADD	HL,HL	; Double directory size
+		LD	DE,ORDER	; Too get order table size
+		ADD	HL,DE	; Allocate order table
+		LD	(TBLOC),HL	; Name tbl begins where order tbl ends
+		LD	(NEXTT),HL
+		EX	DE,HL
+		LD	HL,(BDOS+1)	; Insure we have room to continue
+		LD	A,E
+		SUB	L
+		LD	A,D
+		SBC	A,H
+		JP	NC,OUTMEM
+		CALL	CKVER	; Set carry if pre-CP/M 2
+		LD	A,(NEWUSR)	; Load directory user area
+		LD	E,A
+		LD	C,STUSER	; Get the user function
+		CALL	NC,CPM	; Set new user number if CP/M 2
+;
+; Look up the FCB in the directory
+;
+		LD	A,'?'	; Check for wild FCB extent
+		LD	HL,FCB+12
+		LD	(HL),A	; Match all extents
+		INC	HL
+		LD	(HL),A	; Match all S1 bytes
+		INC	HL
+		LD	(HL),A	; Match all S2 bytes
+		LD	HL,0
+		LD	(COUNT),HL	; Initialize match counter
+		LD	(TOTFIL),HL	; "  total file counter
+		LD	(TOTSIZ),HL	; "  total size counter
+		CALL	SETSRC	; Set DMA for directory search
+		LD	C,SRCHF	; Load 'search first' function
+		JP	LOOK	; Go search for 1st match
+;
+; Read more directory entries
+;
+MORDIR:		LD	C,SRCHN	; Search next function
+
+LOOK:		LD	DE,FCB	; A(file control block)
+		CALL	CPM	; Read directory entry
+		INC	A	; End (0FFH)?
+		JP	Z,SPRINT	; Yes, sort & print what we have
+;
+; Point to directory entry
+;
+		DEC	A	; Undo previous INR A
+		AND	3	; Make modulus 4
+		ADD	A,A	; Multiply
+		ADD	A,A	; By 32 because
+		ADD	A,A	; Each directory
+		ADD	A,A	; Entry is 32
+		ADD	A,A	; Bytes long
+		LD	HL,TBUF+1	; Point to buffer (skip to FN/FT)
+		ADD	A,L	; Point to entry
+
+		IF	FATTRIB
+		LD	L,A	; HL now point to file name
+		LD	A,(ONEFLG)	; Looking for only attribute 1?
+		OR	A
+		JP	NZ,NOTONE	; NZ=no
+		LD	A,(HL)
+		OR	A
+		JP	P,MORDIR	; P=not attr 1
+NOTONE:		INC	HL
+		LD	A,(TWOFLG)	; Only attribute 2?
+		OR	A
+		JP	NZ,NOTTWO	; NZ=no
+		LD	A,(HL)
+		OR	A
+		JP	P,MORDIR	; P=not attr 2
+NOTTWO:		INC	HL
+		LD	A,(THRFLG)	; Only attrib 3?
+		OR	A
+		JP	NZ,NOTTHR	; NZ=no
+		LD	A,(HL)
+		OR	A
+		JP	P,MORDIR	; P= not attr 3
+NOTTHR:		INC	HL
+		LD	A,(FORFLG)	; Only attr 4?
+		OR	A
+		JP	NZ,NOTFOR	; NZ=no
+		LD	A,(HL)
+		OR	A
+		JP	P,MORDIR	; P= not attr 4
+NOTFOR:		LD	A,L
+		ADD	A,6
+		ENDIF	; FATTRIB
+
+		IF	NOT FATTRIB
+		ADD	A,9	; Point to sys byte
+		ENDIF	; NOT FATTRIB
+
+		LD	L,A	; Save (can't carry to H)
+		LD	A,(QOPFLG)	; Find only non-$ARC files?
+		OR	A
+		JP	NZ,OSYS	; No, check for only $SYS files
+		INC	HL	; Yes, get the archive byte
+		LD	A,(HL)
+		DEC	HL
+		OR	A	; Check bit 7 for $ARC file
+		JP	M,MORDIR	; If set, ignore this filename
+
+OSYS:		LD	A,(OOPFLG)	; Find only $SYS files?
+		OR	A
+		JP	NZ,CKSYS
+		LD	A,(HL)	; Yes, get system byte
+		OR	A	; Check bit 7 for $SYS file
+		JP	P,MORDIR	; If not set, ignore this filename
+		JP	SYSFOK	; Else check for a match
+
+CKSYS:		LD	A,(SOPFLG)	; Did user request $SYS files?
+		OR	A
+		JP	Z,SYSFOK	; If yes, exit
+		LD	A,(HL)	; Get system byte back
+		OR	A	; Check bit 7 for $SYS file
+		JP	M,MORDIR	; Skip that file
+
+SYSFOK:		LD	A,L	; Go back now
+		SUB	10	; Back to user number (allocation flag)
+		LD	L,A	; HL points to entry now
+		LD	A,(NEWUSR)	; Get current user
+		CP	(HL)
+		JP	NZ,MORDIR	; Ignore if different
+		INC	HL
+
+		IF	Z80DOS
+		PUSH	BC;
+		PUSH	DE;
+		PUSH	HL;
+		LD	C,54	; Get time stamp from last search
+		CALL	BDOS;
+		LD	DE,6	; Point to last access field
+		LD	A,(DGOPFL)
+		OR	A
+		JP	Z,ACCESS	; Z=what is wanted
+		LD	DE,2	; Point to last alteration field
+		LD	A,(DAOPFL)
+		OR	A
+		JP	Z,ACCESS	; Z=what is wanted
+		LD	DE,0	; Point to creation field
+		LD	A,(DNOPFL)
+		OR	A
+		JP	Z,ACCESS	; Z=what is wanted
+
+		LD	DE,2	; Didn't say, so give him alteration date
+
+ACCESS:		PUSH	HL
+		ADD	HL,DE	; Point to right field in returned database
+		LD	E,(HL)	; Get the date in Julian
+		INC	HL
+		LD	D,(HL)
+		LD	A,D	; Is requested date 0 for the file?
+		OR	E
+		JP	NZ,ACCESS1	; NZ=no, use it
+		POP	HL
+		LD	E,(HL)	; Was zero, use creation date
+		INC	HL
+		LD	D,(HL)
+		PUSH	HL
+ACCESS1:
+		EX	DE,HL
+		LD	(DATMOD),HL
+		POP	HL
+;////
+		POP	HL
+		POP	DE
+		POP	BC
+		ENDIF	;Z80DOS
+;
+; Move entry to table
+;
+		EX	DE,HL	; Entry to DE
+		LD	HL,(NEXTT)	; Next table entry to HL
+		LD	B,11	; Entry length (name, type, extent)
+
+TMOVE:		LD	A,(DE)	; Get entry character
+
+		IF	NOT (USELC OR REVID)
+		AND	7FH	; Remove attributes
+		ENDIF	; NOT (USELC OR REVID)
+
+		LD	(HL),A	; Store in table
+		INC	DE
+		INC	HL
+		DEC	B	; More?
+		JP	NZ,TMOVE
+		INC	DE	; DE->> S1
+		INC	DE	; DE->> S2
+		LD	A,(DE)	; Get S2 byte, oflo=int(extents/32)
+		PUSH	HL	; Save HL
+		LD	L,A	; Set up 16-bit multiply
+		LD	H,0
+		LD	B,5
+		CALL	SHLL	; HL is now # of oflo extents
+		DEC	DE	; DE->> S1
+		DEC	DE	; DE->> extent
+		LD	A,(DE)	; Get extent
+		ADD	A,L
+		LD	L,A
+		LD	A,H
+		ADC	A,0
+		LD	H,A	; HL has total extents
+		LD	B,7
+		CALL	SHLL	; HL has total records less last ext
+		INC	DE	; DE->> S1
+		INC	DE	; DE->> S2
+		INC	DE	; Point to sector count
+		LD	A,(DE)	; Get it
+		ADD	A,L
+		LD	L,A
+		LD	A,H
+		ADC	A,0
+		LD	H,A	; HL has total records
+		EX	(SP),HL	; Do some fancy shuffling
+		EX	DE,HL
+		EX	(SP),HL
+		EX	DE,HL
+		LD	(HL),D
+		INC	HL
+		LD	(HL),E
+		POP	DE	; All back to normal
+		INC	HL
+
+		IF	Z80DOS
+		LD	A,(DATMOD)	; Get LSB of last modified date
+		LD	(HL),A;
+		INC	HL;
+		LD	A,(DATMOD+1)	; Get MSB of last modified date
+		LD	(HL),A;
+		INC	HL;
+		ENDIF	;Z80DOS
+
+		LD	(NEXTT),HL	; Save updated table address
+		EX	DE,HL
+		LD	HL,(COUNT)	; Bump the # of matches made
+		INC	HL
+		LD	(COUNT),HL
+
+		IF	Z80DOS
+		LD	HL,15	; Size of entry include date
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	HL,13	; Size of next entry
+		ENDIF	;NOT Z80DOS
+
+		ADD	HL,DE
+		EX	DE,HL	; Future NEXTT is in DE
+		LD	HL,(BDOS+1)	; Pick up TPA end
+		LD	A,E
+		SUB	L	; Compare NEXTT-TPA end
+		LD	A,D
+		SBC	A,H
+		JP	C,MORDIR	; If TPA end > NEXTT, loop back for more
+
+OUTMEM:		CALL	ERXIT	; Exit if directory too large
+		DB	'Memory',0
+;
+; Shift HL left by B bits
+;
+SHLL:		ADD	HL,HL
+		DEC	B
+		RET	Z
+		JP	SHLL
+;
+; Sort and print
+;
+SPRINT:		CALL	SETFOP	; Return to file output DMA & user #
+		LD	HL,(COUNT)	; Get file name count
+		LD	A,L
+		OR	H	; Any found?
+		JP	Z,PRTOTL	; Exit if no files found
+		PUSH	HL	; Save file count
+		LD	(SUPSPC),A	; Enable leading zero suppression
+;
+; Initialize the order table
+;
+		LD	HL,(TBLOC)	; Get start of name table
+		EX	DE,HL	; Into DE
+		LD	HL,ORDER	; Point to order table
+
+		IF	Z80DOS
+		LD	BC,15	; Entry length including date
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	BC,13	; Entry length
+		ENDIF	;NOT Z80DOS
+
+BLDORD:		LD	(HL),E	; Save low order address
+		INC	HL
+		LD	(HL),D	; Save high order address
+		INC	HL
+		EX	DE,HL	; Table address to HL
+		ADD	HL,BC	; Point to next entry
+		EX	DE,HL
+		EX	(SP),HL	; Save table address, load loop counter
+		DEC	HL	; Count down loop
+		LD	A,L
+		OR	H	; More?
+		EX	(SP),HL	; Load table address, save loop counter
+		JP	NZ,BLDORD	; Yes, go do another one
+		POP	HL	; Clean loop counter off stack
+		LD	HL,(COUNT)	; Get count
+		LD	(SCOUNT),HL	; Save as # to sort
+		DEC	HL	; Only 1 entry?
+		LD	A,L
+		OR	H
+		JP	Z,DONE	; Yes, so skip sort
+;
+; This sort routine is adapted from SOFTWARE TOOLS
+;
+		LD	HL,(SCOUNT)	; Number of entries
+
+L1:		OR	A	; Clear carry
+		LD	A,H	; GAP=GAP/2
+		RRA
+		LD	H,A
+		LD	A,L
+		RRA
+		LD	L,A
+		OR	H	; Is it zero?
+		JP	Z,DONE	; Then none left
+		LD	A,L	; Make gap odd
+		OR	1
+		LD	L,A
+		LD	(GAP),HL
+		INC	HL	; I=GAP+1
+
+L2:		LD	(I),HL
+		EX	DE,HL
+		LD	HL,(GAP)
+		LD	A,E	; J=I-GAP
+		SUB	L
+		LD	L,A
+		LD	A,D
+		SBC	A,H
+		LD	H,A
+
+L3:		LD	(J),HL
+		EX	DE,HL
+		LD	HL,(GAP)	; JG=J+GAP
+		ADD	HL,DE
+		LD	(JG),HL
+		CALL	COMPARE	; Compare (J) and (JG)
+;
+; Use carry flag instead of sign flag to test results of COMPARE
+; because the sign flag is set to M when the result of a subtraction
+; is 80h or greater.
+;
+;	JP	P,L4		; If A(J)<=A(JG)
+		JP	NC,L4	; <crw>
+		LD	HL,(J)
+		EX	DE,HL
+		LD	HL,(JG)
+		CALL	SWAP	; Exchange a(J) and a(JG)
+		LD	HL,(J)	; J=J-GAP
+		EX	DE,HL
+		LD	HL,(GAP)
+		LD	A,E
+		SUB	L
+		LD	L,A
+		LD	A,D
+		SBC	A,H
+		LD	H,A
+		JP	M,L4	; If J>0 go to l3
+		OR	L	; Check for zero
+		JP	Z,L4
+		JP	L3
+
+L4:		LD	HL,(SCOUNT)	; For later
+		EX	DE,HL
+		LD	HL,(I)	; I=I+1
+		INC	HL
+		LD	A,E	; If I<=n go to l2
+		SUB	L
+		LD	A,D
+		SBC	A,H
+		JP	P,L2
+		LD	HL,(GAP)
+		JP	L1
+;
+; Sort is all done - print entries
+;
+DONE:		LD	A,(FOPFLG)	; File output flag
+		OR	A	; Set?
+		JP	NZ,NOOUT	; No, skip open
+;
+; If all user option enabled, and we're not on the first pass, then the
+; output file is already open and positioned, so we can skip the open.
+;
+		LD	HL,OPNFLG	; Output file open flag
+		CP	(HL)	; A=0,set Z if OPNFLG=0 also
+		JP	NZ,NOOUT	; If OPNFLG not zero, skip open
+		DEC	(HL)	; Else, set OPNFLG for next user #
+;
+; First pass on file append - prepare DISK.DIR to receive new
+; or appended output.
+;
+		LD	DE,OUTFCB	; Does output file exist?
+		LD	C,SRCHF
+		CALL	CPM
+		INC	A
+		JP	NZ,OPENIT	; Yes, open for processing
+		LD	C,MAKE	; Else, create output file
+		CALL	CPM
+		INC	A	; Successful?
+		JP	NZ,NOOUT	; Yes, Continue
+;
+; If make or open fails, declare error
+;
+OPNERR:		CALL	ERXIT
+		DB	'Open',0
+;
+WRTERR:		CALL	ERXIT
+		DB	'Write',0
+;
+; Output file already exists - open it and position
+; it to the last record of the last extent.
+;
+OPENIT:		LD	C,OPEN	; Open 1st extent of output file
+		CALL	CPM
+		INC	A
+		JP	Z,OPNERR	; Bad deal if 1st won't open
+
+OPNMOR:		LD	A,(OUTFCB+15)	; Record count (RC)
+		CP	128
+		JP	C,LSTEXT	; If RC<128, this is last extent
+		LD	HL,OUTFCB+12
+		INC	(HL)	; Else, increment to next extent
+		LD	C,OPEN	; Try to open it
+		CALL	CPM
+		INC	A
+		JP	NZ,OPNMOR	; Continue opening extents to end
+		DEC	(HL)	; Then, reopen preceding extent
+		LD	C,OPEN
+		CALL	CPM
+		LD	A,(OUTFCB+15)	; Get RC for the last extent
+;
+; At this point, OUTFCB is opened to the last extent of the file, so
+; read in the last record in the last extent.
+;
+LSTEXT:		OR	A	; Is this extent empty?
+		JP	Z,NOOUT	; Yes, starting a clean slate
+		DEC	A	; Normalize record count
+		LD	(OUTFCB+32),A	; Set record number to read
+		LD	C,READ	; Read last record of file
+		CALL	CPM
+		OR	A	; Successful read?
+		JP	Z,RDOK	; Yes, scan for EOF mark
+
+APERR:		CALL	ERXIT
+		DB	'Append',0
+;
+; We now have the last record in the file in the buffer. Scan the last
+; record for the EOF mark, indicate where we can start adding data.
+;
+RDOK:		LD	HL,OUTBUF	; Point to output buffer start
+		LD	B,128	; Output buffer length
+
+SCAN:		LD	A,(HL)	; Character
+		CP	'Z'-40H	; End of file?
+		JP	Z,RESCR	; Yes, save pointers and reset CR
+		INC	HL	; Pointer+1
+		DEC	B	; Length-1
+		JP	NZ,SCAN	; Continue to end of buffer
+;
+; If an explicit EOF mark or an implied EOF (last record is full) in
+; the last buffer, move the FCB record and extent pointer back to cor-
+; rect for the read operation so the first write operation will replace
+; the last record of the DISK.DIR file.
+;
+RESCR:		PUSH	HL	; Save EOF buffer pointer
+		PUSH	BC	; Save EOF buffer remaining
+		LD	HL,OUTFCB+32	; Load current record again
+		DEC	(HL)	; Record-1
+		JP	P,SAMEXT	; If CR>=0, still in same extent
+		LD	HL,OUTFCB+12	; Else, move to previous extent
+		DEC	(HL)
+		LD	C,OPEN	; Then, reopen previous extent
+		CALL	CPM
+		INC	A
+		JP	Z,APERR	; Append error if can not reopen
+		LD	A,(OUTFCB+15)	; Else,
+		DEC	A	; Position to last record of
+		LD	(OUTFCB+32),A	; The extent
+
+SAMEXT:		POP	AF	; Recall EOF location in buffer
+		LD	(BUFCNT),A	; Set buffer counter
+		POP	HL	; Recall next buffer pointer
+		LD	(BUFPNT),HL	; Set pointer for first addition
+
+NOOUT:		LD	A,(FIRSTT)	; First time through?
+		OR	A
+		JP	NZ,NOVOPT	; No, we've been here before
+		LD	A,0FFH	; Yes,
+		LD	(FIRSTT),A	; Set first time flag
+		LD	A,(VOPFLG)	; Version display flag
+		OR	A	; Set?
+		JP	NZ,NOVOPT	; No, skip version print
+		LD	DE,VERNAME	; Yes, print version
+		CALL	PUTS	; Print the string
+		CALL	CRLF
+
+NOVOPT:		LD	HL,(COUNT)
+		LD	(LCOUNT),HL
+		LD	HL,0
+		LD	(LBTOTL),HL
+		LD	(LMTOTL),HL
+		LD	HL,ORDER	; Initialize order table pointer
+		LD	(NEXTL),HL
+		LD	(NEXTT),HL
+		LD	A,(VFLAG)	; Check display form
+		OR	A
+		JP	NZ,NEWLIN	; Jump if not vertical
+		LD	HL,(COUNT)	; Code computes end of name table
+		CALL	MULT13	; (or start of second table
+		EX	DE,HL	; Where files to be stored after
+		LD	HL,(TBLOC)	; Redundant extents removed)
+		ADD	HL,DE
+		LD	(NEWPTR),HL	; Save it twice
+		LD	(XPOINT),HL	; For later
+;
+; Output the directory files we've matched
+;
+ENTRY:
+		IF	Z80DOS
+		PUSH	DE
+		LD	HL,(NEXTT)	; Get order table pointer
+		LD	E,(HL)	; Get low order address
+		INC	HL
+		LD	D,(HL)	; Get high order address
+		LD	HL,13
+		ADD	HL,DE
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL
+		LD	(HOLDAT),HL
+		POP	DE
+		ENDIF	; Z80DOS
+
+ENTRY1:		LD	HL,(COUNT)	; Files matched count
+		DEC	HL	; Count-1
+		LD	(COUNT),HL
+		LD	A,H	; Is this the last file?
+		OR	L
+		JP	Z,OKPRNT	; Yes, last file so skip compare
+;
+; Compare each entry to make sure that it isn't part of a multiple
+; extent file.	Go only when we have the last extent of the file.
+;
+		PUSH	BC	; Save number of columns
+		LD	A,(VFLAG)	; Check display form
+		OR	A
+		CALL	NZ,CKABRT	; If horiz, check for abort from keyboard
+		LD	HL,(NEXTT)
+		LD	A,11
+		CALL	COMPR	; Does this entry match next one?
+		POP	BC	; Restore number of columns
+		JP	NZ,OKPRNT	; No, print it
+NOKPRN:		INC	HL
+		INC	HL	; Skip, highest extent last in list
+		LD	(NEXTT),HL
+		JP	ENTRY1	; Loop back for next lowest extent
+;
+; VLIST substitution. If VLIST option chosen, OKPRINT moves unique
+; filenames and sizes in "k" to a second table above the first for
+; use later.
+;
+OKPRNT:
+;////
+		IF	Z80DOS
+		PUSH	HL
+		PUSH	DE
+		PUSH	BC
+		LD	HL,(NEXTT)	; Get order table pointer
+		LD	E,(HL)	; Get low order address
+		INC	HL
+		LD	D,(HL)	; Get high order address
+		LD	HL,13
+		ADD	HL,DE
+		EX	DE,HL
+		LD	HL,(HOLDAT)
+		EX	DE,HL
+		LD	(HL),E
+		INC	HL
+		LD	(HL),D
+		LD	HL,(DATCHK)	; Get the date we are looking for
+		LD	A,H
+		OR	L
+		JP	Z,GDTMTC	; Z=not looking
+		LD	HL,(DATCH1)
+		LD	A,H
+		OR	L
+		JP	Z,ONEDAT	; Z=only 1 date on input line
+		DW	SBCDE
+		JP	Z,GDTMTC	; Z=file date=low date
+		JP	NC,NDTMTC	; NC=file date < low date, no output
+		LD	HL,(DATCHK)
+		OR	A
+		DW	SBCDE
+		JP	Z,GDTMTC	; Z=file date=high date
+		JP	NC,GDTMTC	; NC=file date < high date
+		JP	NDTMTC	; File date > high date
+ONEDAT:		LD	HL,(DATCHK)
+		LD	A,H
+		CP	D	; Check if given date >,=,< the files date
+		JP	Z,CHDLOW	; High EQ, check low
+		JP	C,DATLT	; C=LT
+		JP	DATGE	; Given date GT file date
+CHDLOW:		LD	A,L	; Check low byte of date vs. file date
+		CP	E
+DATGE:		LD	A,0	; Assume EQ
+		JP	C,DATLT	; C= given LT files date
+		JP	Z,DATFLG	; Z= they are EQ
+		LD	A,2	; Given GT files date
+		JP	DATFLG
+DATLT:		LD	A,1	; Given was less than files
+DATFLG:		LD	(DTMTCH),A
+		LD	A,(DEOPFL)	; What kind of date match?
+		OR	A
+		JP	Z,DTEXAC	; Z=exact
+		LD	A,(DPOPFL)
+		OR	A
+		JP	Z,DTABVE	; Z=GE
+		LD	A,(DMOPFL)	; LT wanted?
+		OR	A
+		JP	NZ,DTEXAC	; NZ=no, didn't tell us so do anything but gave
+					; us a date so assume want exact match
+		LD	A,(DTMTCH)
+		CP	2
+		JP	Z,GDTMTC	; Date was below and they wanted below
+NDTMTC:
+		POP	BC
+		POP	DE
+		POP	HL
+		PUSH	HL
+		LD	HL,(COUNT)
+		LD	A,L
+		OR	H
+		POP	HL
+		JP	Z,PRTOTL
+		INC	HL
+		INC	HL
+		LD	(NEXTT),HL
+		JP	ENTRY
+		JP	NOKPRN
+
+DTEXAC:		LD	A,(DTMTCH)	; They wanted exact, was it?
+		OR	A
+		JP	Z,GDTMTC	; Z=yes
+		JP	NDTMTC
+DTABVE:		LD	A,(DTMTCH)	; They wanted GE
+		CP	1
+		JP	Z,GDTMTC	; Z=G
+		OR	A
+		JP	NZ,NDTMTC	; Must be 2, so not equal
+GDTMTC:		POP	BC
+		POP	DE
+		POP	HL
+		ENDIF	; Z80DOS
+
+		LD	HL,(NEXTT)	; Get order table pointer
+		LD	E,(HL)	; Get low order address
+		INC	HL
+		LD	D,(HL)	; Get high order address
+		INC	HL
+		LD	(NEXTT),HL	; Save updated table pointer
+		EX	DE,HL	; Table entry to HL
+		LD	A,(VFLAG)	; Check display form
+		OR	A
+		JP	NZ,OKPR1	; Jump if not vertical
+		PUSH	HL	; Save address of byte to be moved
+		LD	HL,(NEWPTR)	; Address in new table to put byte
+		PUSH	HL	; Save address
+
+		IF	Z80DOS
+		LD	DE,15	; Update address including date
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	DE,13	; Update address
+		ENDIF	;NOT Z80DOS
+
+		ADD	HL,DE
+		LD	(NEWPTR),HL	; Save for later (end of table)
+		POP	HL	; Set current move  to	address
+		EX	DE,HL	; Swap pointers
+		POP	HL	; Set current move from address
+		LD	B,11	; Filename.typ length
+		CALL	MOVE	; Move it
+
+		IF	Z80DOS
+		PUSH	HL
+		ENDIF	;Z80DOS
+
+		PUSH	DE
+		JP	OKPR2
+
+OKPR1:		LD	B,8	; Filename length
+		CALL	PUTSB	; Output
+		LD	A,'.'	; Period after filename
+		CALL	PUTCHR	; Output
+		LD	B,3	; Filetype length
+		CALL	PUTSB	; Output
+
+		IF	Z80DOS
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,NOD1
+		CALL	DISDAT
+NOD1:
+		ENDIF	;Z80DOS
+
+OKPR2:
+		CALL	SIZEFL
+		LD	HL,(TOTSIZ)	; DE = rounded size in K
+		ADD	HL,DE	; Add to total used
+		LD	(TOTSIZ),HL
+		LD	HL,(TOTFIL)	; Increment filecount
+		INC	HL
+		LD	(TOTFIL),HL
+		EX	DE,HL
+		LD	A,(COPFLG)	; Size wanted in records?
+		OR	A
+		JP	NZ,OKPR3	; Jump if not
+		LD	HL,(FILERC)	; Else get record count
+
+OKPR3:		LD	A,(VFLAG)	; Check display form
+		OR	A
+		JP	NZ,OKPR4	; Jump if not vertical
+		POP	DE	; A(size to go)
+		LD	A,H	; Move size to table two
+		LD	(DE),A
+		INC	DE
+		LD	A,L
+		LD	(DE),A
+
+		IF	Z80DOS
+		POP	HL	; Currently pointing to file size
+		INC	HL	; Skip size
+		INC	HL
+		INC	DE
+		LD	A,(HL)	; Get LSB of date
+		LD	(DE),A	; Save it away
+		INC	DE
+		INC	HL
+		LD	A,(HL)	; Ditto for MSB of date
+		LD	(DE),A
+		ENDIF	;Z80DOS
+;
+; One File Moved - Test to see if we have to move another
+;
+		LD	HL,(COUNT)	; Current file counter
+		LD	A,H
+		OR	L
+		JP	Z,PRTOTL	; Zero, output summary
+		JP	ENTRY
+;
+; Output the size of the individual file
+;
+OKPR4:		CALL	DECPRT	; Print it
+		LD	A,(FSIZEC)	; Follow with 'k' or 'r'
+		CALL	PUTCHR
+;
+; One file output - test to see if we have to output another one.
+;
+		LD	HL,(COUNT)	; Current file counter
+		LD	A,H
+		OR	L	; Zero?
+		JP	Z,PRTOTL	; Yes, exit to summary output
+;
+; At least one more file to output,
+; can we put it on the current line?
+;
+		DEC	C
+		PUSH	AF
+		CALL	NZ,FENCE	; If room left output fence character
+		POP	AF
+		JP	NZ,ENTRY	; Output another file
+;
+; Current line full, start a new one
+;
+NEWLIN:
+		IF	Z80DOS
+		LD	C,ZDCOLS	; 2 names per line
+		LD	A,(NODFLG)
+		OR	A
+		JP	NZ,NOD2
+		LD	C,COLUMNS
+NOD2:
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	C,COLUMNS	; Reset names per line counter
+		ENDIF	;NOT Z80DOS
+
+		CALL	STRTNDL	; Start of new directory line
+		JP	ENTRY	; Output another file
+
+;.....
+;
+; Start of new directory line, write CR, LF, "DU:  "
+;
+STRTNDL:	CALL	CRLF		; Space down to next line
+		LD	A,(FCB)
+		ADD	A,'A'-1
+		CALL	PUTCHR		; Output the drive code
+		CALL	CKVER		; CP/M 2?
+		JP	C,STRTNDL1	; Skip user
+		CALL	PUTUSR		; Output user number
+STRTNDL1:	LD	DE,NOFMS3	; ':  '
+		CALL	PUTS
+		RET
+
+;.....
+;
+; Compute the size of the file/library and update our summary datum.
+; This has been changed into a subroutine so that both the file size
+; computation and a library size (when printing out library members)
+; can be computed in K.
+;
+SIZEFL:		LD	D,(HL)
+		INC	HL
+		LD	E,(HL)	; Size in DE (records)
+		EX	DE,HL
+		LD	(FILERC),HL	; Save record count
+		EX	DE,HL
+		LD	A,(BLKMSK)
+		PUSH	AF
+		ADD	A,E
+		LD	E,A
+		LD	A,D
+		ADC	A,0
+		LD	D,A
+		POP	AF
+		CPL
+		AND	E
+		LD	E,A
+		LD	B,3
+
+SHRR:		LD	A,D
+		OR	A
+		RRA
+		LD	D,A
+		LD	A,E
+		RRA
+		LD	E,A
+		DEC	B
+		JP	NZ,SHRR
+		RET
+;
+; Print HL in decimal with leading zero suppression
+;
+DECPRT:		XOR	A	; Clear leading zero flag
+		LD	(LZFLG),A
+		LD	DE,-10000
+		LD	A,(SUPSPC)
+		PUSH	AF
+		XOR	A
+		LD	(SUPSPC),A
+		CALL	DIGIT
+		POP	AF
+		LD	(SUPSPC),A
+		LD	DE,-1000	; Print 1000's digit
+		CALL	DIGIT
+		LD	DE,-100	; Etc.
+		CALL	DIGIT
+		LD	DE,-10
+		CALL	DIGIT
+		LD	A,'0'	; Get 1's digit
+		ADD	A,L
+		JP	PUTCHR
+
+DIGIT:		LD	B,'0'	; Start off with ASCII 0
+
+DIGLP:		PUSH	HL	; Save current remainder
+		ADD	HL,DE	; Subtract
+		JP	NC,DIGEX	; Quit on overflow
+		POP	AF	; Throw away remainder
+		INC	B	; Bump digit
+		JP	DIGLP	; Loop back
+
+DIGEX:		POP	HL	; Restore pointer
+		LD	A,B
+		CP	'0'	; Zero digit?
+		JP	NZ,DIGNZ	; No, type it
+		LD	A,(LZFLG)	; Leading zero?
+		OR	A
+		LD	A,'0'
+		JP	NZ,PUTCHR	; Print digit
+		LD	A,(SUPSPC)	; Get space suppression flag
+		OR	A	; See if printing file totals
+		RET	Z	; Yes, don't give leading spaces
+		JP	SPACE	; Leading zero..print space
+;
+DIGNZ:		LD	(LZFLG),A	; Leading zero flag set
+		JP	PUTCHR	; Print leading zero & digit
+;.....
+;
+;-----------------------------------------------------------------------
+;		  VLIST subroutines begin here
+;
+;Multiply contents of HL register by 13
+;
+MULT13:		LD	D,H
+		LD	E,L
+		ADD	HL,HL
+		ADD	HL,DE
+		ADD	HL,HL
+		ADD	HL,HL
+		ADD	HL,DE
+
+		IF	Z80DOS
+		ADD	HL,DE	; Actually by 15
+		ADD	HL,DE;
+		ENDIF	;Z80DOS
+
+		RET
+;.....
+;
+; Main VLIST subroutine to output a filename and column delimiter
+;
+VENTRY:
+		LD	A,(EOPFLG)
+		OR	A
+		JP	Z,VENTR1	;jp if skipping dir listing
+		LD	(VSFRST),A
+		CALL	PFILE1	; Routine to print a filename
+		RET	Z	; If at end of line return with zero set
+		CALL	C,FENCE	; Print column delimiter if more
+		LD	HL,(JUMPER)	; Put the jumper back in DE
+		EX	DE,HL
+		OR	1	; Insure non zero return
+VENTR1:
+		RET
+;.....
+;
+PFILE1:
+		PUSH	HL
+		PUSH	DE
+		EX	DE,HL
+		LD	HL,(NEWPTR)
+		LD	A,H
+		CP	D
+		JP	NC,PFILE2
+		LD	A,L
+		CP	E
+		POP	DE
+		POP	HL
+		RET	Z
+		JP	NC,PFILE3
+		XOR	A
+		RET
+PFILE2:		POP	DE
+		POP	HL
+PFILE3:
+		LD	A,(HL)	; Let's see what we have
+		CP	0FEH
+		RET	NC
+		AND	7FH	; Strip parity bit
+		PUSH	BC	; Save number of columns
+		LD	B,8	; Print filename and type
+		CALL	PUTSB
+		LD	A,'.'
+		CALL	PUTCHR
+		LD	B,3
+		CALL	PUTSB
+
+		IF	Z80DOS
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,NOD3
+		CALL	DISDAT	; Display the date
+NOD3:
+		ENDIF	;Z80DOS
+
+		LD	D,(HL)	; Get it into DE
+		INC	HL
+		LD	E,(HL)
+		EX	DE,HL	; HL <-> DE
+		CALL	DECPRT	; Print it out
+		LD	A,(FSIZEC)	; Follow with 'k' or 'r'
+		CALL	PUTCHR
+		POP	BC	; Load number of columns
+		LD	HL,(TOTFIL)	; Load number of files left
+		DEC	HL	; # files-1
+		LD	(TOTFIL),HL	; Resave it
+		LD	A,H
+		OR	L	; Zero yet?
+		RET	Z	; Yes, no more files
+		DEC	C	; No, decrement it
+		SCF	; Force carry on
+		RET	; This return
+;.....
+;
+;		      End of VLIST routines
+;-----------------------------------------------------------------------
+;
+; Show total space and files used
+;
+PRTOTL:
+		XOR	A
+		LD	(VSFRST),A
+		LD	A,(VFLAG)	; Check display form
+		OR	A
+		JP	Z,PRTOT1	; Jump if vertical
+		LD	A,(LOPFLG)
+		OR	A
+		JP	NZ,PRTOT1
+		LD	HL,(TOTFIL)	; How many files matched?
+		LD	A,H
+		OR	L
+		CALL	NZ,PRTLMEM	; Skip .LBR check if none found
+
+PRTOT1:		XOR	A	; Get a zero to
+		LD	(SUPSPC),A	; Suppress leading spaces in totals
+		LD	HL,(TOTFIL)	; How many files matched?
+		LD	A,H
+		OR	L
+		JP	Z,NXTUSR	; Skip summary if none found
+		PUSH	HL	; Save TOTFIL
+		LD	(FNDFLG),A	; Set file found flag
+		LD	A,(VFLAG)	; Check display form
+		OR	A
+		JP	NZ,PRTOT3	; Horizontal = 0FFh, exit if not zero
+		LD	A,(SOHFLG)
+		OR	A
+		JP	Z,PRTOT2
+		XOR	A
+		LD	(SOHFLG),A
+		JP	PRTOT3
+
+PRTOT2:		CALL	CRLF
+
+PRTOT3:		LD	DE,TOTMS1	; Print "13,10,' Drive'"
+		CALL	PUTS
+		LD	A,(FCB)
+		ADD	A,'A'-1
+		CALL	PUTCHR	; Output the drive code
+		CALL	CKVER
+		JP	C,NOUSER
+		CALL	PUTUSR	; Output user number
+
+		IF	NDIRS
+		LD	A,' '
+		CALL	PUTCHR
+		CALL	NAMDIR
+		ENDIF	; NDIRS
+
+		LD	A,(USRNR)
+		CP	10
+		LD	DE,NOFMS2
+		JP	C,$+6
+		LD	DE,NOFMS2+1	; Print some spaces
+		CALL	PUTS
+
+		IF	BYEULI
+		LD	A,(BYEACT)	; BYE active?
+		OR	A
+		JP	Z,NOUSER	; Yes, skip ulcode
+		ENDIF	; BYEULI
+
+		IF	ULINE
+		LD	DE,ULON	; Turn on underline
+		CALL	COUTS	; If not null
+		ENDIF	; ULINE
+
+NOUSER:		LD	DE,TOTMS6	; Print " Files: "
+		CALL	PUTS
+		POP	HL	; Recall TOTFIL
+		EX	DE,HL
+		LD	HL,(TOTFL1)	; Get total number of files so far
+		ADD	HL,DE	; Add in number this DU
+		LD	(TOTFL1),HL	; And save it away
+		EX	DE,HL
+		CALL	DECPRT	; Print # of files matched
+		LD	DE,TOTMS4	; No CRLF needed, display > 40
+		CALL	PUTS
+		LD	HL,(TOTSIZ)	; Total k used by matched files
+		EX	DE,HL
+		LD	HL,(TOTSZ1)	; Get running total of all files
+		ADD	HL,DE
+		LD	(TOTSZ1),HL	; And put it back
+		EX	DE,HL
+		CALL	DECPRT	; Print file size
+		LD	DE,TOTMS5	; Print "k"
+		CALL	PUTS
+		CALL	PRTFRE	; Print free space remaining
+
+		IF	ULINE AND BYEULI
+		LD	A,(BYEACT)	; Bye active?
+		OR	A;
+		JP	Z,NPRNT	; Yes, skip ULINE off
+		ENDIF	; ULINE AND BYEULI
+
+		IF	ULINE
+		LD	DE,ULOFF	; Turn off underline
+		CALL	COUTS	; If not null
+		ENDIF	; ULINE
+;
+; Summary line printed, now print detail files, first compute total
+; printout lines.
+;
+NPRNT:		LD	A,(VFLAG)	; Check display form
+		OR	A
+		JP	NZ,NXTUSR	; Jump if horizontal
+
+		IF	Z80DOS
+		LD	BC,ZDCOLS-1
+		LD	A,(NODFLG)
+		OR	A
+		JP	NZ,NOD4
+		LD	BC,COLUMNS-1
+NOD4:
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	BC,COLUMNS-1
+		ENDIF	;NOT Z80DOS
+
+		LD	A,C	; Get number of names per line
+		CPL	; Negative of number of columns
+		LD	E,A	; Into DE
+		LD	D,0FFH
+		LD	HL,(TOTFIL)	; Load total number of files
+		ADD	HL,BC	; Round up to a full line
+		LD	C,0FFH
+
+NPRNT1:		INC	C	; C-reg will hold number of
+		ADD	HL,DE	; Lines to be displayed
+		JP	C,NPRNT1
+		LD	A,C
+		LD	(LINES),A	; Done, save it for later
+		LD	(SUPSPC),A	; Allow spaces preceding file sizes
+;
+; Number lines times entry size = the number of bytes to skip in the
+; second table when outputting files in vertical order.
+;
+		IF	VSPAGE
+		LD	A,(FOPFLG)	; Check File output
+		OR	A
+		JP	Z,NVSORT
+		LD	A,(POPFLG)
+		OR	A
+		JP	Z,NVSORT
+		LD	A,(NOPFLG)
+		OR	A
+		JP	NZ,VSORT
+NVSORT:		LD	A,C
+		JP	OVSORT
+VSORT:
+		LD	A,(LINCNT)	; Get number of lines currently displayed
+		LD	B,A
+		LD	A,(HEIGHT_)
+		DEC	A
+		SUB	B
+		LD	B,A
+		LD	A,C	; Get how many lines this DU
+		CP	B
+		JP	C,OVSORT	; If C, then this DU will fit on the page whole
+		LD	A,B	; This DU won't fit, so calc to fill up page
+		OR	A
+		JP	NZ,OVSORT
+		LD	HL,HEIGHT_
+		LD	A,C
+		CP	(HL)		; 23
+		JP	C,OVSORT
+		LD	A,(HL)	; 23
+OVSORT:
+		ENDIF	; VSPAGE
+
+		LD	L,A	; Put number of lines into HL
+		LD	H,0
+		CALL	MULT13
+		LD	(JUMPER),HL	; Put it away
+		XOR	A
+		LD	(WASHERE),A	; Set flag for FENCE that says next calc
+; is for the next page of display
+;
+; Fill a record with FF at the end of table 2
+;
+		LD	HL,(NEWPTR)	; Now points to end of table 2
+		LD	B,128
+		LD	A,0FFH
+
+NPRNT2:		LD	(HL),A
+		INC	HL
+		DEC	B
+		JP	NZ,NPRNT2
+;
+; Increment the number of files for use later in VENTRY.  This insures
+; that a column delimiter will be printed after the last filename, if
+; the file appears in other than the last column of the display.
+;
+		IF	NOT Z80DOS
+		LD	HL,TOTFIL
+		INC	(HL)
+		ENDIF	;NOT Z80DOS
+;
+; Print out a line of files
+;
+NPRNT3:
+		IF	Z80DOS
+		LD	C,ZDCOLS
+		LD	A,(NODFLG)
+		OR	A
+		JP	NZ,NOD5
+		LD	C,COLUMNS
+NOD5:
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	C,COLUMNS	; Reset number of columns
+		ENDIF	;NOT Z80DOS
+
+		LD	A,(EOPFLG)
+		OR	A
+		JP	Z,NOD51
+
+		CALL	STRTNDL		; Start a new directory line
+
+NOD51:
+		LD	A,1
+		LD	(VSFRST),A
+
+;
+; Print first filename
+;
+		LD	HL,(XPOINT)	; XPOINT = to start of second table
+		CALL	VENTRY	; At entry. Below, it is incremented
+; For additional lines of printout
+		JP	Z,NLINE	; Either out of columns or out of files
+;
+; Print second filename
+;
+		LD	HL,(XPOINT)
+		ADD	HL,DE
+		CALL	VENTRY
+		JP	Z,NLINE
+;
+; Print third filename
+;
+		LD	HL,(XPOINT)
+		ADD	HL,DE
+		ADD	HL,DE
+		CALL	VENTRY
+		JP	Z,NLINE
+;
+; Print fourth filename
+;
+		LD	HL,(XPOINT)
+		ADD	HL,DE
+		ADD	HL,DE
+		ADD	HL,DE
+		CALL	VENTRY
+
+NLINE:		LD	HL,(XPOINT)	; Increment XPOINT to next file
+
+		IF	Z80DOS
+		LD	DE,15
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	DE,13
+		ENDIF	;NOT Z80DOS
+
+		ADD	HL,DE
+		LD	(XPOINT),HL
+		LD	HL,(TOTFIL)	; Out of files?
+		LD	A,H
+		OR	L
+		JP	Z,DOLIB	; Yes, Check for libraries
+		LD	HL,LINES	; No, just need a new line
+		DEC	(HL)
+		JP	NZ,NPRNT3
+
+DOLIB:		LD	A,(LOPFLG)
+		OR	A
+		JP	NZ,NXTUSR
+		LD	HL,(TOTFIL)	; How many files matched?
+		LD	A,H
+		OR	L
+
+		IF	NOT Z80DOS
+		CALL	NZ,PRTLMEM	; Skip library check if none found
+		ENDIF
+		IF	Z80DOS
+		CALL	PRTLMEM
+		ENDIF
+
+;
+; Directory for one user area completed.  If all users option is select-
+; ed, then go do another directory on the next user number until we ex-
+; ceed the maximum user # for the selected drive.
+;
+NXTUSR:		LD	A,(AOPFLG)	; All user flag
+		OR	A	; Set?
+		JP	Z,NXTUSU	; Set if zero, show all user areas
+		LD	A,(HOPFLG)	; "H" flag to show remaining areas
+		OR	A
+		JP	NZ,GOCLZ	; Non-zero, not set, exit
+
+NXTUSU:		CALL	CKVER	; Running CP/M 2?
+		JP	C,GOCLZ	; No, Skip user increment
+		CALL	CKABRT	; Yes, Check for user abort
+		LD	A,(MAXUSR)	; No abort - get maximum user #
+		LD	HL,NEWUSR	; Increment directory user number
+		INC	(HL)
+		CP	(HL)	; Next user # exceed maximum?
+		JP	NC,SETTBL	; No, more user areas to go
+		LD	A,(BASUSR)	; Reset base user number for
+		LD	(HL),A	; The next directory search
+;
+; We've finished all of our outputting. Flush the remainder of the out-
+; put buffer and close the file before going to exit routine.
+;
+GOCLZ:		LD	HL,OPNFLG	; Get file open status, reset flag
+		LD	A,(HL)	; To force reopen on next pass
+		LD	(HL),0
+		OR	A	; File open?
+		JP	Z,NXTDSK	; No, Skip closing DISK.DIR
+		LD	HL,BUFCNT
+		LD	A,(HL)	; Load # of unflushed characters in
+		LD	(HL),128	; Buffer, force BUFCNT to empty status
+		OR	A	; If BUFCNT=128, buffer empty set sign
+		JP	M,DDCLOS	; Close DISK.DIR if buffer is empty
+		JP	Z,FLUSH	; Write last record to DISK.DIR if full
+		LD	HL,(BUFPNT)	; Else pad unused buffer with CTL-Z
+
+PUTAGN:		LD	(HL),'Z'-40H	; EOF marker
+		INC	HL	; Next buffer location
+		DEC	A	; Count-1
+		JP	NZ,PUTAGN	; Continue buffer padding fill
+
+FLUSH:		LD	DE,OUTFCB	; Flush the last output buffer
+		LD	C,WRITE
+		CALL	CPM
+		OR	A
+		JP	NZ,WRTERR
+
+DDCLOS:		LD	DE,OUTFCB	; Close DISK.DIR output file
+		LD	C,CLOSE
+		CALL	CPM
+;
+; Directory for all user areas finished.  If the multi-disk option is
+; enabled and selected, reset to the base user area and repeat the
+; directory for next drive on-line until we either exceed the drives in
+; our LODRV-HIDRV table, or the BDOS shuts us down with a select or bad
+; record error, which will be intercepted back to the EXIT module.
+;
+NXTDSK:		LD	HL,FNDFLG	; Load file found flag
+		LD	A,(HL)
+		LD	(HL),0	; Clear found flag for next drive
+		OR	A
+		JP	NZ,NDSK	; Continue if at least 1 file found
+		LD	HL,FOPFLG
+		DEC	(HL)
+		PUSH	HL
+		LD	DE,NOFMS1	; Print 1st part of no files message
+		CALL	PUTS	; Print it
+		LD	DE,NOFLM
+		CALL	PUTS	; Print message
+		LD	A,(FCB)
+		ADD	A,'A'-1
+		CALL	PUTCHR	; Output the drive
+		CALL	CKVER
+		JP	C,NOUSR1
+		CALL	PUTUSR	; Output the user number
+
+NOUSR1:		LD	DE,NOFMS3	; Print divider
+		CALL	PUTS
+		CALL	PRTFRE	; Tag with free message
+		LD	A,(VFLAG)	; Check display form
+		OR	A
+		CALL	NZ,CRLF	; Need another CRLF in horizontal mode
+		POP	HL
+		INC	(HL)
+
+NDSK:		LD	A,(DOPFLG)	; Multi-disk selected?
+		OR	A
+		JP	NZ,NPRT	; No, skip next check
+		CALL	CKABRT	; Check for user abort
+		LD	A,HIDRV-LODRV	; Load max drive code to search
+		LD	HL,FCB	; Increment directory FCB drive code
+		INC	(HL)
+		CP	(HL)	; Does next disk exceed maximum?
+		JP	C,NPRT
+
+;	 IF	MAXDRV
+
+		IF	ZCPR3P AND MAXDRV
+		PUSH	HL
+		LD	HL,(Z3DRVL)	; Point to ENV
+		LD	A,(HL)	; Get it
+		POP	HL
+		ENDIF	;ZCPR3P AND MAXDRV
+
+		IF	NOT ZCPR3P AND MAXDRV
+		LD	A,(MXDRV)	; Look at another value limit
+		INC	A
+		ENDIF	;NOT ZCPR3P AND MAXDRV
+
+		IF	MAXDRV AND NOT DRVVEC
+		CP	(HL)	; Is it lower?
+		JP	C,NPRT	; Bail out if too low
+		JP	NOOPT	; Search next disk
+		ENDIF	; MAXDRV AND NOT DRVVEC
+
+		JP	NC,NOOPT	; Search next disk if maxdr not true
+;
+; If no printer, fall through to EXIT
+;
+NPRT:		LD	A,(POPFLG)
+		OR	A	; Printer active?
+		JP	NZ,EXIT	; No, just exit
+		LD	C,LIST
+		LD	E,13	; Print a CRLF
+		CALL	CPM
+		LD	E,10	; Line feed
+		CALL	CPM
+		JP	EXIT	; All done - exit to CCP
+;.....
+;
+; Output the user number of the directory in decimal
+;
+PUTUSR:		LD	A,(NEWUSR)
+		CP	10	; User no. < 10?
+		JP	C,DUX	; Yes, skip 10's digit
+		LD	(USRNR),A
+		PUSH	BC	; No, process 10's digit
+		LD	C,'0'-1
+
+DUY:		INC	C	; Get tens digit
+		SUB	10
+		JP	NC,DUY	; Loop until we've gone too far
+		ADD	A,10
+		LD	B,A	; Save units digit
+		LD	A,C	; Print tens digit
+		CALL	PUTCHR
+		LD	A,B	; Recall units digit
+		POP	BC
+
+DUX:		ADD	A,'0'	; Make it ASCII
+		JP	PUTCHR
+
+;.....
+;
+; Force new line on output and check for page pause
+;
+CRLF:		LD	A,13	; Send CR
+		CALL	PUTCHR
+		LD	A,10	; Send LF
+		JP	PUTCHR
+;.....
+;
+; Separate the directory output on a line with a space,
+; the delimiter, followed by another space.
+;
+FENCE:		CALL	SPACE
+
+		IF	Z80DOS
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,FENCE1
+		CALL	SPACE
+		CALL	SPACE
+FENCE1:
+		ENDIF	;Z80DOS
+
+		LD	A,':'	; Fence character
+		CALL	PUTCHR	; Print it, then a space character
+
+		IF	Z80DOS
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,NOD6
+		CALL	SPACE
+		CALL	SPACE
+NOD6:
+		ENDIF	;Z80DOS
+
+SPACE:		LD	A,' '
+;
+; Output character in A to console, and optionally to printer
+; and/or the output file.  Detects user abort request.
+;
+PUTCHR:		PUSH	BC
+		PUSH	DE
+		PUSH	HL
+		PUSH	AF	; Save the character to output
+		CALL	HITYPE	; Send it to console
+		POP	AF	; Restore the output character
+		AND	7FH	; Strip parity bit on character
+;
+; Test file output mode and skip to page pause test if not active
+;
+		LD	B,A	; Save stripped character to B
+		CP	10	; At end of line?
+		CALL	Z,CKABRT	; Check for user abort request
+		LD	A,(FOPFLG)	; Is file output active?
+		OR	A
+		JP	NZ,NOWRIT	; Go check for page pause if not
+;
+; File output mode active - make sure we have room in buffer to add
+; the next character. If buffer full, write out current record first
+; and then start a new record with current character.
+;
+		LD	HL,(BUFPNT)	; Load current buffer pointer
+		LD	A,(BUFCNT)	; Load buffer capacity remaining
+		OR	A	; Buffer full?
+		JP	NZ,PUTBUF	; No, Continue
+		CALL	SETFOP	; Yes, Set the DMA address
+		LD	DE,OUTFCB	; Else, write current buffer out
+		LD	C,WRITE
+		CALL	CPM	; (call must save character in B)
+		OR	A	; Error?
+		JP	NZ,WRTERR	; Yes, exit if disk full or R/O
+		LD	HL,OUTBUF	; Reset buffer pointer
+		LD	A,128	; Reset buffer capacity
+
+PUTBUF:		LD	(HL),B	; Move char to next buffer position
+		INC	HL	; Bump buffer pointer
+		LD	(BUFPNT),HL	; And save it
+		DEC	A	; Buffer char count-1
+		LD	(BUFCNT),A	; And save it
+
+NOWRIT:		LD	A,B	; Recall stripped character
+		AND	7FH	; Strip parity bit on character
+		LD	E,A	; Setup list output call
+		LD	C,LIST
+		LD	A,(POPFLG)	; Load printer flag
+		OR	A	; Set?
+		CALL	Z,CPM	; Yes, print character
+		LD	A,E	; Recall character
+		CP	10	; Do we have a line feed?
+		JP	NZ,PUTRET	; Exit if not
+		LD	A,(NOPFLG)	; Page pause function disabled?
+		OR	A
+		JP	Z,PUTRET	; Yes, exit
+		LD	A,(POPFLG)	; Load, printer flag
+		OR	A	; Set?
+		JP	Z,PUTRET	; Yes, skip page pause
+		LD	A,(FOPFLG)	; File output flag
+		OR	A	; Set?
+		JP	Z,PUTRET	; Yes, skip page pause
+
+		LD	A,(HEIGHT_)	; 23 Allows use of [more] to finish display
+		INC	A
+		LD	L,A
+		LD	A,(LINCNT)	; Load line count
+		INC	A	; Bump it
+		LD	(LINCNT),A
+		CP	L	; End of the screen?
+		JP	C,PUTRET
+
+		LD	DE,EOSMSG	; Else, display pause message
+		LD	C,PRINT	; Without checking for line feeds
+		CALL	BDOS
+		CALL	GETCH	; Wait for character
+		CP	'C'-40H	; Abort on CTL-C
+		JP	Z,EXIT1
+		CP	'K'-40H	; Or CTL-K
+		JP	Z,EXIT1
+		CP	'X'-40H	; Or CTL-X
+		JP	Z,EXIT1
+		CP	' '	; See if printing character
+		JP	C,NOTEOS	; Exit if not
+
+		IF	NOT VSPAGE
+		JP	Z,NOTEOS1	; If a space, exit to different place
+		ENDIF
+
+		AND	5FH	; Change to upper-case
+		CP	'C'	; Can abort with c, C
+		JP	Z,EXIT1
+		CP	'K'	; Can abort with k, K
+		JP	Z,EXIT1
+		CP	'X'	; Can abort with x, X
+		JP	Z,EXIT1
+
+NOTEOS:		XOR	A	; Reset line count
+		LD	(WASHERE),A	; Say are starting over
+
+NOTEOS1:	LD	(LINCNT),A
+		LD	DE,MORERA	; Overwrite the [more] display
+		LD	C,PRINT
+		CALL	BDOS
+
+		IF	VSPAGE
+		LD	A,(VSFRST)
+		OR	A
+		JP	Z,DLINES1
+		LD	A,(HEIGHT_)
+		LD	L,A
+		LD	A,(WASHERE)	; Were we here before?
+		OR	A
+		JP	Z,WEWERE	; Z=no
+		CP	L		; 23 Yes, must be moving by space bar, see how
+; many times
+		JP	NZ,DLINES	; NZ=not a full page worth yet
+		XOR	A	; A full page, move JUMPER up
+		LD	(WASHERE),A
+WEWERE:		LD	HL,(JUMPER)	; Get current jumper
+		EX	DE,HL
+		LD	HL,(XPOINT)	; Get current position in array
+		ADD	HL,DE	; Skip the right number of files
+		ENDIF
+		IF	Z80DOS AND VSPAGE
+		LD	A,(NODFLG)
+		OR	A
+		JP	NZ,WEWERE1
+		ADD	HL,DE
+		ADD	HL,DE
+WEWERE1:
+		ENDIF	; Z80DOS
+
+		IF	NOT Z80DOS AND VSPAGE
+		ADD	HL,DE
+		ADD	HL,DE
+		ENDIF	; NOT Z80DOS
+
+		IF	VSPAGE
+		LD	(XPOINT),HL	; New current position in output array
+		LD	HL,(HEIGHT_)	; 23 Calc new jumper, 23 lines/page
+		LD	E,L
+		INC	E
+		LD	A,(LINES)
+		CP	E		; 24
+		JP	NC,MLINES
+		LD	L,A
+MLINES:		CALL	MULT13
+		LD	(JUMPER),HL
+DLINES:
+		LD	A,(WASHERE)
+		INC	A
+		LD	(WASHERE),A
+DLINES1:
+		LD	A,1
+		LD	(VSFRST),A
+		ENDIF	; VSPAGE
+
+		XOR	A	; Reset the 'A' register
+PUTRET:		POP	HL	; Exit from PUTCHR
+		POP	DE
+		POP	BC
+		RET
+;
+;
+; Output character, with low-case or reverse-video highlighting if high
+; bit set and conditionals enabled.
+;
+HITYPE:		DS	0
+
+		IF	USELC OR REVID
+		OR	A	; Check for attributes not set
+		JP	P,CONOUT	; No attribute..ignore this one
+		AND	7FH	; Attribute set, delete now
+		ENDIF	; USELC OR REVID
+
+		IF	NOT USELCW AND WHEEL
+		LD	E,A	; Save the character for later
+		ENDIF
+
+		IF	ZCPR3P AND (NOT USELCW AND WHEEL)
+		PUSH	HL
+		LD	HL,(Z3WHLL)	; Point to enviorment
+		LD	A,(HL)	; Get it
+		POP	HL
+		ENDIF	;ZCPR3P AND ( NOT USELCW AND WHEEL)
+
+		IF	NOT ZCPR3P AND (NOT USELCW AND WHEEL)
+		LD	A,(WHLOC)	; Get wheel byte
+		ENDIF	;NOT ZCPR3P AND (NOT USELCW AND WHEEL)
+
+		IF	NOT USELCW AND WHEEL
+		OR	A	; Don't use lower case or REVID
+		LD	A,E	; Get back the character to display
+		JP	Z,CONOUT
+		ENDIF	; NOT USELCW AND WHEEL
+
+		IF	REVID
+		PUSH	AF	; Save character
+		LD	DE,RVON	; Turn on reverse video
+		CALL	COUTS	; If not null
+		POP	AF	; Restore character
+		ENDIF	; REVID
+
+		IF	USELC
+		CP	'A'	; Change only from A-Z
+		JP	C,TYPEC
+		CP	'Z'+1
+		JP	NC,TYPEC	; Punctuation can change so leave it
+		OR	20H	; If attribute, make lower case
+		ENDIF	; USELC
+
+		IF	USELC OR REVID
+TYPEC:		CALL	CONOUT	; Send the processed character
+		ENDIF	; USELC OR REVID
+
+		IF	REVID
+		LD	DE,RVOFF	; Turn off reverse video
+		CALL	COUTS	; If not null
+		ENDIF	; REVID
+
+		IF	USELC OR REVID
+		RET
+		ENDIF	; USELC OR REVID
+;.....
+;
+; Output character in A to console
+;
+CONOUT:		LD	E,A	; Get character for BDOS entry
+		LD	C,WRCON
+		JP	BDOS	; Console Output
+;.....
+;
+; Output (raw) null-terminated string at (DE) to console.
+;
+
+COUTS:		LD	A,(DE)	; Get byte of string
+		OR	A	; Null?
+		RET	Z	; Return if so
+		PUSH	DE
+		CALL	CONOUT
+		POP	DE
+		INC	DE	; Next byte
+		JP	COUTS
+;.....
+;
+; Output bytes at HL of length B to console/printer/file
+;
+PUTSB:		LD	A,(HL)
+		CALL	PUTCHR
+		INC	HL
+		DEC	B
+		JP	NZ,PUTSB
+		RET
+;.....
+;
+; Output null-terminated string to console/printer/file
+;
+PUTS:		LD	A,(DE)	; Load character from DE string
+		AND	7FH	; Strip off parity
+		OR	A	; Is a 0?
+		RET	Z	; Yes, Terminate
+		CALL	PUTCHR	; Display character
+		INC	DE	; Next string position
+		JP	PUTS	; Continue
+;.....
+;
+; Fetch character from console (without echo)
+;
+GETCH:		LD	HL,(0000H+1)	; Warm Boot Address
+		LD	L,9	; Direct Console
+		CALL	GOHL	; Get Character
+		AND	7FH	; Strip off any parity
+		RET
+;.....
+;
+; Check for a CTL-C or CTL-S entered from the keyboard.  Jump to EXIT if
+; CTL-C, pause on CTL-S.
+;
+CKABRT:		PUSH	HL
+		PUSH	DE
+		PUSH	BC
+		LD	C,CONST
+		CALL	BDOS
+		OR	A
+		JP	Z,CKAB3	; No character, exit
+		LD	C,RDCON
+		CALL	BDOS
+		AND	5FH
+		CP	'S'-40H
+		JP	Z,CKAB0
+		CP	'S'
+		JP	NZ,CKAB1
+		CALL	CKAB4
+
+CKAB0:		LD	C,RDCON
+		CALL	BDOS
+		AND	5FH
+
+CKAB1:		CP	'C'-40H	; CTL-C?
+		JP	Z,CKAB2	; Yes, quit
+		CP	'K'-40H
+		JP	Z,CKAB2
+		CP	'X'-40H
+		JP	Z,CKAB2
+		CP	' '	; Any other CTL-character, abort
+		JP	C,CKAB3
+		CALL	CKAB4	; Clear the character from screen
+		CP	'C'
+		JP	Z,CKAB2
+		CP	'K'
+		JP	Z,CKAB2
+		CP	'X'
+		JP	NZ,CKAB3
+
+CKAB2:		LD	DE,CKMS1
+		CALL	PUTS
+		POP	BC
+		POP	DE
+		POP	HL
+		JP	EX0	; All done
+
+CKAB3:		POP	BC
+		POP	DE
+		POP	HL
+		RET
+
+CKAB4:		PUSH	AF
+		LD	DE,CKMS2
+		CALL	PUTS
+		POP	AF
+		RET
+;.....
+;
+; Call here to call address in HL
+;
+GOHL:		JP	(HL)
+;
+; Enter BDOS, save all extended registers
+;
+CPM:		PUSH	BC	; Save Registers
+		PUSH	DE
+		PUSH	HL
+
+		IF	ZRDOS
+		LD	A,(ZRDFLG)	; ZRDOS running?
+		OR	A
+		JP	NZ,ZRD	; ZRDOS error trap and DOSs call
+		ENDIF	; ZRDOS
+
+		CALL	BDOS
+		LD	B,A	; Save return code
+		LD	A,(VERFLG)	; Is this 3.0?
+		CP	30H
+		LD	A,B
+		JP	C,CPM20	; No, exit normally
+		CP	0FFH	; Yes, was return code FF?
+		JP	NZ,CPM20	; No, exit normally
+		LD	A,H	; Yes, check for error code
+		OR	A
+		JP	NZ,DSKERR	; Exit if physical error
+		LD	A,B	; Else, continue normally
+
+CPM20:		POP	HL
+		POP	DE
+		POP	BC
+		RET
+;.....
+;
+; ZRDOS Error Trap and System Call exits to CPM20
+;
+		IF	ZRDOS
+ZRD:		CALL	SETTRAP	; Set the warm boot trap
+		CALL	BDOS	; Do what we're told
+		CALL	RESTRAP	; Reset the trap
+		JP	CPM20	; Error free exit
+;.....
+;
+; Set Warm Boot Trap in ZRDOS
+;
+SETTRAP:	PUSH	HL
+		PUSH	DE
+		PUSH	BC
+		LD	C,SETWBT	; Set warm boot trap to come here
+		LD	DE,WBTRAP
+		CALL	BDOS
+		POP	BC
+		POP	DE
+		POP	HL
+		RET
+;.....
+;
+; WBTRAP is where the ZRDOS returns control on warm boot (error)
+;
+WBTRAP:		LD	HL,DSKERR	; Return here after trap reset
+		PUSH	HL	; Save DSKERR on stack
+;
+; Reset Warm Boot Trap in ZRDOS
+;
+RESTRAP:	PUSH	HL
+		PUSH	DE
+		PUSH	BC
+		PUSH	AF
+		LD	C,RESWBT	; Reset warm boot trap
+		CALL	BDOS
+		POP	AF
+		POP	BC
+		POP	DE
+		POP	HL
+		RET
+		ENDIF	; ZRDOS
+;.....
+;
+; For file output mode, return to old user area and set DMA for the file
+; output buffer.
+;
+SETFOP:		CALL	CKVER	; Clear carry if CP/M 2 or later
+		LD	A,(OLDUSR)	; Get user number at startup
+		LD	E,A
+		LD	C,STUSER
+		CALL	NC,CPM	; Reset old user number if CP/M 2
+		LD	DE,OUTBUF	; Move DMA from search buffer into
+		JP	SET2	; Output buffer
+		RET
+;.....
+;
+; Move disk buffer DMA to default buffer for directory search operations
+; and BDOS media change routines (required for pre-CP/M 2 systems while
+; in file output mode with active buffer).
+;
+SETSRC:		LD	DE,TBUF	; Default DMA Address
+
+SET2:		LD	C,STDMA	; Set DMA Address
+		JP	CPM
+;.....
+;
+; Print amount of free space remaining on selected drive
+;
+PRTFRE:		LD	DE,TOTMS7	; Print " Free: '
+		CALL	PUTS
+		LD	HL,(FREEBY)
+		CALL	DECPRT	; Print k free
+		LD	DE,TOTMS8	; Print "k "
+		CALL	PUTS
+		LD	A,(VFLAG)	; Alphabetizing vertically?
+		OR	A
+		RET	Z	; If yes, finished
+		JP	CRLF	; Else turn up an extra line
+;.....
+;
+; Show string on the console
+;
+SHOW:		LD	A,(DE)	; Get character from DE string
+		AND	7FH	; Strip off parity
+		OR	A	; Is it a 0?
+		RET	Z	; Yes, terminate
+		PUSH	BC	; Save registers
+		PUSH	DE
+		PUSH	HL
+		CALL	CONOUT	; Show character on console
+		POP	HL	; Load registers
+		POP	DE
+		POP	BC
+		INC	DE	; Next string position
+		JP	SHOW	; Continue
+;.....
+;
+; Compare routine for last extent of file search
+;
+COMPR:		PUSH	HL	; Save table address
+		LD	E,(HL)	; Load low order
+		INC	HL
+		LD	D,(HL)	; Load high order
+		INC	HL
+		LD	C,(HL)
+		INC	HL
+		LD	B,(HL)
+;
+; BC, DE now point to entries to be compared
+;
+		EX	DE,HL
+		LD	E,A	; Get count
+
+CMPLP:		LD	A,(BC)
+		XOR	(HL)	; Copy bit 7 of M
+		AND	7FH	; Into bit 7 of A
+		XOR	(HL)
+		CP	(HL)	; Then compare
+		INC	HL
+		INC	BC
+		JP	NZ,NOTEQL	; Quit on mismatch
+		DEC	E	; Or end of count
+		JP	NZ,CMPLP
+;
+NOTEQL:		POP	HL
+		RET	; Condition code tells all
+;.....
+;
+; Swap entries in the order table
+;
+SWAP:		LD	BC,ORDER-2	; Table base
+		ADD	HL,HL	; *2
+		ADD	HL,BC	; + base
+		EX	DE,HL
+		ADD	HL,HL	; *2
+		ADD	HL,BC	; + base
+		LD	C,(HL)
+		LD	A,(DE)
+		EX	DE,HL
+		LD	(HL),C
+		LD	(DE),A
+		INC	HL
+		INC	DE
+		LD	C,(HL)
+		LD	A,(DE)
+		EX	DE,HL
+		LD	(HL),C
+		LD	(DE),A
+		RET
+;.....
+;
+; New compare routine for sorting
+;
+; Changed to perform full 8-bit test of file size words.  7-bit
+; test failed when one word was 80h larger than the other. <crw>
+;
+COMPARE:	LD	BC,ORDER-2
+		ADD	HL,HL
+		ADD	HL,BC
+		EX	DE,HL
+		ADD	HL,HL
+		ADD	HL,BC
+		EX	DE,HL
+		LD	C,(HL)
+		INC	HL
+		LD	B,(HL)
+		EX	DE,HL
+		LD	E,C
+		LD	D,B
+		LD	C,(HL)
+		INC	HL
+		LD	H,(HL)
+		LD	L,C
+;	LD	B,13		; Count for normal sort
+		LD	B,11
+		LD	A,(TOPFLG)	; Check for sort by type
+		OR	A
+;	JP	NZ,CMPLPE	; Jump if normal sort
+		JP	Z,COMP1	; Jump if sort by type
+		CALL	CMPLPE
+		RET	NZ
+		JP	COMP2	; Names match, go test extents
+COMP1:
+		PUSH	HL	; Save name pointers for later
+		PUSH	DE
+		LD	BC,8	; Point to file types
+		ADD	HL,BC
+		EX	DE,HL
+		ADD	HL,BC
+		EX	DE,HL
+		LD	B,3	; Count for type compare
+		CALL	CMPLPE
+		POP	DE	; Retrieve name pointers
+		POP	HL;
+		RET	NZ
+		LD	B,8	; Count for name compare
+		CALL	CMPLPE
+		RET	NZ
+		INC	DE	; Point to extent
+		INC	DE
+		INC	DE
+		INC	HL
+		INC	HL
+		INC	HL
+COMP2:		LD	B,2	; Count for extent compare
+
+COMPB8:		LD	A,(DE)
+		CP	(HL)	; 8-bit compare <crw>
+		INC	DE
+		INC	HL
+		RET	NZ
+		DEC	B
+		JP	NZ,COMPB8
+		RET
+
+CMPLPE:		LD	A,(DE);
+		XOR	(HL)	; Copy bit 7 of M
+		AND	7FH	; Into bit 7 of A
+		XOR	(HL);
+		CP	(HL)	; Then compare
+		INC	DE
+		INC	HL
+		RET	NZ
+		DEC	B
+		JP	NZ,CMPLPE
+		RET
+
+;.....
+;
+; Error exit
+;
+ERXIT:		LD	A,0FFH	; Error Flag
+		LD	(FOPFLG),A	; Disable file output on error
+		CALL	CRLF	; Space down
+		POP	DE	; Load message string pointer
+		CALL	PUTS	; Print message
+		LD	DE,ERRMS1	; " Error"
+		CALL	PUTS	; Print message
+		CALL	CRLF	; Space down
+;
+; Exit - all done, restore stack
+;
+EXIT:		LD	A,(DOPFLG)	; Multi-disk selected?
+		OR	A
+		JP	NZ,EX0	; No, skip next
+		CALL	CKABRT	; Check for user abort
+		LD	A,HIDRV-LODRV	; Maximum drive code to search
+		LD	HL,FCB	; Increment directory FCB drive code
+		INC	(HL)
+		CP	(HL)	; Does next disk exceed maximum?
+		JP	C,EX0
+
+;	 IF	MAXDRV
+
+		IF	ZCPR3P AND MAXDRV
+		PUSH	HL
+		LD	HL,(Z3DRVL)	; Point to ENV
+		LD	A,(HL)	; Get it
+		POP	HL
+		ENDIF	;ZCPR3P AND MAXDRV
+
+		IF	NOT ZCPR3P AND MAXDRV
+		LD	A,(MXDRV)	; Look at another value limit
+		INC	A
+		ENDIF	;NOT ZCPR3P AND MAXDRV
+
+		IF	MAXDRV AND NOT DRVVEC
+		CP	(HL)	; Is it lower?
+		JP	C,EX0	; Bail out if too low
+		JP	NOOPT	; Search next disk
+		ENDIF	; MAXDRV AND NOT DRVVEC
+
+		JP	NC,NOOPT	; Search next disk if MAXDR not true
+
+EX0:		LD	A,(VFLAG)	; Check display form
+		OR	A
+		CALL	Z,CRLF	; Turn up a blank line at end if vertical
+		LD	C,CONST	; Check console status
+		CALL	CPM
+		OR	A	; Character waiting?
+		LD	C,RDCON
+		CALL	NZ,CPM	; Gobble up character
+
+		IF	ZRDOS
+		LD	A,(ZRDFLG)	; ZRDOS running?
+		OR	A
+		JP	NZ,EXIT2	; Yes
+		ENDIF	; ZRDOS
+
+		LD	A,(VERFLG)	; Version flag
+		CP	30H	; CP/M 3.0?
+		JP	C,EXIT1	; No
+		LD	C,2DH	; Yes,
+		LD	E,0	; Reset error mode to default
+		CALL	CPM
+		JP	EXIT2	; Quit
+
+EXIT1:		LD	A,(DOPFLG)	; If they were swapped
+		OR	A
+		CALL	Z,SWAPEM
+
+EXIT2		EQU	$
+
+		IF	SHOPUB
+		CALL	RSTPUB
+		ENDIF	; SHOPUB
+
+		LD	A,(AOPFLG)	; Doing all users
+		LD	C,A
+		LD	A,(DOPFLG)	; Or disk?
+		AND	C
+		LD	C,A
+		LD	A,(HOPFLG)	; Or higher users?
+		AND	C
+		JP	NZ,TOTDONE	; If no, skip totals
+		LD	A,1	; Force no file output
+		LD	(LINCNT),A
+		LD	(FOPFLG),A
+		LD	DE,ALLTOT	; First part of message
+		CALL	PUTS
+		LD	HL,(TOTFL1)	; Total files found
+		CALL	DECPRT
+		LD	DE,TOTMS4
+		CALL	PUTS
+		LD	HL,(TOTSZ1)	; Total 'k' found
+		CALL	DECPRT
+		LD	DE,TOTMS8
+		CALL	PUTS
+		LD	DE,TOTMS7
+		CALL	PUTS
+		LD	HL,(TOTFRE)
+		CALL	DECPRT
+		LD	DE,ALLTO1
+		CALL	PUTS
+TOTDONE:
+		IF	WMBOOT
+		JP	0000H
+		ENDIF	; WMBOOT
+
+		LD	A,(OLDDSK)	; Restore original drive
+		LD	E,A
+		LD	C,14
+		CALL	CPM
+		LD	A,(OLDUSR)	; Restore original user area
+		LD	E,A
+		LD	C,32
+		CALL	CPM
+
+EXIT3:		LD	HL,(STACK)	; Get old stack pointer
+		LD	SP,HL	; Move back to old stack
+		RET	; And return to CCP
+;.....
+;
+; Restore Public areas if they were changed
+;
+		IF	SHOPUB
+RSTPUB:		LD	HL,(0109H)
+		LD	D,0
+		LD	E,07EH
+		ADD	HL,DE
+		LD	A,(PUBDRV)
+		LD	(HL),A
+		INC	HL
+		LD	A,(PUBUSR)
+		LD	(HL),A
+		RET
+		ENDIF	; SHOPUB
+;.....
+;
+		IF	NDIRS
+NAMDIR:		LD	A,0
+		LD	(CURDIR),A	; Initial check count
+
+NAMDR1:		LD	HL,(NAMADR)	; Named directory buffer address
+
+NAMDR2:		LD	A,(FCB)	; Get current Drive
+		CP	(HL)	; Does NDR entry match current drive?
+		JP	NZ,NXTDIR	; No, check next
+		LD	A,(NEWUSR)	; Get current user
+		INC	HL
+		CP	(HL)	; Does NDR entry match current user?
+		JP	NZ,NXTDIR	; No, check next
+		LD	A,'['	; Frame the name in brackets
+		CALL	PUTCHR
+		LD	C,8	; Number of Characters in entry
+
+DIRCHR:		INC	HL	; Match, Point to Directory Name
+		LD	A,(HL)	; Get Character
+		CP	20H	; End of entry?
+		JP	NZ,DIRCH1	; No
+
+DIRCH0:		PUSH	AF
+		LD	A,']'	; Print closing bracket
+		CALL	PUTCHR
+		POP	AF
+		JP	DIRCH2
+
+DIRCH1:		CALL	PUTCHR
+		DEC	C
+		JP	NZ,DIRCHR	; Output Eight characters
+		JP	DIRCH0
+		RET	; Done
+DIRCH2:		LD	A,C
+		OR	A
+		RET	Z
+		LD	A,20H	; Fill with spaces for neatness sake
+		CALL	PUTCHR
+		DEC	C
+		JP	NZ,DIRCH2
+		RET
+
+NXTDIR:		LD	A,(CURDIR)
+		ADD	A,1	; Increment Directory pointer
+		LD	(CURDIR),A
+		LD	HL,NUMDIR
+		CP	(HL)	; Exceeded Max Entry?
+		JP	Z,NODIR	; Yes, there is no entry for this DU
+		LD	HL,(NAMADR)	; Get base NDR address
+		LD	D,0
+		LD	E,18	; Increment to next entry
+
+NXTD:		ADD	HL,DE
+		DEC	A	; Decrement count
+		JP	NZ,NXTD	; Until current Offset reached
+		JP	NAMDR2	; And check the entry for a match
+NODIR:		LD	C,10	; No match, output ten spaces
+
+NODIR1:		LD	A,20H
+		CALL	PUTCHR
+		DEC	C
+		JP	NZ,NODIR1
+		RET
+		ENDIF	; NDIRS
+;.....
+;
+; Trap BDOS select and sector error vectors to our own intercept routine
+; so we can catch a reference to an illegal drive.
+;
+SWAPEM:		DS	0
+
+		IF	ZRDOS
+		LD	A,(ZRDFLG)	; See if ZRDOS running
+		OR	A
+		RET	NZ	; Yes, quit this
+		ENDIF	; ZRDOS
+
+		LD	A,(VERFLG)	; Version flag
+		CP	30H	; Error mode call available?
+		JP	C,SWAP20	; No, use BDOS error vectors
+		LD	C,2DH	; Yes, use error mode call
+		LD	E,0FFH;
+		CALL	CPM	; Set "return code only" mode
+		RET
+
+SWAP20:		LD	HL,(BDOS+1)	; Load pointer to base of BDOS
+		INC	HL	; Swap new pointer if running a
+		LD	E,(HL)	; Program below the CCP
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL	; HL points to the proper vector
+		LD	L,9	; Point to record error vector
+		LD	DE,VECTBL	; Exchange with our vector table
+		LD	A,4	; 4 bytes to swap
+
+SWAPLP:		LD	B,(HL)	; Load byte from HL
+		EX	DE,HL
+		LD	C,(HL)	; Load byte from DE
+		LD	(HL),B	; Save byte from HL
+		EX	DE,HL
+		LD	(HL),C	; Save byte from DE
+		INC	HL	; Increment exchange pointers
+		INC	DE
+		DEC	A	; Counter-1
+		JP	NZ,SWAPLP	; Continue swapping
+		RET
+;.....
+;
+; Check CP/M version number. Return carry flag set if pre-CP/M 2.  If
+; CP/M 2 or later or MP/M (any version), return carry clear.
+;
+CKVER:		LD	A,(VERFLG)	; Version Flag
+		CP	20H	; CP/M 2.0?
+		RET
+;.....
+;
+; Return point from intercepted BDOS select and bad record errors.
+;
+DSKERR:		LD	SP,STACK	; Get out of BDOS' stack
+		JP	EXIT	; And exit back to CCP
+;.....
+;
+;-----------------------------------------------------------------------
+;		     Start of FNAME routine
+;
+; Main module
+;	on entry, DE points to FCB to be filled, HL points to first
+;		byte of target string, RFCB is 36 bytes long
+;	on exit, B=disk number (1 for A, etc.) and C=user number
+;		HL points to terminating character
+;		A=0 and Z set if error in disk or user numbers
+;		A=0FFH and NZ if ok
+;
+MAXDISK		EQU	16	; Maximum number of disks
+MAXUSER		EQU	31	; Maximum user number
+
+FNAME:		PUSH	DE	; Save DE
+		LD	A,0FFH	; Set default disk and user
+		LD	(DISKNO),A
+		LD	(USERNO),A
+		LD	B,36	; Initialize FCB
+		PUSH	DE	; Save pointer
+		XOR	A	; A=0
+
+FNINI:		LD	(DE),A	; Store zero
+		INC	DE	; Point to next
+		DEC	B	; Count down
+		JP	NZ,FNINI
+		POP	DE	; Get pointer back
+		PUSH	HL	; Save pointer
+;
+; Scan for colon, comma, or space in string
+;
+COLON:		LD	A,(HL)	; Scan for colon or space
+		INC	HL	; Point to next
+		CP	':'	; Colon found?
+		JP	Z,COLON1
+		CP	','	; Comma found?
+		JP	Z,GETF1
+		CP	' '+1	; Delimiter?
+		JP	C,GETF1
+		JP	COLON	; Continue if not EOL
+;
+COLON1:		POP	HL	; Clear stack
+		LD	A,(HL)	; Save possible drive specification
+		CALL	CAPS	; Capitalize
+		CP	'A'	; Digit if less than "A"
+		JP	C,USERCK	; Process user number
+		SUB	'A'	; Change from ASCII to binary
+		CP	MAXDISK	; Within bounds?
+		JP	C,SVDISK
+;
+ERREXIT:	XOR	A	; Error indicator
+		POP	DE	; Restore DE
+		RET
+;.....
+;
+; Log in specified disk
+;
+SVDISK:		INC	A	; Adjust to 1 for "A"
+		LD	(DISKNO),A	; Save flag
+		INC	HL	; Point to next character
+;
+; Check for user
+;
+USERCK:		LD	A,(HL)	; Get possible user #
+		CP	':'	; No user number
+		JP	Z,GETFILE
+		CP	'?'	; All user numbers?
+		JP	NZ,USERC1
+		LD	(USERNO),A	; Set value
+		INC	HL	; Point to after
+		LD	A,(HL)	; Must be colon
+		CP	':'
+		JP	Z,GETFILE
+		JP	ERREXIT	; Fatal error if not colon after ?
+
+USERC1:		XOR	A	; Zero user number
+		LD	B,A	; B = A for user number
+
+USRLOOP:	LD	A,(HL)	; Get digit
+		INC	HL	; Point to next
+		CP	':'	; Done?
+		JP	Z,USRDN
+		SUB	'0'	; Convert to binary
+		JP	C,ERREXIT	; User number error?
+		CP	10
+		JP	NC,ERREXIT
+		LD	C,A	; Next digit in C
+		LD	A,B	; Old number in A
+		ADD	A,A	; *2
+		ADD	A,A	; *4
+		ADD	A,B	; *5
+		ADD	A,A	; *10
+		ADD	A,C	; *10+new digit
+		LD	B,A	; Result in B
+		JP	USRLOOP
+
+USRDN:		LD	A,B	; Get newer user number
+		CP	MAXUSER+1	; Within range?
+		JP	NC,ERREXIT
+		LD	(USERNO),A	; Save in flag
+		JP	GETFILE
+;
+; Extract file name
+;
+GETF1:		POP	HL	; Get pointer to byte
+;
+GETFILE:	LD	A,(HL)	; Pointing to colon?
+		CP	':'
+		JP	NZ,GFILE1
+		INC	HL	; Skip over colon
+
+GFILE1:		LD	A,(HL)	; Get next character
+		CP	','	; Delimiter?
+		JP	Z,GFQUES
+		CP	' '+1	; Not a delimiter?
+		JP	NC,GFILE2
+
+GFQUES:		INC	DE	; Fill with ???
+		LD	B,11	; 11 bytes
+		LD	A,'?'
+
+GFFILL:		LD	(DE),A	; Put?
+		INC	DE	; Point to next
+		DEC	B	; Count down
+		JP	NZ,GFFILL
+
+FNDONE:		LD	A,(DISKNO)	; Get disk number
+		LD	B,A	; In 'B'
+		LD	A,(USERNO)	; Get user number
+		LD	C,A	; In 'C'
+		POP	DE	; Restore registers
+		LD	A,0FFH	; No error
+		OR	A	; Set flags
+		RET
+;
+; Get file name fields
+;
+GFILE2:		LD	B,8	; At most, 8 byte filename
+		CALL	SCANF	; Scan and fill
+		LD	B,3	; At most, 3 byte filetype
+		LD	A,(HL)	; Get delimiter
+		CP	'.'	; Filename ending in "."?
+		JP	NZ,GFILE3
+		INC	HL	; Point to character after "."
+		CALL	SCANF	; Scan and fill
+		JP	FNDONE	; Done, return to "args"
+
+GFILE3:		CALL	SCANF4	; Fill with spaces
+		JP	FNDONE
+;
+; Scanner routine
+;
+SCANF:		CALL	DELCK	; Check for delimiter
+		JP	Z,SCANF4	; Fill with spaces if found
+		INC	DE	; Next byte in filename
+		CP	'*'	; Question mark fill ?
+		JP	NZ,SCANF1
+		LD	A,'?'	; Place "?"
+		LD	(DE),A
+		JP	SCANF2
+
+SCANF1:		LD	(DE),A	; Place character
+		INC	HL	; Next position
+
+SCANF2:		DEC	B	; Count down
+		JP	NZ,SCANF	; Continue loop
+
+SCANF3:		CALL	DELCK	; Skip to delimiter
+		RET	Z
+		INC	HL	; Point to next
+		JP	SCANF3
+
+SCANF4:		INC	DE	; Next filename or filetype
+		LD	A,' '	; Fill with spaces
+		LD	(DE),A
+		DEC	B	; Count down
+		JP	NZ,SCANF4
+		RET
+;.....
+;
+; Check character pointed to by HL for a delimiter,
+; return with Zero flag set if the character is a delimiter
+;
+DELCK:		LD	A,(HL)	; Get the character
+		CALL	CAPS	; Capitalize
+		OR	A	; 0=delimiter
+		RET	Z
+		CP	' '+1	; Space character+1
+		JP	C,DELCK1	; Space character or less
+		CP	'='
+		RET	Z
+		CP	5FH	; Underscore
+		RET	Z
+		CP	'.'
+		RET	Z
+		CP	':'
+		RET	Z
+		CP	';'
+		RET	Z
+		CP	','
+		RET	Z
+		CP	'<'
+		RET	Z
+		CP	'>'
+		RET
+;
+DELCK1:		CP	(HL)	; Compare with self for OK
+		RET
+;.....
+;
+CAPS:		CP	'a'
+		RET	C
+		CP	'z'+1
+		RET	NC
+		SUB	20H
+		RET
+;.....
+;		      End of FNAME routine
+;-----------------------------------------------------------------------
+;
+; Subroutines to read library file directory
+;
+PRTLMEM:	LD	HL,ORDER	; Initialize order table pointer
+		LD	(NEXTL),HL
+		XOR	A
+		LD	(LNCNT),A
+
+ENTRYL:		LD	HL,(LCOUNT)	; Get FCB count
+		DEC	HL	; Decrement it
+		LD	(LCOUNT),HL
+		LD	A,H	; Is this the last file?
+		OR	L
+		JP	Z,LBRTST	; Yes, skip compare
+		PUSH	BC
+		CALL	CKABRT	; Keyboard abort?
+		LD	HL,(NEXTL)
+		LD	A,11
+		CALL	COMPR	; This entry match next one?
+		POP	BC
+		JP	NZ,LBRTST	; No, print it
+		INC	HL
+		INC	HL	; Skip, highest extent last in list
+		LD	(NEXTL),HL
+		JP	ENTRYL	; Loop back for next lowest extent
+;.....
+;
+; Exit Library member printing
+;
+LBEXIT:		LD	HL,(LMTOTL)
+		LD	A,H
+		OR	L
+		RET	Z
+		PUSH	HL	; Save member count
+		XOR	A	; Get a zero to
+		LD	(SUPSPC),A	; Suppress leading spaces in totals
+
+		IF	Z80DOS
+		LD	L,ZDCOLS	; If last line is full, don't turn
+		LD	A,(NODFLG)
+		OR	A
+		JP	NZ,NOD7
+		LD	L,COLUMNS
+NOD7:
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	L,COLUMNS	; If last line is full, don't turn
+		ENDIF	;NOT Z80DOS
+
+		LD	A,(LNCNT)
+		CP	L	; Up extra line
+		CALL	NZ,CRLF	; If partial line, extra line needed
+		LD	DE,CONTM1	; Print "There are "
+		CALL	PUTS
+		POP	HL	; Get total member count back
+		CALL	DECPRT
+		LD	DE,MFILES	; Print "Members in "
+		CALL	PUTS
+		LD	HL,(LBTOTL)
+		CALL	DECPRT
+		LD	DE,LIBR
+		JP	PUTS
+;
+; Valid entry obtained - spit it out
+;
+LBRTST:		LD	A,1	; Turn off .ARC/ARK
+		LD	(ISARC),A
+		LD	HL,(NEXTL)	; Load order table pointer
+		LD	E,(HL)	; Low order address
+		INC	HL
+		LD	D,(HL)	; High order address
+		INC	HL
+		LD	(NEXTL),HL	; Save updated table pointer
+		LD	HL,8
+		ADD	HL,DE
+		CALL	CKLBR
+		JP	Z,LBRSET
+		CALL	CKARC
+		JP	NZ,LBRNEX
+		XOR	A
+		LD	(ISARC),A
+
+LBRSET:		PUSH	DE
+
+		IF	Z80DOS
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,ZARC0
+		LD	A,(ISARC)
+		OR	A
+		JP	Z,ZARC0
+		LD	L,ZDCOLS	; 2 NAMES PER LINE
+		JP	ZARC0A
+ZARC0:		LD	L,COLUMNS	; 4 NAMES PER LINE
+ZARC0A:		LD	A,(LNCNT)
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	A,(LNCNT)
+		LD	L,COLUMNS
+		ENDIF	;NOT Z80DOS
+
+		CP	L
+		CALL	NZ,CRLF
+		PUSH	AF	; Just in case
+		LD	DE,LFMSP1	; Long Library directory message
+		LD	A,(ISARC)
+		OR	A
+		JP	NZ,SARCM1
+		LD	DE,AFMSP1
+
+SARCM1:		CALL	PUTS	; Print it
+		POP	AF	; Put it back
+		LD	A,(FCB)	; Load current drive
+		ADD	A,'A'-1	; Convert to ASCII
+		CALL	PUTCHR	; Print it
+		CALL	PUTUSR	; Print user # after it
+		LD	A,':'	; And colon
+		CALL	PUTCHR
+		POP	HL
+		PUSH	HL
+		LD	B,8	; Filename length
+		CALL	PUTSB
+		LD	A,'.'	; Period after filename
+		CALL	PUTCHR
+		LD	B,3	; 3 characters of filetype
+		CALL	PUTSB
+
+		IF	Z80DOS
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,NOD8
+		CALL	DISDAT
+NOD8:
+		ENDIF	;Z80DOS
+
+		CALL	SIZEFL	; Compute size of library in k
+		EX	DE,HL
+		CALL	DECPRT
+		LD	DE,LFMSP3
+		CALL	PUTS
+		POP	HL
+;
+; Saves the library file name into LBRFCB
+;
+		LD	A,(FCB)
+		LD	DE,LBRFCB	; To
+		LD	(DE),A
+		INC	DE
+		LD	B,11	; Length
+		CALL	MOVE	; Do the move
+		EX	DE,HL
+		LD	B,25
+
+CLMFCB:		LD	(HL),0
+		INC	HL
+		DEC	B
+		JP	NZ,CLMFCB
+		CALL	SETLDMA
+		LD	DE,LBRFCB	; Point to file
+		LD	C,OPEN	; Get function
+		CALL	CPM	; Open it
+		LD	C,READ
+		LD	DE,LBRFCB
+		CALL	CPM
+		CALL	SETFOP
+		LD	HL,LBBUF
+		LD	A,(HL)
+		OR	A
+		JP	Z,CKLDIR	; Check directory present?
+
+		LD	A,(ISARC)
+		OR	A
+		JP	NZ,BADLBR
+		LD	A,(HL)
+		CP	ARCMAR
+		JP	Z,CKADIR
+
+BADLBR:		LD	HL,NLBRF
+		LD	A,(ISARC)
+		OR	A
+		JP	NZ,NBARC
+		LD	HL,NARCF
+
+NBARC:		LD	B,25
+		CALL	PUTSB
+;
+LMLEXI:		CALL	LBCLOS
+;
+; Do next library file
+;
+LBRNEX:		LD	HL,(LCOUNT)	; Check count
+		LD	A,H
+		OR	L
+		JP	Z,LBEXIT	; No more, all done
+		JP	ENTRYL	; Else, get next .LBR file
+;.....
+;
+; Close the library file
+;
+LBCLOS:		LD	DE,LBRFCB
+		LD	C,CLOSE
+		CALL	CPM
+		RET
+;.....
+;
+; Set the Library file DMA address
+;
+SETLDMA:	CALL	CKVER	; Set carry if pre-CP/M 2
+		LD	A,(NEWUSR)	; Get user area for directory
+		LD	E,A
+		LD	C,STUSER	; Get the user function
+		CALL	NC,CPM	; And set new user number if CP/M 2
+		LD	DE,LBBUF
+		LD	C,STDMA
+		CALL	CPM
+		RET
+;.....
+;
+; Check to see if there indeed is a LBR file directory
+;
+CKLDIR:		LD	B,11	; Length of file name
+		LD	A,' '	; Space
+		INC	HL
+
+CKDLP:		CP	(HL)
+		JP	NZ,BADLBR
+		DEC	B
+		INC	HL
+		JP	NZ,CKDLP
+;
+; The first entry in the LBR directory is indeed blank.  Now see if the
+; directory size is > 0
+;
+		LD	E,(HL)	; File starting location low
+		INC	HL	; Must be zero here
+		LD	A,(HL)	; File starting location high
+		OR	E	; Must be zero here also
+		JP	NZ,BADLBR
+		INC	HL
+		LD	E,(HL)	; Get library size low
+		INC	HL	; Point to library size high
+		LD	D,(HL)	; Get library size high
+		LD	A,D
+		OR	E	; Library must have some size
+		JP	Z,BADLBR
+		DEC	DE
+		EX	DE,HL
+		LD	(SLFILE),HL
+		LD	HL,(LBTOTL)
+		INC	HL
+		LD	(LBTOTL),HL
+
+		IF	Z80DOS
+		LD	A,(ISARC)
+		OR	A
+		JP	Z,ZARC1
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,ZARC1
+		LD	A,ZDCOLS
+		JP	ZARC1A
+ZARC1:		LD	A,COLUMNS
+ZARC1A:
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	A,COLUMNS
+		ENDIF	;NOT Z80DOS
+
+		LD	(LNCNT),A	; Reset names per line counter
+		LD	B,3
+		LD	HL,17
+		ADD	HL,DE
+		JP	LMTEST
+
+LFMLOP:		LD	HL,(SLFILE)	; Get next buffer if more
+		LD	A,L
+		OR	H
+		JP	Z,LMLEXI
+		DEC	HL
+		LD	(SLFILE),HL
+		CALL	SETLDMA
+		LD	C,READ
+		LD	DE,LBRFCB
+		CALL	CPM
+		CALL	SETFOP
+		LD	B,4	; Get file count per record
+		LD	HL,LBBUF	; Get buffer starting address
+
+LMTEST:		LD	A,(HL)	; Get member open flag
+		OR	A	; Test for open
+		JP	Z,PRMNAM
+
+LMTESA:		LD	A,(ISARC)
+		OR	A
+		RET	Z
+		LD	DE,32	; Member not open get offset
+		ADD	HL,DE	; To next and add it in
+		DEC	B	; Is buffer empty ?
+		JP	NZ,LMTEST	; No so test next entry
+		JP	LFMLOP	; Yes, get next buffer
+;
+PRMNAM:		PUSH	HL	; Print member name and size
+		PUSH	BC
+		CALL	CKABRT	; Keyboard abort?
+		LD	HL,LNCNT
+
+		IF	Z80DOS
+		LD	A,(ISARC)
+		OR	A
+		JP	Z,ZARC2
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,ZARC2
+		LD	A,ZDCOLS
+		JP	ZARC2A
+ZARC2:		LD	A,COLUMNS
+ZARC2A:
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	A,COLUMNS
+		ENDIF	;NOT Z80DOS
+
+		CP	(HL)
+		JP	NZ,PRMNA1
+
+		IF	PRBRDR
+		LD	A,'*'	; Load "A" with border character
+		CALL	PUTCHR	; Print it
+		LD	A,' ';
+		CALL	PUTCHR	; Space between border and text
+		ENDIF	; PRBRDR
+
+		JP	PRMNA2
+
+PRMNA1:		CALL	SPACE
+		LD	A,':'
+		CALL	PUTCHR
+		CALL	SPACE
+
+PRMNA2:		POP	BC
+		POP	HL
+		PUSH	HL
+		PUSH	BC
+		INC	HL
+		LD	B,8	; Filename length
+		CALL	PUTSB
+		LD	A,'.'	; Period after filename
+		CALL	PUTCHR
+		LD	B,3	; 3 characters of filetype
+		CALL	PUTSB
+		INC	HL
+		INC	HL
+
+		IF	Z80DOS
+		PUSH	HL	; Save pointer
+		LD	A,(ISARC)
+		OR	A
+		JP	Z,ZARC3
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,ZARC3
+		LD	DE,2
+		ADD	HL,DE	; Skip size field and point to CRC
+; DISDAT will point it to date field
+		CALL	DISDAT	; Show the date
+ZARC3:		POP	HL
+		ENDIF	;Z80DOS
+
+		LD	E,(HL)
+		INC	HL
+		LD	D,(HL)
+		EX	DE,HL
+;
+; Output the size of the individual file
+;
+		PUSH	DE
+		PUSH	HL
+		EX	DE,HL
+		LD	HL,(LLENLOC)
+		EX	DE,HL
+		ADD	HL,DE
+		LD	(LLENLOC),HL
+		POP	HL
+;
+; New code added to convert lib members from records to 'k'.  Upon entry
+; member's size in records is in HL.
+;
+		LD	A,(COPFLG)	; File sizes wanted in records?
+		OR	A
+		JP	Z,PRMNA3	; Jump if so
+		LD	DE,7	; Round up to nearest 1k
+		ADD	HL,DE
+		EX	DE,HL
+		LD	HL,0
+		LD	A,E	; Low byte of record count in A
+		RRCA
+		RRCA
+		RRCA
+		AND	1FH
+		LD	E,A	; And put it back
+		LD	L,D	; Get the high byte if any
+		LD	D,0	; Clean out the old resting place
+		ADD	HL,HL	; Multiply it by 32 to convert to
+		ADD	HL,HL	; Number of k bytes
+		ADD	HL,HL
+		ADD	HL,HL
+		ADD	HL,HL
+		ADD	HL,DE	; And add in the low byte
+
+PRMNA3:		POP	DE
+		CALL	DECPRT	; Go print it
+		LD	A,(FSIZEC)	; Follow with 'k' or 'r'
+		CALL	PUTCHR
+;
+; Update library member total and name counter
+;
+		LD	HL,(LMTOTL)
+		INC	HL
+		LD	(LMTOTL),HL
+		LD	A,(LNCNT)
+		DEC	A
+		LD	(LNCNT),A
+		POP	BC
+		POP	HL
+		JP	NZ,LMTESA	; And go output another file
+;
+; Current line full, start a new one
+;
+		IF	Z80DOS
+		LD	A,(ISARC)
+		OR	A
+		JP	Z,ZARC4
+		LD	A,(NODFLG)
+		OR	A
+		JP	Z,ZARC4
+		LD	A,ZDCOLS
+		JP	ZARC4A
+ZARC4:		LD	A,COLUMNS
+ZARC4A:
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS
+		LD	A,COLUMNS
+		ENDIF	;NOT Z80DOS
+
+		LD	(LNCNT),A	; Reset names per line counter
+		CALL	CRLF	; Space down to next line
+		JP	LMTESA
+;.....
+;
+; Move characters from "HL" to "DE" length in "B"
+;
+MOVE:		LD	A,(HL)	; Get a character
+		LD	(DE),A	; Store it
+		INC	HL	; To next "from"
+		INC	DE	; To next "to"
+		DEC	B	; More?
+		JP	NZ,MOVE	; Yes, loop
+		RET	; No, return
+;.....
+;
+; Archive file subroutines
+;
+CKADIR:		XOR	A
+		DEC	A
+		LD	(GETABL),A	; Say buffer is full (first read by lbr test)
+		LD	HL,(LBTOTL)	; Bump library count total
+		INC	HL
+		LD	(LBTOTL),HL
+		LD	A,4	; LDA	 MNPL
+		LD	(LNCNT),A	; Reset names per line counter
+
+ARCLP:		CALL	GET	; Get the next character from buffer
+		CP	ARCMAR	; Is it archive header marker?
+		JP	NZ,BADLBR	; And abort if not
+		CALL	GET	; Get header version
+		OR	A	; If zero, that's logical end of file,
+		JP	Z,LMLEXI	; And we're done
+		LD	DE,ANAME	; Set to fill header buffer
+		LD	B,HDRSIZ	; Setup normal header size less file name
+		CP	1	; But test if version 1
+		JP	NZ,GETHD1	; Skip if not version 1
+		LD	BC,HDRSIZ-4	; Else, header is 4 bytes less
+
+GETHD1:		CALL	GET	; Get header byte
+		LD	(DE),A	; Store in buffer
+		INC	DE
+		DEC	B
+		JP	NZ,GETHD1	; Loop for all bytes
+		LD	HL,ARCFIL	; Prefill dummy arc FCB name with spaces
+		LD	B,11
+
+FIXAN:		LD	(HL),' '
+		INC	HL
+		DEC	B
+		JP	NZ,FIXAN
+		LD	B,5	; Prefill rest of dummy FCB with zero
+
+FIXAE:		LD	(HL),0
+		INC	HL
+		DEC	B
+		JP	NZ,FIXAE
+		LD	HL,ANAME	; Get pointer to archive header buffer
+		LD	DE,ARCFIL	; Point to our dummy FCB
+		LD	B,8	; Get name length
+
+MANAME:		LD	A,(HL)	; Get character from header
+		INC	HL
+		OR	A
+		JP	Z,AEDONE	; Nothing in buffer so we're done
+		CP	02EH	; Is the char a point
+		JP	Z,DAEXT	; DO FILE EXTENT
+		LD	(DE),A
+		INC	DE
+		DEC	B
+		JP	NZ,MANAME
+
+DAEXT:		LD	DE,ARCFIL+8	; Get dummy file extent address
+		LD	B,3
+		LD	A,(HL)
+		CP	2EH
+		JP	NZ,AELOP
+		INC	HL
+
+AELOP:		LD	A,(HL)	; Fill in the file extent
+		OR	A
+		JP	Z,AEDONE
+		LD	(DE),A
+		INC	HL
+		INC	DE
+		DEC	B
+		JP	NZ,AELOP
+
+AEDONE:		LD	HL,ASIZE
+		LD	E,(HL)	; Fetch BCDE from (HL)
+		INC	HL
+		LD	D,(HL)
+		INC	HL
+		LD	C,(HL)
+		XOR	A	; Clear flags
+		LD	A,E	; Convert file length count in bytes
+		RLA	; To length in records for output
+		LD	A,D
+		RLA
+		LD	E,A
+		LD	A,C
+		RLA
+		LD	D,A
+		EX	DE,HL
+		LD	(ARCFIL+13),HL	; Save file length
+		LD	HL,ARCFIL-1	; Point to dummy FCB
+		CALL	PRMNAM	; List the file info
+		LD	HL,ASIZE	; Get remaining file size
+		LD	A,(HL)
+		AND	7FH
+		LD	HL,(ARCFIL+13)	; Save file length
+		EX	DE,HL	; Save record offset
+		LD	HL,GETABL	; Point to offset of last byte read
+		ADD	A,(HL)	; Add byte offsets
+		CP	80H	; Does it overflow current record?
+		JP	C,NRAD
+		SUB	80H	; Adjust pointer
+		INC	DE	; Bump record number
+
+NRAD:		LD	(HL),A	; Update buffer pointer for new position
+		LD	A,D	; Check record offset
+		OR	E
+		JP	Z,LEXIT	; Return if none (still in same record)
+		PUSH	DE	; Save record offset
+		LD	DE,LBRFCB
+		LD	C,RECORD	; Compute current "random" record no.
+		CALL	CPM	; (I.e. next sequential record to read)
+		LD	HL,(LBRFCB+FRN)	; Get result
+		DEC	HL	; Adjust next record to current record
+		POP	DE	; Restore record offset
+		ADD	HL,DE	; Compute new record no.
+		JP	C,BADLBR	; If >64k, it's past largest (8 Mb) file
+		LD	(LBRFCB+FRN),HL	; Save new record no.
+		LD	C,READRN	; Read the random record
+		CALL	GETREC
+		OR	A
+		JP	NZ,BADLBR	; File read error
+		LD	HL,LBRFCB+FCR	; Point to current record in extent
+		INC	(HL)	; Bump for subsequent sequential read
+
+LEXIT:		JP	ARCLP	; Loop for next file
+;.....
+;
+; Get next sequential byte from archive file
+;
+GET:		PUSH	BC	; Save registers
+		PUSH	DE
+		PUSH	HL
+		LD	A,(GETABL)	; Point to last byte read
+		INC	A	; At end of buffer?
+		CP	80H
+		CALL	NC,GETNXT	; Yes, read next record and reset pointer
+		LD	(GETABL),A	; Save new buffer pointer
+		LD	L,A
+		LD	H,0
+		LD	DE,LBBUF
+		ADD	HL,DE
+		LD	A,(HL)	; Fetch byte from there
+		POP	HL	; Restore registers
+		POP	DE
+		POP	BC
+		RET	; Return
+;
+; Get next sequential record from archive file
+;
+GETNXT:		LD	C,READ	; Setup read-sequential function code
+		CALL	GETREC
+		OR	A
+		JP	NZ,RDERR
+		PUSH	AF
+		XOR	A
+		DEC	A
+		LD	(GETABL),A
+		POP	AF
+		RET
+;
+RDERR:		POP	HL	; Strip GETNXT return
+		POP	HL	; Clean up the get stack
+		POP	DE
+		POP	BC
+		POP	HL	; Strip get calling address
+		JP	BADLBR	; Show error
+;
+; Get record (sequential or random) from archive file
+;
+GETREC:		PUSH	HL
+		PUSH	BC
+		CALL	SETLDMA	; Set library DMA address
+		LD	DE,LBRFCB	; Setup FCB address
+		POP	BC	; Restore read function
+		CALL	CPM	; Do it
+		PUSH	AF	; Save read status
+		CALL	SETFOP	; Reset Print file DMA address
+		POP	AF	; Restore read status
+		POP	HL	; Restore buffer pointer
+		RET
+;.....
+;
+; Test file extent for ARC/ARK
+;
+CKARC:		PUSH	HL
+		PUSH	DE
+		PUSH	BC
+		EX	DE,HL
+		LD	HL,ARCTYP
+		LD	C,2	; Number for the loop to test
+;
+CKARL:		LD	A,(DE)
+		AND	7FH
+		CP	(HL)
+		JP	NZ,CKARX
+		INC	HL
+		INC	DE
+		DEC	C
+		JP	NZ,CKARL
+;
+; The first 2 match now see if C or K for .ARC or .ARK
+;
+		LD	A,(DE)
+		AND	7FH
+		CP	'C'	; See if "C"
+		JP	Z,CKARX
+		CP	'K'	; See if "K"
+
+CKARX:		POP	BC
+		POP	DE
+		POP	HL
+		RET
+;.....
+;
+; Test file extent for LBR
+;
+CKLBR:		PUSH	HL
+		PUSH	DE
+		PUSH	BC
+		EX	DE,HL
+		LD	HL,LBRTYP
+		LD	C,3
+
+CKLBL:		LD	A,(DE)
+		AND	7FH
+		CP	(HL)
+		JP	NZ,CKLBX
+		INC	HL
+		INC	DE
+		DEC	C
+		JP	NZ,CKLBL
+
+CKLBX:		POP	BC
+		POP	DE
+		POP	HL
+		RET
+;
+; TIMEON routine
+;
+; Go through a search to see if BYE is active
+;
+		IF	TIMEON
+TIME:		LD	HL,(0001H)	; Point to warm boot again
+		DEC	HL	; If BYE active,
+		LD	D,(HL)	; Pick up pointer to BYE variables
+		DEC	HL	; (COVECT) followed by "BYE"
+		LD	E,(HL)
+		LD	HL,15	; Calculate address of BYE variable
+		ADD	HL,DE	; Where ptr to orig BIOS vector stored
+		LD	E,(HL)	; Load that address into DE
+		INC	HL	; If BIOS active, DE now points to
+		LD	D,(HL)	; Original BIOS console output vector
+		INC	HL	; Point to BYE signon message
+		LD	A,(HL)	; Get letter
+		AND	05FH	; Convert to upper case if needed
+		CP	'B'	; Try to match "BYE"
+		RET	NZ	; Out if BYE not active
+		INC	HL
+		LD	A,(HL)
+		AND	05FH	; Convert to u-case if needed
+		CP	'Y'
+		RET	NZ
+		INC	HL
+		LD	A,(HL)
+		AND	05FH	; Convert to u-case if needed
+		CP	'E'
+		RET	NZ
+
+		LD	DE,6	; Bye running, point to RTCBUF
+		ADD	HL,DE
+		LD	E,(HL)	; Get RTCBUF address
+		INC	HL	; And copy
+		LD	D,(HL)	; In DE
+		EX	DE,HL	; Put in HL
+		LD	DE,7	; Offset to
+		ADD	HL,DE	; Time-on-system byte
+		LD	A,(HL)	; Load TOS byte
+		LD	HL,TONMS1	; Where to store in ASCII
+		CALL	DEC8	; Convert binary to ASCII
+		LD	DE,TONMSG
+		CALL	PUTS	; Print the message
+		RET	; And return
+;.....
+;
+; DEC8 will convert an 8 bit binary number in A to 3 ASCII
+; bytes. HL points to the MSB location where the ASCII bytes
+; will be stored. Leading zeros are suppressed, store spaces
+; in your buffer before calling.
+;
+DEC8:		PUSH	BC
+		PUSH	DE
+		LD	E,0	; Leading zero flag
+		LD	D,100
+
+DEC81:		LD	C,'0'-1
+
+DEC82:		INC	C
+		SUB	D	; 100 or 10
+		JP	NC,DEC82	; Still +
+		ADD	A,D	; Now add it back
+		LD	B,A	; Remainder
+		LD	A,C	; Get 100/10
+		CP	'1'	; Zero?
+		JP	NC,DEC83	; Yes
+		LD	A,E	; Check flag
+		OR	A	; Reset?
+		LD	A,C	; Restore byte
+		JP	Z,DEC84	; Leading zeros are skipped
+
+DEC83:		LD	(HL),A	; Store in buffer
+		INC	HL	; Increment storage location
+		LD	E,0FFH	; Set zero flag
+
+DEC84:		LD	A,D
+		SUB	90	; 100 to 10
+		LD	D,A
+		LD	A,B	; Remainder
+		JP	NC,DEC81	; Do it again
+		ADD	A,'0'	; Make ASCII
+		LD	(HL),A	; And store it
+		POP	DE
+		POP	BC
+		RET
+
+TONMSG:		DB	13,10,'Minutes on System: '
+TONMS1:		DB	'    ',0
+		ENDIF	; TIMEON
+;
+;		      end of TIMEON routine
+;-----------------------------------------------------------------------
+;			   help routine
+;
+; Help menu if ? is typed, using a fancy ZCMD or ZCPR system
+;
+		IF	WHEEL
+HELPME:		LD	DE,OPTMSG	; Point at message
+		CALL	SHOW
+		ENDIF	;WHEEL
+
+		IF	ZCPR3P AND WHEEL
+		PUSH	HL
+		LD	HL,(Z3WHLL)	; Point to enviorment
+		LD	A,(HL)	; Get it
+		POP	HL
+		ENDIF	;ZCPR3P AND WHEEL
+
+		IF	NOT ZCPR3P AND WHEEL
+		LD	A,(WHLOC)	; Get wheel byte
+		ENDIF	;NOT ZCPR3P AND WHEEL
+
+		IF	WHEEL
+		OR	A	; If set, help out poor SYSOP
+		JP	Z,EXIT3	; No - exit
+		LD	DE,SYSOP1	; Point at message
+		CALL	SHOW
+		JP	EXIT3	; And exit
+;
+; This menu of options will appear to normal users (WHEEL not set).
+; Modify the menus to accommodate your system requirements.
+;
+OPTMSG:		DB	13,10,13,10
+		DB	'  Available Options (start with a  $  or  /  or'
+		DB	'  [ character):',13,10,13,10
+		DB	'  A - all user areas               N - no page pause'
+		DB	' [more]',13,10
+		DB	'  C - file sizes in records        Q - show non-$ARCHived'
+		DB	' files',13,10
+		DB	'  D - all drives                   T - order files'
+		DB	' by EXT type',13,10
+		DB	'  E - Eliminate dir listing'
+		DB	13,10
+		DB	'  H - Current area to highest      V - show version'
+		DB	' number',13,10
+		DB	'  L - list LBR/ARC/ARK members     X - aux. format'
+		DB	' (horiz/vert)'
+		ENDIF
+
+		IF	Z80DOS AND WHEEL
+		DB	13,10
+		DB	'  Z - Do not show dates',13,10
+		DB	'  = - Exact date match             + - GE date match',13,10
+		DB	'  - - LT date match                ! - Use creation date for'
+		DB	' match',13,10
+		DB	'  % - Use alteration date match    @ - Use access date for'
+		DB	' match',13,10
+		DB	'   A date input with no =+-!%@ will use =% default,'
+		DB	' * as date is current date'
+		ENDIF	;Z80DOS
+
+		IF	WHEEL
+		DB	13,10,13,10
+		ENDIF
+
+		IF	Z80DOS AND WHEEL
+		DB	' Example - to list all drives/users, no pauses,'
+		DB	' GE date match on access date:',13,10,13,10
+		DB	'                     B0>SD $AND+@ 7/1/88'
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS AND WHEEL
+		DB	'  Example - to list all drives and user areas,'
+		DB	' no pauses:',13,10,13,10
+		DB	'                     B0>SD $AND <ret>'
+		ENDIF	;NOT Z80DOS
+
+		IF	WHEEL
+		DB	13,10,13,10,0
+;
+; This menu of options appears only when the WHEEL is set.
+;
+SYSOP1:		DB	'  * * * Special SYSOP Options (WHEEL SET) * * *'
+		ENDIF
+
+		IF	NOT FATTRIB AND WHEEL
+		DB	13,10,13,10
+		ENDIF	;NOT FATTRIB
+
+		IF	FATTRIB AND WHEEL
+		DB	13,10
+		ENDIF	;FATTRIB
+
+		IF	WHEEL
+		DB	'  F - file output (DISK.DIR)       R - reset disk'
+		DB	' system',13,10
+		DB	'  O - show $SYS files only         S - include'
+		DB	' $SYS files',13,10
+		DB	'  P - printer output',13,10
+		ENDIF
+
+		IF	FATTRIB AND WHEEL
+		DB	'  1 - Check attrib 1               2 - Check attrib 2',13,10
+		DB	'  3 - Check attrib 3               4 - Check attrib 4',13,10
+		ENDIF	;FATTRIB
+
+		IF	WHEEL
+		DB	0
+		ENDIF	; WHEEL
+;
+; Help menu if ? is typed, NOT using any fancy ZCMD or ZCPR system
+;
+		IF	NOT WHEEL
+HELPME:		LD	DE,OPTMSG	; Point at message
+		CALL	SHOW
+		JP	EXIT3	; And exit
+;
+OPTMSG:		DB	13,10,13,10
+		DB	'  Available Options (start with a  $  or  /  or'
+		DB	'  [  character):',13,10
+		DB	13,10
+		DB	'  A - all user areas               P - printer output'
+		DB	13,10
+		DB	'  C - file sizes in records        Q - show non $ARChived'
+		DB	' files',13,10
+		DB	'  D - all drives                   R - reset disk system'
+		DB	13,10
+		DB	'  E - Eliminate dir listing'
+		DB	13,10
+		DB	'  F - file output (DISK.DIR)       S - include $SYS'
+		DB	' files',13,10
+		DB	'  H - Current area to highest      T - order files'
+		DB	' by EXT type',13,10
+		DB	'  L - list LBR/ARC/ARK members     V - show version'
+		DB	' number',13,10
+		DB	'  N - no page pause [more]         X - aux. format'
+		DB	' (horiz/vert)',13,10
+		DB	'  O - show $SYS files only'
+		ENDIF	;NOT WHEEL
+
+		IF	Z80DOS AND NOT WHEEL
+		DB	'         Z - do not show dates'
+		ENDIF	; Z80DOS
+
+		IF	NOT WHEEL
+		DB	13,10
+		ENDIF	;NOT WHEEL
+
+		IF	FATTRIB AND NOT WHEEL
+		DB	'  1 - Check attrib 1               2 - Check attrib 2',13,10
+		DB	'  3 - Check attrib 3               4 - Check attrib 4',13,10
+		ENDIF	;FATTRIB
+
+		IF	Z80DOS AND NOT WHEEL
+		DB	'  = - Exact date match             + - GE date match',13,10
+		DB	'  - - LT date match                ! - Use creation date for'
+		DB	' match',13,10
+		DB	'  % - Use alteration date match    @ - Use access date for'
+		DB	' match',13,10
+		DB	'   A date input with no =+-!%@ will use =% default,'
+		DB	' * as date is current date'
+		DB	13,10,13,10
+		DB	' Example - to list all drives/users, no pauses,'
+		DB	' GE date match on access date:',13,10,13,10
+		DB	'                     B0>SD $AND+@ 7/1/88',13,10,13,10,0
+		ENDIF	;Z80DOS
+
+		IF	NOT Z80DOS AND NOT WHEEL
+		DB	13,10,'  Example - to list all drives and user areas,'
+		DB	' no pauses:',13,10,13,10
+		DB	'                     B0>SD $AND <ret>'
+		DB	13,10,13,10,13,10,13,10,13,10,13,10,13,10
+		DB	0
+		ENDIF	;NOT Z80ODS
+
+;	 ENDIF			; NOT WHEEL
+
+
+		IF	Z80DOS
+DISDAT:		PUSH	BC
+		PUSH	HL	; Save pointer to size field
+		PUSH	DE
+		INC	HL	; and skip over size
+		INC	HL;
+		LD	E,(HL)	; Get JD in DE
+		INC	HL;
+		LD	D,(HL);
+		EX	DE,HL	; to HL
+		CALL	DATEHL;
+		PUSH	HL	; Month and Year in L,H
+		PUSH	AF	; Day in A
+		CALL	SPACE
+		CALL	SPACE
+		POP	AF
+		JP	NZ,DAYOK	; NZ = was a day there
+		POP	HL
+		CALL	NODATE
+		JP	DNOTOK
+DAYOK:		PUSH	AF
+		LD	A,L	; Month out
+		CALL	BCDOUT
+		LD	A,'/'
+		CALL	PUTCHR
+		POP	AF
+		CALL	BCDOUT	; Day out
+		LD	A,'/'
+		CALL	PUTCHR
+		POP	HL
+		LD	A,H	; Year out
+		CALL	BCDOUT
+DNOTOK:		CALL	SPACE
+		CALL	SPACE
+		POP	DE
+		POP	HL
+		POP	BC
+		RET
+
+NODATE:
+		LD	DE,NODATM
+		CALL	PUTS
+		RET
+NODATM:
+		DB	'-- -- --',0
+
+BCDOUT:
+		PUSH	BC	; Save
+		LD	B,A	; A holds BCD digits
+		RRA
+		RRA
+		RRA
+		RRA
+		CALL	BCDOT1	; Output high order
+		LD	A,B
+		CALL	BCDOT1	; And low order
+		POP	BC
+		RET
+BCDOT1:		AND	0FH
+		ADD	A,'0'
+		CALL	PUTCHR
+		RET
+
+;
+; DATEHL converts the value in HL to BCD year, month, day
+;	 for use with Z80DOS time stamps.
+;
+;
+; Inputs:	HL contains hex days since December 31, 1977
+;
+; Outputs:	H contains BCD 20th century year
+;		L contains BCD month
+;		A contains BCD day
+;
+;		Zero flag set (Z) and A=0 if invalid date (zero) detected,
+;		Zero flag reset (NZ) and A=0ffh otherwise.
+
+; Converted to 8080 from DATEHL by Carson Wilson who Adapted from B5C-CPM3.INS
+
+DATEHL:
+		LD	A,H
+		OR	L	; Test blank date (zero)
+		RET	Z	; Return Z and A=0 if so
+		LD	(DAYS),HL	; Save initial value
+		LD	B,78	; Set years counter
+LOOP:
+		CALL	CKLEAP
+		LD	DE,-365	; Set up for subtract
+		JP	NZ,NOPLY	; Skip if no leap year
+		DEC	DE	; Set for leap year
+NOPLY:
+		ADD	HL,DE	; Subtract
+		JP	NC,YDONE	; Continue if years done
+		LD	A,H
+		OR	L
+		JP	Z,YDONE
+		LD	(DAYS),HL	; Else save days count
+		INC	B	; Increment years count
+		JP	LOOP	; And do again
+;
+; The years are now finished, the years count is in 'B' (HL is invalid)
+;
+YDONE:
+		LD	A,B
+		CALL	BINBCD
+		LD	(YEARS),A	; save BCD year
+;
+		CALL	CKLEAP
+		LD	A,0E4H	; -28
+		JP	NZ,FEBNO	; February not 29 days
+		LD	A,0E3H	; Leap year -29
+FEBNO:
+		LD	(FEB),A	; Set february
+		LD	HL,(DAYS)	; Get days count
+		LD	DE,MTABLE	; Point to months table
+		LD	B,0FFH	; Set up 'B' for subtract
+		LD	A,0	; Set a for # of months
+MLOOP:
+		PUSH	AF
+		LD	A,(DE)	; Get month
+		LD	C,A	; Put in 'C' for subtract
+		POP	AF
+		LD	(DAYS),HL	; save days count
+		ADD	HL,BC	; Subtract
+		INC	DE	; Increment months counter
+		INC	A
+		JP	C,MLOOP	; Loop for next month
+
+;
+; The months are finished, days count is on stack.  First, calculate
+; month.
+;
+MDONE:
+		LD	B,A	; Save months
+		LD	HL,(DAYS)
+		LD	A,H
+		OR	L
+		JP	NZ,NZD
+		DEC	DE
+		DEC	DE
+		LD	A,(DE)
+		CPL
+		INC	A
+		LD	L,A
+		DEC	B
+NZD:
+		LD	A,L	; Retrieve binary day of month
+		CALL	BINBCD	; Convert to BCD
+		PUSH	AF	; Save day in A
+;
+		LD	A,B	; Retrieve the binary month
+		CALL	BINBCD	; Convert binary month to BCD
+		LD	L,A	; Return month in L
+;
+		LD	A,(YEARS)
+		LD	H,A	; Return year in H
+;
+		POP	AF	; Restore day
+		OR	A	; Set NZ flag
+		RET
+
+;
+; Support Routines:
+;
+
+;
+; Check for leap years.
+;
+CKLEAP:
+		LD	A,B
+		AND	0FCH
+		CP	B
+		RET
+;
+; Convert A to BCD & store back in A
+;
+BINBCD:
+		OR	A
+		RET	Z
+		PUSH	BC
+		LD	B,A
+		XOR	A
+BINBCD1:
+		ADD	A,1
+		DAA
+		DEC	B
+		JP	NZ,BINBCD1
+		POP	BC
+		RET
+;
+; Buffers:
+;
+
+;
+; Months table
+;
+MTABLE:
+		DB	0E1H	;January -31
+FEB:
+		DB	0E4H	;February -28
+		DB	0E1H,0E2H,0E1H,0E2H	;Mar-Jun -31,-30,-31,-30
+		DB	0E1H,0E1H,0E2H	;Jul-Sep -31,-31,-30
+		DB	0E1H,0E2H,0E1H	;Oct-Dec -31,-30,-31
+
+		ENDIF	;Z80DOS
+
+
+
+;
+; Messages and Error statements
+;
+CKMS1:		DB	13,10,'++ ABORTED ++',0
+CKMS2:		DB	8,' ',8,0
+DRUMSG:		DB	'Drive/User',0
+EOSMSG:		DB	'[more] ','$'
+
+		IF	VSPAGE
+MORERA:		DB	13,'                  ----------------------------------------'
+		DB	13,10,'$'
+		ENDIF	;VSPAGE
+
+		IF	NOT VSPAGE
+MORERA:		DB	13,'        ',13,'$'
+		ENDIF
+
+ERRMS1:		DB	' '
+ERRMS2:		DB	'Error',0
+ERRTAG:		DB	' ->',0
+NOFLM:		DB	'>> No detectable file(s) on ',0
+NOFMS1:		DB	13,10,13,10,' ',0
+NOFMS2:		DB	'  ',0
+NOFMS3:		DB	':  ',0
+SOHFLG:		DB	0
+TOTMS1:		DB	13,10,'         Drive ',0
+TOTMS4:		DB	'/',0
+TOTMS5:		DB	'k  ',0
+TOTMS6:		DB	' Files: ',0
+TOTMS7:		DB	' Free: ',0
+TOTMS8:		DB	'k ',0
+ALLTOT:		DB	13,10,'             Total files: ',0
+ALLTO1:		DB	'k',13,10,0
+
+		IF	PRBRDR
+CONTM1:		DB	13,10,'** There are ',0
+MFILES:		DB	' member files in ',0
+LIBR:		DB	' library(s) and/or archive(s) **',0
+AFMSP1:		DB	13,10,'---- Archive directory for ',0
+LFMSP1:		DB	13,10,'---- Library directory for ',0
+LFMSP3:		DB	'k'
+		DB	' **'
+		DB	13,10,0
+		ENDIF	; PRBRDR
+
+		IF	NOT PRBRDR
+CONTM1:		DB	13,10,'There are ',0
+MFILES:		DB	' member files in ',0
+LIBR:		DB	' library(s) and/or archive(s)',0
+AFMSP1:		DB	13,10,'---- Archive directory for ',0
+LFMSP1:		DB	13,10,'---- Library directory for ',0
+LFMSP3:		DB	'k'
+		DB	13,10,0
+		ENDIF	; Not PRBRDR
+
+NLBRF:		DB	'++ Not a library file ++',13,10
+NARCF:		DB	'++ Not an archive file ++',13,10
+LBRTYP:		DB	'LBR'
+ARCTYP:		DB	'AR'	; We only test the first 2 in the loop.
+; The C or K are tested separately.
+;
+; Permanently initialized data area
+;
+VECTBL:		DW	DSKERR	; BDOS record error intercept vector
+		DW	DSKERR	; BDOS select error intercept vector
+;
+; End of code that must be stored on disk in the .COM file
+;
+; Data area reinitialized by code when SD is run or rerun
+;
+DATA0		EQU	$	; Start of area to initialize
+
+OTBL		EQU	$	; Mark start of option table
+VFLAG:		DS	1
+AOPFLG:		DS	1
+COPFLG:		DS	1
+DOPFLG:		DS	1
+EOPFLG:		DS	1
+FOPFLG:		DS	1
+HOPFLG:		DS	1
+LOPFLG:		DS	1
+NOPFLG:		DS	1
+OOPFLG:		DS	1
+POPFLG:		DS	1
+QOPFLG:		DS	1
+ROPFLG:		DS	1
+SOPFLG:		DS	1
+TOPFLG:		DS	1
+VOPFLG:		DS	1
+XOPFLG:		DS	1
+
+		IF	Z80DOS;
+DEOPFL:		DS	1
+DPOPFL:		DS	1
+DMOPFL:		DS	1
+DNOPFL:		DS	1
+DAOPFL:		DS	1
+DGOPFL:		DS	1
+NODFLG:		DS	1
+		ENDIF	;Z80DOS
+
+		IF	FATTRIB
+ONEFLG:		DS	1
+TWOFLG:		DS	1
+THRFLG:		DS	1
+FORFLG:		DS	1
+		ENDIF
+
+OEND		EQU	$	; End of option table
+;
+; End of option lookup table
+;
+BUFPNT:		DS	2	; Next location in output buffer
+BUFCNT:		DS	1	; Number of bytes left in output buffer
+OUTFCB:		DS	1+8+3	; User number, filename, and filetype
+;
+; Beginning of area reinitialized to zero each time SD.COM is run
+;
+		DS	21	; Rest of DISK.DIR FCB
+DISKNO:		DS	1	; Disk number
+USERNO:		DS	1	; User number
+OPNFLG:		DS	1	; File open flag
+DRVFLG:		DS	1	; D option check for prior drive specificaton
+FNDFLG:		DS	1	; Files Matched Flag
+BYEACT:		DS	1	; BYE Active Flag
+
+LINCNT:		DS	1	; # lines printed on screen
+LLENLOC:	DS	2	; Running total of .LBR length
+LMTOTL:		DS	2
+LBTOTL:		DS	2
+LNCNT:		DS	1
+LCOUNT:		DS	2
+NEXTL:		DS	2
+SLFILE:		DS	2
+LINES:		DS	1	; Number of lines to be printed
+FIRSTT:		DS	1	; First time flag for version number
+ISARC:		DS	1
+;
+; Uninitialized data area
+;
+BASUSR:		DS	1	; Copy of original directory user #
+BLKMAX:		DS	2	; Highest block # on drive
+BLKMSK:		DS	1	; Records/block - 1
+BLKSHF:		DS	1	; Number shifts to mult by sec/blk
+COUNT:		DS	2	; Entry count
+DIRMAX:		DS	2	; Highest file # in directory
+FILERC:		DS	2	; File size in records
+FREEBY:		DS	2	; Number of k left on dir. drive
+FSIZEC:		DS	1	; File size character ('k' or 'r')
+GAP:		DS	2	; Sort routine storage
+I:		DS	2	; Sort routine storage
+J:		DS	2	; Sort routine storage
+JG:		DS	2	; Sort routine storage
+LZFLG:		DS	1	; 0 when printing leading zeros
+MAXUSR:		DS	1	; Max user # for drive
+NEWUSR:		DS	1	; User # selected by "$U" option
+NEXTT:		DS	2	; Next table entry
+OLDDSK:		DS	1	; Currently logged-in drive
+OLDUSR:		DS	1	; User number upon invocation
+SCOUNT:		DS	2	; # to sort
+SUPSPC:		DS	1	; Leading space flag
+TBLOC:		DS	2	; Start of name table
+TOTFIL:		DS	2	; Total number of files
+TOTSIZ:		DS	2	; Total size of all files
+TOTFL1:		DS	2	; Total files of all D/U
+TOTSZ1:		DS	2	; Total size of all D/U
+TOTFRE:		DS	2
+USRNR:		DS	1	; User number
+VERFLG:		DS	1	; CP/M version number (0=pre-CP/M 2)
+ZRDFLG:		DS	1	; ZRDOS version number
+
+		IF	Z80DOS;
+HOLDAT:		DS	2
+DATPLS:		DS	1	; Holds +/- flag for date math
+DATCH1:		DS	2	; Holds first input date
+DATCHK:		DS	2	; Holds date to look for
+DTMTCH:		DS	1	; Holds <,>=,>
+DATMOD:		DS	2	; Holds date found for file
+DAYS:		DS	2	; temporary buffers
+YEARS:		DS	1;
+YEARS1:		DS	1
+MONTHS:		DS	1
+DAYS1:		DS	1
+ASCII:		DS	5	; holds date from system
+		ENDIF	;Z80DOS
+
+
+DATA1		EQU	$	; End of area to initialize
+
+		IF	ZCPR3P
+Z3DRVL:		DS	2	; Points to Z33 max drv location
+Z3USRL:		DS	2	; Points to Z33 max user location
+Z3WHLL:		DS	2	; Points to Z33 wheel location
+		ENDIF	;ZCPR3P
+
+		IF	NDIRS
+NAMADR:		DS	2	; Named Directory Buffer Address
+NUMDIR:		DS	1	; Number of entries
+CURDIR:		DS	1	; NDR Check counter
+		ENDIF	; NDIRS
+
+		IF	SHOPUB
+PUBDRV:		DS	1	; Storage for Public Drive byte
+PUBUSR:		DS	1	; "	"    "	  User	 "
+		ENDIF	; SHOPUB
+
+GETABL:		DS	1
+LBRFCB:		DS	36
+LBBUF:		DS	128
+
+ANAME:		DS	13
+ASIZE:		DS	14
+ARCFIL:		DS	16
+
+NEWPTR:		DS	2	; Start of second table
+XPOINT:		DS	2
+JUMPER:		DS	2	; Increment for second table to
+WASHERE:
+		DS	1
+VSFRST:		DS	1
+OUTBUF:		DS	128	; Output file buffer
+;
+; BDOS equates
+;
+BDOS		EQU	0005H	; Entry Point for BDOS calls
+FCB		EQU	005CH	; Default FCB Address
+TBUF		EQU	0080H	; Default DMA Address
+
+RDCON		EQU	1	; Console input
+WRCON		EQU	2	; Console output
+LIST		EQU	5	; List output
+PRINT		EQU	9	; Print string
+CONST		EQU	11	; Get console status
+CPMVER		EQU	12	; Return CP/M version
+RESET		EQU	13	; Reset disk system
+SELDSK		EQU	14	; Select disk
+OPEN		EQU	15	; Open file
+CLOSE		EQU	16	; Close file
+SRCHF		EQU	17	; Search for first
+SRCHN		EQU	18	; Search for next
+READ		EQU	20	; Read sequential
+WRITE		EQU	21	; Write sequential
+MAKE		EQU	22	; Make file
+CURDSK		EQU	25	; Return current disk
+STDMA		EQU	26	; Set DMA Address
+DSKALL		EQU	27	; Get address of allocation vector
+DSKPAR		EQU	31	; Get address of disk parameters
+STUSER		EQU	32	; Set/get user number
+SCBA		EQU	49	; SCB access
+
+		IF	ZRDOS
+ZRDVER		EQU	48	; Return version (ZRDOS)
+SETWBT		EQU	50	; Set warm boot trap (ZRDOS)
+RESWBT		EQU	52	; Reset warm boot trap (ZRDOS)
+		ENDIF	; ZRDOS
+
+		DS	60	; Stack area
+STACK:		DS	2	; Old stack pointer
+
+ORDER		EQU	$	; Order table starts here
+
+	END

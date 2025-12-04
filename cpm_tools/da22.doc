@@ -1,0 +1,158 @@
+                                    DA.DOC
+                                    ------
+                     Documentation for DA.COM v2.2 (1/87)
+                               (c)1987 E. Meyer
+
+
+     DA is a super directory utility ("DA" stands for Directory-Attributes)
+that will run on any Z80 CP/M system (2.2 or 3.0).  It is like XDIR and STAT
+(or SET and SHOW) rolled into one, but takes just 2k of disk space.  DA can:
+
+    *  show the files on a disk, the space they take, and free space
+    *  give an alphabetized directory with file sizes
+    *  select on, display, or change file attributes
+
+
+                                   USING DA
+
+SYNTAX:    A>da {du:}{filespec} {[}{op}{attributes}}     ("{}"=optional)
+
+        where  "du:" may include a drive and/or user number, eg "B14:";
+               "filespec" may include wildcards ("*", "?");
+               "[" is a delimiter before any operands or attributes;
+               "op" may be one or two of the operands "#?~+-";
+               "attributes" are any or all of: "RSA1234".
+
+       If you are specifying operands/attributes, they must be separated from
+       the filespec by either a space or "["; if the filespec was omitted, the
+       "[" is mandatory.  Generally, only one operand should be specified; the
+       exception is that "~" may be used after "?" or "#".
+
+ATTRIBUTES:   If attributes are specified, only files WITH them are shown.
+       There are 7 attributes a file may have:
+         R = READ/ONLY -- the file cannot be erased or modified.
+         S = SYSTEM -- the file will not appear in an ordinary DIR.
+         A = ARCHIVE -- the file has not been changed since last archived.
+                       (Note: only CP/M 3.0 fully supports this attribute.)
+         1,2,3,4 -- no established meaning, use for your own purposes.
+
+OPERANDS:  "~"... Show only files WITHOUT following attributes.
+           "#"... Show file sizes in RECORDS as well as K.
+           "?"... Show file ATTRIBUTES instead of sizes.
+           "+"... SET and show following attributes on specified files.
+           "-"... CLEAR and show following attributes on specified files.
+
+
+                                   EXAMPLES
+
+     Suppose we have a fictitious 183k disk with five files.  First we'll try
+the different DA display modes.  (Note: all the following assumes that alpha-
+betization is horizontal, and "*.*" defaulting is on.)
+
+A>da
+A0:    86k in   5 files use   86k  (  95k free)
+ALPHA   .FIL   6k > BETA    .FIL  51k > DA      .COM   2k > GAMMA   .FIL  18k
+OMEGA   .COM   9k
+
+A>da [#
+A0:    86k in   5 files use   86k  (  95k free)
+ALPHA   .FIL   47r   6k > BETA    .FIL  402r  51k > DA      .COM   14r   2k
+GAMMA   .FIL  140r  18k > OMEGA   .COM   72r   9k
+
+A>da [?
+A0:ALPHA   .FIL  RS----- > BETA    .FIL  ------- > DA      .COM  -S-----
+A0:GAMMA   .FIL  --A---- > OMEGA   .COM  -S-1--4
+
+A>da a1:
+A1:     0k in   0 files use    0k  (  95k free)
+
+A>da *.xyz [?
+A0:NO FILE
+
+     Now we try getting selective lists, by specifying attributes.
+
+A>da [s
+A0:    17k in   3 files use   17k  (  95k free)
+ALPHA   .FIL   6k > DA      .COM   2k > OMEGA   .COM   9k
+
+A>da [?rs
+A0:ALPHA   .FIL  RS-----
+
+A>da *.fil[~a
+A0:    57k in   2 files use   57k  (  97k free)
+ALPHA   .FIL   6k > BETA    .FIL  51k
+
+     Now we start changing some attributes.
+
+A>da *.fil[+3
+A0:ALPHA   .FIL  RS---3- > BETA    .FIL  -----3- > GAMMA   .FIL  --A--3-
+
+A>da *.com[-1234
+A0:OMEGA   .COM  -S----- > DA      .COM  -S-----
+
+
+
+                                  ADVANTAGES
+
+     DA gives a more convenient way to set attributes than the usual CP/M
+commands.  It displays attributes in an intuitive way, instead of using video
+bits or lowercase on filename characters as do other programs.  And it is the
+only utility I know of that can give selective lists of files by attributes.
+     DA is careful to give accurate statistics.  The disk involved will be
+reset before it is accessed, so you can change disks and use DA without fear. 
+The file sizes are exact, rather than rounded up to your block size: DA will
+show a 1k file as 1k, even on a hard disk with 4k blocks; most other programs
+would report 4k.  The disk statistics message gives the actual space taken up
+on your drive (the "use" figure) as well as the total of the real file sizes,
+in case these differ.
+     (Note: a "record" is 128 bytes; a "K" is 8 records, 1024 bytes.  A
+"block" is a unit typically from 1K to 4K, depending on your disk format.)
+
+
+                                 LIMITATIONS
+
+     When DA is used on unusual "media", such as ROM or tape "drives" on some
+lap portables, the disk statistics may be inaccurate.  This is a general
+problem, due to the implementation of CP/M on these machines.
+     DA has a few numerical limits.  It can only cope with up to 255 files,
+999k filesizes, and 8190k free space.  This should be adequate for all floppy
+and some hard disks.
+
+
+                            OPTIONAL: User Patches
+
+      0108h : directory columns             010Ah : default to "*.*"?
+      0109h : vertical alphabetization?     010Bh : maximum drive
+
+     You can vary the number of columns in which DA displays the directory. 
+Patch address 0108h in DA.COM (with DDT, SID etc) to the number you want. 
+Each column is 18 characters wide.  The default is 4 columns for an 80-column
+screen; 3 works well on a 52-column Osborne; 2 works with 40-column screens. 
+(Note that in the attribute or records mode, the number of columns in the
+display will be one less in each case.)
+     You can choose whether you want the directory alphabetized horizontally
+or vertically.  Patch address 0109h to FF for vertical (the default is 00 for
+horizontal).  DA will use ">" as a file separator in horizontal mode, and "|"
+in vertical mode.
+     You can choose whether to default to "*.*" when you use DA without a
+filename.  Ordinarily this is so; typing "DA" is the same as "DA *.*".  If you
+prefer to get just the disk statistics when you type "DA" alone, patch address
+010Ah to 00.  (The default is FF.)
+     The maximum drive allowed is stored at 010Bh (default is 0F, for CP/M's
+upper limit, drive P:).  If you want, you can decrease this to reflect the
+actual number of drives on your system (01 would be B:).  Any attempt to
+access a higher drive will be ignored, avoiding BDOS select errors.
+
+
+                               VERSION HISTORY
+
+  Versions 1.0-1.6: gradual improvements (still only 1K).
+
+  Version 2.0: completely rewritten, now 2K.  New multiple display formats,
+user number support, much faster.
+  v2.1-2.1c: more user patches, small bug fixes.
+  v2.2: "[" allows options without filename; new option "#" shows records.
+
+
+       ---  Eric Meyer, 427 N. Washington #4, Bloomington IN 47401  ---
+

@@ -1,0 +1,280 @@
+
+SD138.DOC		 Documentary help guide 	      20 Aug 89
+
+			Super Directory program
+			-----------------------
+
+INTRODUCTION:
+------------
+
+This is a help guide to operate the CP/M-80 Super Directory program.  It
+is often renamed to "DIR.COM" on RCP/M systems or on systems running CCP
+replacements that allow an external directory program.	It is one of the
+most useful and one of the most versatile programs available for CP/M-80
+computers.  It can direct its output the the CRT, to a printer or to a
+disk file for later reference.	It can alphabetize a directory either
+vertically or horizontally (selected when assembling the program but
+can be changed to the other mode at any time for the current display.)
+It shows how many files have been used on the current drive/user area,
+how much space this has taken and how much space remains.  Those and
+other useful features are mentioned below.  Spend at least a few moments
+looking at the quick-reference option list as you may find some things
+are now available that would be quite helpful when using your computer.
+
+
+	To get a HELP Summary of Options:
+
+			B0>SD ?
+			  or
+			B0>SD //	(if ZCPR33 equate YES)
+
+	Example of Option Usage:
+
+			B0>SD $ANDLV (...etc.)
+
+(The "$"  denotes start of commands but "/" or "[" may also be used.)
+
+
+QUICK SUMMARY OF OPTIONS:
+-------------------------
+
+     A -  all user areas allowed, (0-15), some systems (0-31)
+     C -  shows file sizes in records, rather than 'k'
+     D -  all  drives starting with first available (usually A:)
+     E -  display only files in .lbr,.arc, and .ark files
+     F -  file "DISK.DIR" created/appended to show disk contents
+     H -  shows all user areas from here to highest
+     L -  LBR/ARC/ARK list option (shows names of member files)
+     N -  defeats the page pause, permits non-stop display
+     O -  shows only $SYS files in directory
+     P -  copies output to printer
+     Q -  shows files that have NOT yet been archived
+     R -  resets  disk, if not already logged in
+     S -  include any $SYS files
+     T -  sorts files by type (extent)
+     V -  shows version number and date
+     X -  uses alternate listing format (horizontal/vertical)
+     1 -  files must have attribute 1 set
+     2 -  files must have attribute 2 set
+     3 -  files must have attribute 3 set
+     4 -  files must have attribute 4 set
+
+For all changes made to support Z80DOS date stamping, search this file
+for the string "Z80DOS".
+
+"Z80DOS support"
+     = -  Show files whose date matches input date exactly
+     + -  Show files whose date is equal or after input date
+     - -  Show files whose date is before input date
+     ! -  Use creation date for matches
+     % -  Use alteration date for matches
+     @ -  Use last access date for matches
+     Z -  Do not display file dates
+
+
+COMMENTS:
+---------
+Using the $D option automatically starts on the first available drive
+(usually A:) regardless of what drive you were on when you started.  It
+then checks all available drives.  Similarly, using the $A option will
+always start with User 0 and individually display each available user
+area.  If desired you can include a specified drive/user area on the
+command line.  Any of the following can be used:
+
+
+EXAMPLES OF USE:
+---------------
+
+		1)  B0>SD
+		2)  B0>SD *.*
+		3)  B0>SD *.COM
+		4)  B0>SD C4:
+		5)  B0>SD C4: *.COM
+		6)  B0>SD $AND
+		7)  B0>SD *.COM $AND
+		8)  B0>SD *.COM /AND
+		9)  B0>SD *.COM[AND
+"Z80DOS support"
+		10)  B0>SD *.* /= 7/2/88
+		11)  B0>SD /=@ 7/2/88
+		12)  B0>SD /+! 7/2/88
+		13)  B0>SD *.* / 7/2/88 8/15/88
+		14)  B0>SD / *-10 *-5
+		15)  B0>SD / 7/2/88+5 7/10/88-1
+
+    1)	Shows all files on the current drive/user area
+    2)	Same as 1)
+    3)	All files with .COM extent on current drive/user area
+    4)	All files on C4: drive/user area
+    5)	All .COM files on C4:
+    6)	Shows files on all drives and all user areas, nonstop
+	  (very useful for making a remote listing of all files)
+    7)	All .COM files on all drives and all user areas, nonstop
+    8)	Can use '/' UNIX-type command rather than $ if preferred
+    9)	Can use '[' CP/M+ type command, no space is permitted
+"Z80DOS support"
+   10)  Show files whose alteration date matches 7/2/88
+   11)  Show files whose last access date matches 7/2/88
+   12)  Show files whose creation date was on or after 7/2/88
+   13)	Show files whose alteration date is between 7/2/88 and 8/15/88
+   14)	Show files whose alteration date is between current date-5 days and
+						    current date-10 days
+   15)	Show files whose alteration date is between 7/7/88 and 7/9/88
+OPTIONAL COMMANDS:
+----------------
+
+"A" -	All users:  Causes SD to display the directories of all
+	the user areas starting at user 0 and continuing to the
+	maximum available.  Most systems have 16 user areas 0-15
+	but CP/M+ etc., can have 32 user areas 0-31.
+
+"C" -	Shows file sizes in records: Gives individual cile sizes
+	in records instead of "k".  Sizes are followed by "r"
+	instead of the normal "k" to indicate this option in ef-
+	fect.  Totals and library summary lines are still given
+	in "k". Very nice on larger disk systems where 16k might
+	be anything from 97-128 records.
+
+"D" -	All disk option: Allows SD to search all disk drives on-
+	line.  	It starts with the disk drive specified or im-
+	plied with the command line filename.	Example:
+
+		B0>SD $D       Shows all drives starting with A:
+		B0>SD C:$D     SHows all drives starting with C:
+
+"E" -   Turns off display of normal directory listings, showing 
+        only files inside of library and archive files if the L 
+        option is also used. Useful for showing summary lines
+        only, or creating DISK.DIR files with only lbr and arc 
+        files for use with FOR.COM for fast file searches. This
+        keeps the size of the DISK.DIR to smaller size.
+
+"F" -	File option: The directory output will be sent to a disk
+	file named "DISK.DIR" on the default drive. If this name
+	already is present on that drive then the directory out-
+	put will be appended to the end of the file.  "DISK.DIR"
+	will otherwise start as a new file.  The append feature
+	allows you to build up one massive file on the default
+	drive that contains the directories of all of your disks
+	without having to concatenate a lot of individual files.
+
+"H" -	From here option:  Displays files on all user areas from
+	current to highest allowed (usually area 15 unless on a
+	RCPM system.)  It it handy to use on systems that have
+	MANY files on user 0 area, to see what remains on the
+	other user areas.  If on B5: for example, using $H would
+	show files on all user aread from B5: through B15: if
+	permitted to go that high.  (The $A option is ignored if
+	included, else the $H option would not be requested.)
+
+"L" -	LBR list option:  Allows for listing of ".LBR", ".ARC"
+	or ".ARK" file members which are shown followed by their
+	length in 'k' (or 'r', if the 'C' option is used).  The
+	total length of the entire library is is also shown.
+	These are always alphabetized horizontally and may have
+	a little border (assembler option) at the left, showing
+	it is a library listing.
+
+"N" -	No page option:  Shows the display without stopping each
+	when the screen is full.  Particularly useful for remote
+	users on an RCPM so they can display the entire director
+	non-stop for disk copy, etc. by using $AND, etc.
+
+"O" -	Shows only $SYS files: Very useful on large system where
+	it is harder to notice an occasional $SYS file.
+
+"P" -	Copy output to printer:  Highlighting characters are not
+	sent (for files that are archived or set as $SYS files)
+	and the "N" option is automatically selected to prevent
+	[more] pauses.  To insure the file names are similar in
+	appearance, only upper-case characters are sent to the
+	printer.
+
+"Q" -	Shows unarchived files:  Show the files that do NOT have
+	the archive flag in a file's directory entry, set.  This
+	will show new files that have been recently added to the
+	disk. For example, to see a list of ALL new files in ALL
+	user areas of ALL drives:
+
+		B0>SD $ADQ <ret>
+
+	To see the new files in just the area that you are cur-
+	rently logged into, enter:
+
+			B0>SD $Q <ret>
+
+	(Note: This is worthless on systems that do not use any
+	archive backup system.)
+
+"R" -	Reset disk system:  A disk system reset is done before
+	directory information is accumulated. Useful to show the
+	correct free space remaining when a new disk has been
+	inserted, etc.  (Without a reset, it will show the re-
+	maining space for whatever disk was last logged in.) Not
+	useful and a waste of time on a hard drive.)
+
+"S" -	Include $SYS files:  Files with the $SYS attribute set
+	are normally not displayed.  This option includes them.
+	Also see the "O" which displays ONLY the $SYS files.
+
+"T" -	Order files by type:  Alphabetizes files by type (exten-
+	sion).  This groups files of the same type together such
+	as .ASM, COM, LBR.)
+
+"V" -	SD Version number, suffix, and date is displayed.
+
+"X" -	Use alternate listing format - If vertical alphabetiza-
+	tion is in effect normally, using this option will cause
+	a horizontal listing to be shown.  If horizontal is the
+	default, then this option produces a vertical listing.
+"1" -
+"2" -
+"3" -
+"4" -	Show only files that meet all other criteria and also have
+	this file attribute set. These may occur alone or with each
+	other, or with any other criteria. IE:
+		SD /1
+		SD /23
+		SD /1234
+		SD /SQ12
+	Wheel controllable as is /S.
+
+"Z80DOS support"
+
+"=" -   The date on the command line will be used for exact matches
+	with the date of the file.
+
+"+" -	The date on the command line will be used for matching the 
+	files whose date was on or after the files date.
+
+"-" -	The date on the command line will be used for matching all
+	files whose date was before this date.
+
+"!" -	The files creation date as known by Z80DOS will be used.
+
+"%" -	The files alteration date as known by Z80DOS will be used.
+
+"@" -	The files last access date as know by Z80DOS will be used.
+
+"Z" -   Do not display file dates. Gives 4 across display on 80 col
+	screens (vs 2 with dates).
+
+Z80DOS support notes:
+
+	1: If no date spec such as ! or % or @ is given, the files
+	   alteration date will be used.
+	2: If no matching spec such as = or + or - is given, the match
+	   will be an exact one.
+	3: If an input line such as SD / 7/2/88 is given, the default
+	   will be the files alteration date will be matched exactly.
+	4: Date math now allows a range of dates to be specified for
+	   matching files. Note that the options =+- become don't cares
+	   when specifying a range.
+	5: Date math allows relative modifiers to a date, such that you
+	   can specify + or - 255 days from a given date. Note that
+	   the date, the + -, and the relative are NOT separated by spaces.
+	6: When * is used as the date, it means current system time.
+	7: If the alteration or access date is requested, (or default alter)
+	   and that date is null(0) for the file, the program will revert
+	   to the creation date for a comparisons/display.
+
