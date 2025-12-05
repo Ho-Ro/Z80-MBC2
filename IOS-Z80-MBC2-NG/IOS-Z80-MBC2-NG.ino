@@ -99,10 +99,11 @@ S220718-R290823   Added Fuzix OS support (www.fuzix.org):
                    INIT lines of the parallel port not active after a power on/reset.
 S220718-D260225   Ho-Ro: DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS - finetuning FIFO level
 S220718-D080825   SvenMB: corrected handling for ram extension
+S220718-D051225   Ho-Ro: fix SIOB adressing #12 (https://github.com/Ho-Ro/Z80-MBC2/issues/12)
 --------------------------------------------------------------------------------- */
 // clang-format off
 
-#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D080825\r\n"
+#define VERSION_STRING "\r\n\nZ80-MBC2 - A040618\r\nIOS - S220718-R290823-D051225\r\n"
 #define BUILD_STRING "      " __DATE__ "  " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -274,9 +275,8 @@ const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256
 
 #if true
 
-// The file "boot_A_.h" is built from the source code in "iLoad.asm" that was created
-// by disassembling the below hex content of "boot_A_[]". This source code is heavily
-// commented by comparing against the code of the older source "iLoad_S260117.asm".
+// The file "boot_A_.h" is built from the source code in "iLoad.asm" based on
+// "S200718 iLoad.asm" from the directory `src` of the zipped SD content.
 // The content of "boot_A_.h" is byte-by-byte identical to "boot_A_[]" below.
 
 #include "boot_A_.h"
