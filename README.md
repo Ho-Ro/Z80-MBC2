@@ -205,7 +205,6 @@ VDISK S200918-D261025
 
 A>
 ```
-
 Pressing the `RESET` button brings you back to the original system.
 
 ## Installation - the simple way
@@ -296,4 +295,8 @@ source files over to CP/M, rebuild everything there again and finally install
 the newly created `CPMX.SYS` on `A:`.
 The bios source code and the toolchain is in the directory [`bios_devel.linux`](bios_devel.linux).
 Some of my own CP/M tools and some old but improved ones are in [`cpm_tools`](cpm_tools).
+
+## Enjoy your newly built CP/M3
+
+![Booting CP/M3](Z80-MBC2_booting_CPM3.png)
 
