@@ -217,13 +217,16 @@ Your system will now start up with the new BIOS.
 If you want a quick fallback-solution w/o SD-card handling keep your
 original `A:CPM3.SYS` and copy the file `N:CPMX.SYS` to `A:CPMX.SYS`.
 This can be done with `PIP A:=N:CPMX.SYS` or `MAKE INSTALL` from `N:`.
-To boot either the original `CPM3.SYS` or the new `CPMX.SYS`, rename
-the provided file [`cpmxldr.com`](bios_devel.linux/cpmxldr.com) to
-`CPMLDR.COM` and put it on the root directory of the Z80-MBC2 SD card.
-Depending on the status of the USER KEY during loading of CPMLDR.COM
-(Message `IOS: Loading boot program (CPMLDR.COM)...`) it will load either
-`A:CPMX.SYS` (USER KEY not pressed) or the old `A:CPMX.SYS` (USER KEY pressed).
-When it doesn't find the `A:CPMX.SYS` file then it loads `A:CPM3.SYS`.
+To be able to boot either the original `CPM3.SYS` or the new `CPMX.SYS`, copy
+the provided file [`cpmxldr.com`](bios_devel.linux/cpmxldr.com) as `CPMXLDR.COM`
+to the root directory of the Z80-MBC2 SD card. If IOS detects `CPMXLDR.COM`
+during CP/M3 boot it uses this loader and switches the USER LED on as an info.
+Now you can press the USER KEY to fall back to the old system.
+If the USER KEY is pressed, `A:CPM3.SYS` is loaded w/o trying to load `CPMX.SYS`.
+If the USER KEY is not pressed, `CPMXLDR.COM` tries to load `A:CPMX.SYS` first
+and if it doesn't find `A:CPMX.SYS` then it loads `A:CPM3.SYS`.
+The USER LED is switched off for the regular `CPMX.SYS` and switched on as a hint
+that the old fallback system was loaded.
 This procedure is strongly recommended if you want to modify your BIOS.
 
 ## Utilities

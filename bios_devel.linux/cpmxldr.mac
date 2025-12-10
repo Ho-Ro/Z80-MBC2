@@ -35,8 +35,8 @@
 ;					If this fails then open CPM3.SYS.
 ;					If X==0 open CPM3.SYS only.
 ;	10-Dec-2025	Ho-Ro		Changed AUTOEXEC bit to USER KEY:
-;					KEY not pressed: load CPMX.SYS
-;					KEY pressed: load (old) CPM3.SYS
+;					KEY not pressed: load CPMX.SYS, USER LED off
+;					KEY pressed: load (old) CPM3.SYS, USER LED on
 
 	aseg	; Absolute address
 
@@ -58,6 +58,7 @@ EXC$WR$OPCD EQU	000H		; Address of the EXECUTE WRITE OPCODE write port
 EXC$RD$OPCD EQU	000H		; Address of the EXECUTE READ OPCODE read port
 STO$OPCD    EQU	001H		; Address of the STORE OPCODE write port
 SYSFLAG$OPC EQU	083H		; SYSFLAG opcode
+USERLED$OPC EQU 000H		; USER LED opcode
 USERKEY$OPC EQU 080H		; USER KEY opcode
 ;
 ;	System Equates
@@ -81,9 +82,13 @@ osentry equ	abase+84h
 rbase::				; Read the IOS USER KEY flag
 	ld	a,USERKEY$OPC	; Select USER KEY opcode
 	out     (STO$OPCD),a
-	in	a,(EXC$RD$OPCD)	; A = SYSFLAG
+	in	a,(EXC$RD$OPCD)	; A = USER KEY
+	push	af
 	xor	01h		; Invert the USER KEY -> X flag bit
 	ld	(sys$x$flag),a	; save status of X flag
+	xor	a		;
+	out     (STO$OPCD),a	; USERLED$OPC (0)
+	out	(EXC$WR$OPCD),a	; Switch LED off - feedback to user
 
 rbase1:	ld	sp,stackbot	; Stack can overwrite sign-on
 	call	bootf		; First call is to Cold Boot
@@ -124,7 +129,12 @@ rbase2:	ld	c,printbuf	; Print 'Loading...'
 	di			; else give up :(
 	halt
 
-rbase3:	ld	de,buff
+rbase3: ld	a,USERLED$OPC	; Switch LED off/on ...
+	out     (STO$OPCD),a	; ... depending on system
+	ld	a,(sys$x$flag)	; 0 = CPM3, 1 = CPMX
+	xor	01h		; 0 = CPMX, 1 = CPM3
+	out	(EXC$WR$OPCD),a	; CPMX: off, CPM3: on
+	ld	de,buff
 	call	setdma$proc
 
 	call	read$proc	; Read the load record

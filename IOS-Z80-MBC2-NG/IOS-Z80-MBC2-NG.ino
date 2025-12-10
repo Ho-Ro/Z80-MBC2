@@ -909,7 +909,14 @@ void setup() {
         }
 
         // Open the selected file to load
-        errCodeSD = openSD( fileNameSD );
+        if ( 0 == strcmp( fileNameSD, "CPMLDR.COM" ) // Ho-Ro - HACK for my CP/M3 BIOS development:
+           && ( 0 == openSD( "CPMXLDR.COM" ) ) ) {   // "CPMLDR.COM" requested and "CPMXLDR.COM" found on SD
+            fileNameSD = "CPMXLDR.COM";              // Announce the correct name
+            digitalWrite( USER, LOW );               // Switch USER LED as optical hint that the user can now
+        }                                            // press the USER KEY to fall back to the old "CPM3.SYS",
+                                                     // otherwise load the new system "CPMX.SYS"
+        else                                         // Normal boot
+            errCodeSD = openSD( fileNameSD );
         if ( errCodeSD )
             // Error opening the required file. Repeat until error disappears (or the user forces a reset)
             do {
