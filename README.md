@@ -97,28 +97,28 @@ I am thinking, for example, of connecting a 64-pin DIN 41612 socket with reduced
 
 ```
 Cut Z80 /IORQ ---/ /--- U1/9 and add the 74HC32 devices in the dotted box
-                                                           /S
-U2/20                                   CUT                 9 +--\  Q
-/IORQ ---------------------------+-----/  /-----+-------------|   | 8
-                                 |              |          10 |   |o--o-->|--/\/\/\--|
-.................................|............  | /WAIT --o---|   |  /   D3    R6   GND
-:                                |           :  |          \  +--/  /
-:                                | 9 +--\    :  |           \ U1C  /
-:                                +---|---| 8 :  |            \    /
-:                                 10 |   |---:--+             \  /
-:                                +---|---|   :                 \/
-:  U2/37              13 +--\    |   +--/    :                 /\
-:  A7 -------------------|---|   | 74HC32C   :                /  \
-:                     12 |   |---+           :               /    \
-:                    +---|---| 11            :              /      \
-:  U2/36   1 +--\    |   +--/                :             /  +--\  \
-:  A6 -------|---| 3 | 74HC32D               :            +---|   |  \
-:          2 |   |---+                       :             12 |   |o--+
-:  A5 -------|---|                           :            +---|   | 11
-:  U2/35     +--/                            :            |13 +--/  /Q
-:          74HC32A                           :            |/R  U1D
-:                  Add 3/4 74HC32            :            |
-:............................................:            +--- /WAIT_RES
+                                                     /S
+U2/20                                   CUT           9 +--\  Q
+/IORQ ---------------------------+-----/  /-----+-------|   | 8
+                                 |              |    10 |   |o--o-->|--/\/\/\--|
+.................................|............  |   +---|   |  /   D3    R6   GND
+:                                |           :  |    \  +--/  /
+:                                | 9 +--\    :  |     \ U1C  /
+:                                +---|---| 8 :  |      \    /
+:                                 10 |   |---:--+       \  /
+:                                +---|---|   :           \/
+:  U2/37              13 +--\    |   +--/    :           /\
+:  A7 -------------------|---|   | 74HC32C   :          /  \
+:                     12 |   |---+           :         /    \
+:                    +---|---| 11            :        /      \
+:  U2/36   1 +--\    |   +--/                :       /  +--\  \
+:  A6 -------|---| 3 | 74HC32D               :      +---|   |  \
+:          2 |   |---+                       :       12 |   |o--o--- /WAIT
+:  A5 -------|---|                           :      +---|   | 11
+:  U2/35     +--/                            :      |13 +--/  /Q
+:          74HC32A                           :      |/R  U1D
+:                  Add 3/4 74HC32            :      |
+:............................................:      +--------------- /WAIT_RES
 ```
 
 ## System preparation
@@ -220,8 +220,9 @@ This can be done with `PIP A:=N:CPMX.SYS` or `MAKE INSTALL` from `N:`.
 To boot either the original `CPM3.SYS` or the new `CPMX.SYS`, rename
 the provided file [`cpmxldr.com`](bios_devel.linux/cpmxldr.com) to
 `CPMLDR.COM` and put it on the root directory of the Z80-MBC2 SD card.
-Depending on the status of the IOS `AUTOEXEC` bit it will load either
-`A:CPM3.SYS` (`AUTOEXEC==OFF`) or `A:CPMX.SYS` (`AUTOEXEC==ON`).
+Depending on the status of the USER KEY during loading of CPMLDR.COM
+(Message `IOS: Loading boot program (CPMLDR.COM)...`) it will load either
+`A:CPMX.SYS` (USER KEY not pressed) or the old `A:CPMX.SYS` (USER KEY pressed).
 When it doesn't find the `A:CPMX.SYS` file then it loads `A:CPM3.SYS`.
 This procedure is strongly recommended if you want to modify your BIOS.
 
@@ -287,7 +288,7 @@ I've set up a tool chain for Linux using a makefile and the CP/M command tool
 [`tnylpo`](https://gitlab.com/gbrein/tnylpo).
 This tool is not a full-blown CP/M emulation, but it executes CP/M 2.2 `*.COM`
 files and accesses data from the Linux file system. You need the version from
-my [GitLab fork](https://gitlab.com/Ho-Ro/tnylpo) if you want to handle also
+my [fork](https://github.com/Ho-Ro/tnylpo) if you want to handle also
 UPPER case file names. To build type `make` - the full build finishes within
 few seconds. Then I pull in the new `TESTCPMX.COM` via `XMODEM` or `KERMIT`
 from CP/M and can test it. When it's all ok then I transfer also the modified

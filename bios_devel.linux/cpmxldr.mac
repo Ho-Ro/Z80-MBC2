@@ -34,7 +34,9 @@
 ;	11-Jan-2025	Ho-Ro		If X==1 try to open CPMX.SYS.
 ;					If this fails then open CPM3.SYS.
 ;					If X==0 open CPM3.SYS only.
-;
+;	10-Dec-2025	Ho-Ro		Changed AUTOEXEC bit to USER KEY:
+;					KEY not pressed: load CPMX.SYS
+;					KEY pressed: load (old) CPM3.SYS
 
 	aseg	; Absolute address
 
@@ -56,6 +58,7 @@ EXC$WR$OPCD EQU	000H		; Address of the EXECUTE WRITE OPCODE write port
 EXC$RD$OPCD EQU	000H		; Address of the EXECUTE READ OPCODE read port
 STO$OPCD    EQU	001H		; Address of the STORE OPCODE write port
 SYSFLAG$OPC EQU	083H		; SYSFLAG opcode
+USERKEY$OPC EQU 080H		; USER KEY opcode
 ;
 ;	System Equates
 ;
@@ -75,11 +78,11 @@ osentry equ	abase+84h
 
 	cseg	; Code Segment
 
-rbase::				; Read the IOS AUTOEXEC flag
-	ld	a,SYSFLAG$OPC	; Select SYSFLAG opcode
+rbase::				; Read the IOS USER KEY flag
+	ld	a,USERKEY$OPC	; Select USER KEY opcode
 	out     (STO$OPCD),a
 	in	a,(EXC$RD$OPCD)	; A = SYSFLAG
-	and	01h		; Isolate the AUTOEXEC / X flag bit
+	xor	01h		; Invert the USER KEY -> X flag bit
 	ld	(sys$x$flag),a	; save status of X flag
 
 rbase1:	ld	sp,stackbot	; Stack can overwrite sign-on
