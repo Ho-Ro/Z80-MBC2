@@ -78,13 +78,16 @@ $(TARGET) : $(TARGET_BL)
 # of the hex bytes in the array boot_A_[]
 # iLoad.h provides these two consts:
 #   const uint16_t iLoadAddr = 0xFD10;
+#   const uint16_t iLoadSize = 618;
 #   const uint8_t iLoad[] = { ... }
 # for $(BOOT_A__H) it must be changed to:
 #   const uint16_t boot_A_StrAddr = 0xFD10;
+#   const uint16_t boot_A_Size = 618;
 #   const uint8_t boot_A_[] PROGMEM = { ... }
 
 $(BOOT_A__H): iLoad.h
 	sed 's/iLoadAddr/boot_A_StrAddr/g' iLoad.h > $@
+	sed -i 's/iLoadSize/boot_A_Size/g' $@
 	sed -i 's/iLoad\[\]/boot_A_\[\] PROGMEM/g' $@
 
 iLoad.h: iLoad.asm

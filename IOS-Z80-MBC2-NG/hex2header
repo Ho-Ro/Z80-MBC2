@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+import sys
+import os
+
+def verify_checksum(raw_line):
+    """
+    Verify the checksum of a full Intel HEX line, including the ':'.
+    Returns True if valid, False otherwise.
+    """
+    line = raw_line.strip()
+    if not line.startswith(":"):
+        return False
+
+    hexdata = line[1:]
+    data_bytes = bytes.fromhex(hexdata)
+    # Sum of all bytes (byte count, address, type, data..., checksum)
+    total = sum(data_bytes)
+    return (total & 0xFF) == 0
+
+
+def parse_intel_hex_line(line):
+    """
+    Parse a single Intel HEX record line.
+    Returns (record_type, address, data_bytes).
+    Assumes checksum has been validated externally.
+    """
+    line = line.strip()[1:]
+    byte_count = int(line[0:2], 16)
+    address = int(line[2:6], 16)
+    record_type = int(line[6:8], 16)
+    data = bytes.fromhex(line[8:8 + byte_count * 2])
+    return record_type, address, data
+
+
+def load_intel_hex(filename):
+    """
+    Load an Intel HEX file and return a dictionary:
+    {absolute_address: byte}
+    """
+    memory = {}
+    current_upper = 0
+
+    with open(filename, "r") as f:
+        for raw in f:
+            if not raw.strip():
+                continue
+
+            # Checksum validation
+            if not verify_checksum(raw):
+                print(f"WARNING: Checksum mismatch in line: {raw.strip()}", file=sys.stderr)
+
+            rtype, addr, data = parse_intel_hex_line(raw)
+
+            if rtype == 0x00:  # Data
+                absolute = (current_upper << 16) + addr
+                for i, b in enumerate(data):
+                    memory[absolute + i] = b
+
+            elif rtype == 0x01:  # End of File
+                break
+
+            else:
+                # Other record types ignored for this converter
+                continue
+
+    return memory
+
+
+def write_header(memory, infile, outfile, array_name="firmware", array_suffix=""):
+    """
+    Write memory as a C header file.
+    """
+    if not memory:
+        raise ValueError("No data found in HEX file.")
+
+    sorted_addrs = sorted(memory.keys())
+    min_addr = sorted_addrs[0]
+    max_addr = sorted_addrs[-1]
+
+    size = max_addr - min_addr + 1
+    data = [memory.get(a, 0) for a in range(min_addr, max_addr + 1)]
+
+    guard = f"INCLUDE_{array_name.upper()}_H"
+
+    with open(outfile, "w") as h:
+        h.write(f"/* Auto-generated from {infile} */\n")
+        h.write(f"#ifndef {guard}\n")
+        h.write(f"#define {guard}\n\n")
+
+        h.write(f"const uint16_t {array_name}Addr = 0x{min_addr:04X};\n")
+        h.write(f"const uint16_t {array_name}Size = {size};\n\n")
+
+        h.write(f"const uint8_t  {array_name}[] {array_suffix} = {{\n")
+
+        #const uint16_t boot_A_StrAddr = 0xFD10;
+        #const uint8_t boot_A_[] PROGMEM = {
+
+
+        cols = 16
+        for i in range(0, size, cols):
+            chunk = data[i:i + cols]
+            line = ", ".join(f"0x{b:02X}" for b in chunk)
+            h.write(f"    {line},\n")
+
+        h.write("};\n\n")
+        h.write(f"#endif /* {guard} */\n")
+
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: hex2header.py input.hex output.h [array_name [array suffix]]")
+        sys.exit(1)
+
+    infile = sys.argv[1]
+    outfile = sys.argv[2]
+    array_name = sys.argv[3] if len(sys.argv) > 3 else "firmware"
+    array_suffix = sys.argv[4] if len(sys.argv) > 4 else ""
+
+    memory = load_intel_hex(infile)
+    write_header(memory, infile, outfile, array_name, array_suffix)
+
+
+if __name__ == "__main__":
+    main()
