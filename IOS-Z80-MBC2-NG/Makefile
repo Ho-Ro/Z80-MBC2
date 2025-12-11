@@ -43,7 +43,6 @@ BUILD = build/$(subst :,.,$(FQBN))
 # source code for the Arduino project
 INO = $(PRJ).ino
 HEADER = *.h
-BOOT_A__H = boot_A_.h
 SOURCE = *.cpp
 HEX = $(BUILD)/*.hex
 LST = *.lst $(BUILD)/*.lst
@@ -62,7 +61,7 @@ ALL_TARGETS = $(TARGET) $(TARGET_BL)
 all: $(ALL_TARGETS)
 
 
-$(TARGET_BL) : $(INO) $(SOURCE) $(HEADER) $(ILOAD_H) Makefile
+$(TARGET_BL) : $(INO) $(SOURCE) $(HEADER) Makefile
 	arduino-cli compile --export-binaries --warnings all --fqbn $(FQBN_BO) $(INO)
 	@-cp $(IOS_INO_BL_HEX) $@
 	@unix2dos --keepdate --quiet $@
@@ -85,13 +84,9 @@ $(TARGET) : $(TARGET_BL)
 #   const uint16_t boot_A_Size = 618;
 #   const uint8_t boot_A_[] PROGMEM = { ... }
 
-$(BOOT_A__H): iLoad.h
-	sed 's/iLoadAddr/boot_A_StrAddr/g' iLoad.h > $@
-	sed -i 's/iLoadSize/boot_A_Size/g' $@
-	sed -i 's/iLoad\[\]/boot_A_\[\] PROGMEM/g' $@
-
-iLoad.h: iLoad.asm
-	z80assembler -c -l iLoad.asm
+iLoad.h: iLoad.asm Makefile
+	z80assembler -c iLoad.asm
+	sed -i 's/iLoadAddr/boot_A_StrAddr/g; s/iLoadSize/boot_A_Size/g; s/iLoad\[\]/boot_A_\[\] PROGMEM/g' $@
 
 
 # update AVR via serial bootloader

@@ -275,11 +275,11 @@ const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256
 
 #if true
 
-// The file "boot_A_.h" is built from the source code in "iLoad.asm" based on
+// The file "iLoad.h" is built from the source code in "iLoad.asm" based on
 // "S200718 iLoad.asm" from the directory `src` of the zipped SD content.
-// The content of "boot_A_.h" is byte-by-byte identical to "boot_A_[]" below.
+// The content of "iLoad.h" is byte-by-byte identical to "boot_A_[]" below.
 
-#include "boot_A_.h"
+#include "iLoad.h"
 
 #else
 
