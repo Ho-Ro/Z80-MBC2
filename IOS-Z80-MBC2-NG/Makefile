@@ -7,10 +7,7 @@
 # IOS project
 PRJ = IOS-Z80-MBC2-NG
 
-
-# fully qualified board name for ATmega32
-FQBN = MightyCore:avr:32
-
+ATMEGA32=32
 
 # set the frequency of the MBC2 XTAL
 # clock 16 MHz
@@ -29,6 +26,14 @@ PORT = /dev/ttyUSB0
 ifeq ($(CLK),)
   CLK = $(MBC2_CLK)
 endif
+
+# target is ATmega32 unless Makefile was called "ATMEGA=xx make ..."
+ifeq ($(ATMEGA),)
+  ATMEGA = $(ATMEGA32)
+endif
+
+# fully qualified board name for ATmega
+FQBN = MightyCore:avr:$(ATMEGA)
 
 
 # build options, copied from Arduino GUI build
@@ -52,8 +57,8 @@ IOS_INO_HEX = $(BUILD)/$(PRJ).ino.hex
 IOS_INO_BL_HEX = $(BUILD)/$(PRJ).ino.with_bootloader.hex
 
 # targets in intel hex format
-TARGET = $(PRJ)_$(CLK)MHz.hex
-TARGET_BL = $(PRJ)_BL_$(CLK)MHz.hex
+TARGET = $(PRJ)_ATmega$(ATMEGA)_$(CLK)MHz.hex
+TARGET_BL = $(PRJ)_ATmega$(ATMEGA)_BL_$(CLK)MHz.hex
 ALL_TARGETS = $(TARGET) $(TARGET_BL)
 
 
