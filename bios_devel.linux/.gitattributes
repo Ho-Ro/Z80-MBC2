@@ -6,7 +6,6 @@
 *.lbr binary
 *.lib text eol=crlf
 *.lis text eol=crlf
-*.log text eol=crlf
 *.zpr text eof=crlf
 *.mac text eol=crlf
 *.pas text eol=crlf
@@ -20,5 +19,5 @@
 *.HEX text eol=crlf
 *.hex text eol=crlf
 
-gencpm.dat text eol=crlf
+gen*.dat text eol=crlf
 gencpm.md text eof=crlf
