@@ -101,6 +101,7 @@ S220718-D260225   Ho-Ro: DEVEL for I2C 2 x SIO module SC16IS752 - auto RTS/CTS -
 S220718-D080825   SvenMB: corrected handling for ram extension
 S220718-D051225   Ho-Ro: fix SIOB adressing #12 (https://github.com/Ho-Ro/Z80-MBC2/issues/12)
 S220718-D261225   Ho-Ro: prepare for ATmega1284 build
+S220718-D281225   Ho-Ro: add SETVECTOR opcode, enable Z80 IM0, IM1 and IM2 interrupt modes
 --------------------------------------------------------------------------------- */
 // clang-format off
 
@@ -110,7 +111,7 @@ S220718-D261225   Ho-Ro: prepare for ATmega1284 build
 #define HW_STRING "\r\n\nZ80-MBC2 - A040618 - ATmega1284"
 #endif
 
-#define VERSION_STRING "S220718-R290823-D261225"
+#define VERSION_STRING "S220718-R290823-D281225"
 #define BUILD_STRING __DATE__ " " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -267,6 +268,7 @@ const byte    LD_HL        =  0x36;       // Z80 instruction: LD(HL), n
 const byte    INC_HL       =  0x23;       // Z80 instruction: INC HL
 const byte    LD_HLnn      =  0x21;       // Z80 instruction: LD HL, nn
 const byte    JP_nn        =  0xC3;       // Z80 instruction: JP nn
+const byte    RST_38H      =  0xFF;       // Z80 instruction: RST 38H
 const String  compTimeStr  = __TIME__;    // Compile timestamp string
 const String  compDateStr  = __DATE__;    // Compile datestamp string
 const byte    daysOfMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -322,10 +324,10 @@ byte          iCount;                     // Temporary variable (counter)
 byte          clockMode;                  // Z80 clock HI/LO speed selector (0 = 8/10MHz, 1 = 4/5MHz)
 byte          LastRxIsEmpty;              // "Last Rx char was empty" flag. Is set when a serial Rx operation was done
                                           //  when the Rx buffer was empty
-byte          irqStatus      = 0;         // Store the interrupr status byte (every bit is the status of a different
-                                          //  interrupt. See the SYSIRQ Opcode)
-byte          sysTickTime  = 100;         // Period in milliseconds of the Z80 Systick interrupt (if enabled)
-byte          RxDoneFlag = 1;             // This flag is set (= 1) soon after a Serial Rx operation (used for Rx interrupt control)
+byte          irqStatus      = 0;         // Store the interrupt status byte (every bit is the status of a different
+byte          intVector      = RST_38H;   // Restart opcode for IM0 interrupt. See the INTVECTOR Opcode)
+byte          sysTickTime    = 100;       // Period in milliseconds of the Z80 Systick interrupt (if enabled)
+byte          RxDoneFlag     = 1;         // This flag is set (= 1) soon after a Serial Rx operation (used for Rx interrupt control)
 byte          cpmWarmBootFlg = 0;         // This flag enable/disable (1/0) the message "CP/M WARM BOOT" if
 byte          ramCfg;                     // size of RAM in 2^(17+value)
                                           //  the CP/M CBIOS supports this switch (see the SETOPT Opcode)
@@ -642,7 +644,7 @@ void setup() {
                 ++verbosity;
             else if ( inChar == ' ' )
                 verbosity = 0;
-        } while ( ( inChar < minBootChar ) || ( inChar > maxSelChar ) );
+        } while ( ( inChar < minBootChar ) || ( inChar > maxSelChar ) || (inChar == '?') || (inChar == ' ') );
         Serial.print( inChar );
         Serial.println( F( "  Ok" ) );
         if ( verbosity ) {
@@ -833,7 +835,7 @@ void setup() {
 
         //
         // DEBUG ----------------------------------
-        if ( debug ) {
+        if ( verbosity ) {
             Serial.print( F( "DEBUG: Injected JP 0x" ) );
             Serial.println( BootStrAddr, HEX );
         }
@@ -846,7 +848,7 @@ void setup() {
 
     //
     // DEBUG ----------------------------------
-    if ( debug ) {
+    if ( verbosity ) {
         Serial.print( F( "DEBUG: Flash BootImageSize = " ) );
         Serial.println( BootImageSize );
         Serial.print( F( "DEBUG: BootStrAddr = " ) );
@@ -1022,6 +1024,7 @@ void loop() {
                 // Opcode 0x10  SETOPT          1
                 // Opcode 0x11  SETSPP          1
                 // Opcode 0x12  WRSPP           1
+                // Opcode 0x13  SETVECTOR       1
                 // Opcode 0x20  SIOA TXD        1
                 // Opcode 0x21  SIOB TXD        1
                 // Opcode 0x22  SIOA CTRL       1
@@ -1437,9 +1440,7 @@ void loop() {
                     //
                     //
                     // NOTE: If the Os Bank number is greater than 14 no selection is done.
-#if 0
 
-#else
                     switch ( ioData ) {
                     case 0: // Os bank 0
                         // Set physical bank 0 (logical bank 1)
@@ -1593,7 +1594,7 @@ void loop() {
                         break;
                     }
                     break;
-#endif
+
 
                 case 0x0E:
                     // SETIRQ - enable/disable the IRQ generation
@@ -1629,7 +1630,7 @@ void loop() {
                     // The current version of IOS is designed to use the Interrupt Mode 1 of the Z80 CPU (when enabled).
                     // Using this mode an occuring interrupt will cause a jump to the fixed address 0x0038.
                     // Therefore to know wich kind of interrupt was triggered you need to use the SYSIRQ Opcode inside the
-                    //  ISR and store the result (the SYSIRQ Opcode resets his IRQ flags after every call) to jump to the
+                    //  ISR and store the result (the SYSIRQ Opcode resets this IRQ flags after every call) to jump to the
                     //  needed serving sub-routines.
                     //
                     //
@@ -1820,6 +1821,20 @@ void loop() {
                     }
                     break;
 
+                case 0x13:
+                    // SETVECTOR - set the Interrupt Vector
+                    //
+                    //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+                    //                            ---------------------------------------------------------
+                    //                             D7 D6 D5 D4 D3 D2 D1 D0    IRQ vector
+                    //
+                    // Set the IRQ opcode (for IM0) or the IRQ vector (for IM2).
+                    // At reset time the default value is RST_38H (0xFF).
+                    //
+
+                    intVector = ioData;
+                    break;
+
                     // ------------------------------------------------------------------------------
 
                 case OPC_SIOA_TxD:
@@ -1934,7 +1949,7 @@ void loop() {
 
                 //
                 // DEBUG ----------------------------------
-                if ( debug > 1 ) {
+                if ( verbosity > 1 ) {
                     Serial.println();
                     Serial.print( F( "DEBUG: SER RX" ) );
                     Serial.print( F( " - irqStatus = " ) );
@@ -2259,7 +2274,7 @@ void loop() {
 
                     //
                     // DEBUG ----------------------------------
-                    if ( debug > 1 ) {
+                    if ( verbosity > 1 ) {
                         Serial.println();
                         Serial.print( F( "DEBUG: SYSIRQ" ) );
                         Serial.print( F( " - ioData = " ) );
@@ -2369,7 +2384,7 @@ void loop() {
             PORTA = 0xFF;
             digitalWrite( WAIT_RES_, HIGH ); // Now Z80 is in DMA (HiZ), so it's safe set WAIT_RES_ HIGH again
             digitalWrite( BUSREQ_, HIGH );   // Resume Z80 from DMA
-        } else {
+        } else { // neither /WR nor /RD -> /IORQ & /M1
             // INTERRUPT operation setting IORQ_ LOW
 
             // ----------------------------------------
@@ -2380,7 +2395,7 @@ void loop() {
 
             //
             // DEBUG ----------------------------------
-            if ( debug > 1 ) {
+            if ( verbosity > 1 ) {
                 Serial.println();
                 Serial.print( F( "DEBUG: INT ACK cycle" ) );
                 Serial.print( F( " - irqStatus = " ) );
@@ -2389,9 +2404,16 @@ void loop() {
             // DEBUG END ------------------------------
             //
 
+            DDRA = 0xFF;       // Configure Z80 data bus D0-D7 (PA0-PA7) as output
+            PORTA = intVector; // Output RSTx or low part of int vector
+                               // Set intVector with IOS function 0x13
+
             // Control bus sequence to exit from a wait state (M interrupt cycle)
-            digitalWrite( BUSREQ_, LOW );    // Request for a DMA
-            digitalWrite( WAIT_RES_, LOW );  // Reset WAIT FF exiting from WAIT state
+            digitalWrite( BUSREQ_, LOW );   // Request for a DMA
+            digitalWrite( WAIT_RES_, LOW ); // Reset WAIT FF exiting from WAIT state
+            delayMicroseconds( 2 );         // Wait 2us just to be sure that Z80 read the data and go HiZ
+            DDRA = 0x00;                    // Configure Z80 data bus D0-D7 (PA0-PA7) as input with pull-up
+            PORTA = 0xFF;
             digitalWrite( WAIT_RES_, HIGH ); // Now Z80 is in DMA, so it's safe set WAIT_RES_ HIGH again
             digitalWrite( BUSREQ_, HIGH );   // Resume Z80 from DMA
         }
