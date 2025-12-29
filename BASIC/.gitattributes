@@ -1,0 +1,3 @@
+*.asm text eol=lf
+*.bin binary
+*.hex text eol=lf

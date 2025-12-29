@@ -1,6 +1,6 @@
 ;**********************************************************************************
 ;
-; Z80-MBC2 uBIOS for Basic - S210718-R170591_DEVEL1 - HW ref: A040618
+; Z80-MBC2 uBIOS for Basic - Test mode for IM2
 ;
 ; Adapted from Grant Searle great work!
 ;
@@ -31,10 +31,6 @@
 ;
 ;==================================================================================
 
-; Minimum 6850 ACIA interrupt driven serial I/O to run modified NASCOM Basic 4.7
-; Full input buffering with incoming data hardware handshaking
-; Handshake shows full before the buffer is totally filled to allow run-on from the sender
-
 SER_BUFSIZE     .EQU     3FH
 SER_FULLSIZE    .EQU     30H
 SER_EMPTYSIZE   .EQU     5
@@ -49,53 +45,43 @@ serBufUsed      .EQU     serRdPtr+2
 basicStarted    .EQU     serBufUsed+1
 TEMPSTACK       .EQU     $20ED ; Top of BASIC line input buffer so is "free ram" when BASIC resets
 
-;CR              .EQU     0DH
-;LF              .EQU     0AH
-;CS              .EQU     0CH             ; Clear screen
-
 RST_20          .EQU     $E7             ; Z80 Opcode for INT
 RST_28          .EQU     $EF             ; Z80 Opcode for INT
 RST_30          .EQU     $F7             ; Z80 Opcode for INT
 RST_38          .EQU     $FF             ; Z80 Opcode for INT
 
+INT_MODE        .EQU     2
+
                 .ORG $0000
 ;------------------------------------------------------------------------------
 ; Reset
 
-RST00           DI                       ;Disable interrupts
+RST00:          DI                       ;Disable interrupts
                 JP       HWINIT          ;Initialize Hardware and go
 
 ;------------------------------------------------------------------------------
 ; TX a character over RS232 
 
                 .ORG     0008H
-RST08            JP      TXA
+RST08:          JP      TXA
 
 ;------------------------------------------------------------------------------
 ; RX a character over RS232 Channel A [Console], hold here until char ready.
 
                 .ORG 0010H
-RST10            JP      RXA
+RST10:          JP      RXA
 
 ;------------------------------------------------------------------------------
 ; Check serial status
 
                 .ORG 0018H
-RST18            JP      CKINCHAR
+RST18:          JP      CKINCHAR
 
 ;------------------------------------------------------------------------------
-; RST 30 - INTERRUPT VECTOR [ for IM 0 ]
+; INTERRUPT VECTOR [ for IM 2 ]
 
-                .ORG     0030H
-RST30            JR      serialInt
-
-;------------------------------------------------------------------------------
-; RST 38 - INTERRUPT VECTOR [ for IM 1 ]
-
-                .ORG     0038H
-RST38           HALT
-                JR       RST_38
-                ;JR      serialInt
+                .ORG 0020H
+VECTOR:         .WORD   serialInt
 
 ;------------------------------------------------------------------------------
 ; *****************************************************************************
@@ -138,9 +124,6 @@ RxIRQCK:        LD       A,H             ; A = SYSIRQ status byte
                 ;
                 ; Z80-MBC2: Serial Rx ISR
                 ;
-                ;IN       A,($80)         ; Z80-MBC2: No buffer full to check here
-                ;AND      $01             ; Check if interupt due to read buffer full
-                ;JR       Z,rts0          ; if not, ignore
                 IN       A,($01)         ; Z80-MBC2: Changed port addr from $81 to $01
                 PUSH     AF
                 LD       A,(serBufUsed)
@@ -161,10 +144,6 @@ notWrap:        LD       (serInPtr),HL
                 LD       A,(serBufUsed)
                 INC      A
                 LD       (serBufUsed),A
-                CP       SER_FULLSIZE
-                JR       C,rts0
-                ;LD       A,RTS_HIGH     ; Z80-MBC2: No RTS HW handshackig here
-                ;OUT      ($80),A
 rts0:           POP      HL
                 POP      AF
                 EI
@@ -187,11 +166,7 @@ notRdWrap:      DI
                 LD       A,(serBufUsed)
                 DEC      A
                 LD       (serBufUsed),A
-                CP       SER_EMPTYSIZE
-                JR       NC,rts1
-                ;LD       A,RTS_LOW       ; Z80-MBC2: No RTS HW handshackig here
-                ;OUT      ($80),A
-rts1:
+;rts1:
                 LD       A,(HL)
                 EI
                 POP      HL
@@ -200,9 +175,6 @@ rts1:
 ;------------------------------------------------------------------------------
 TXA:
 conout1:        PUSH     AF              ; Store character
-                ;IN       A,($80)         ; Z80-MBC2: No TX status needed here ;Status byte       
-                ;BIT      1,A             ; Set Zero flag if still transmitting character       
-                ;JR       Z,conout1       ; Loop until flag signals ready
                 LD       A,$01           ; Z80-MBC2: (Added) A = Serial TX Operation Code
                 OUT      ($01),A         ; Z80-MBC2: (Added) Write the Serial TX Opcode to IOS
                 POP      AF              ; Retrieve character
@@ -229,8 +201,10 @@ HWINIT:
                out       (00h),a
                ld        a, 13h          ; SETVECT opcode
                out       (01h),a
-               ld        a, RST_30       ; Set RST 30 Z80 opcode as vector
+               ld        a, VECTOR & $0FF ; LO byte of VECTOR
                out       (00h),a
+               ld        a, VECTOR >> 8  ; HI byte of VECTOR
+               ld        i,a
                LD        HL,TEMPSTACK    ; Temp stack
                LD        SP,HL           ; Set up a temporary stack
                LD        HL,serBuf
@@ -238,9 +212,7 @@ HWINIT:
                LD        (serRdPtr),HL
                XOR       A               ;0 to accumulator
                LD        (serBufUsed),A
-               ;LD        A,RTS_LOW       ; Z80-MBC2: Nothing to initialize 
-               ;OUT       ($80),A         ; Initialise ACIA
-               IM        0
+               IM        INT_MODE
                EI
                LD        HL,SIGNON1      ; Sign-on message
                CALL      PRINTS          ; Output string
@@ -274,9 +246,7 @@ CHECKWARM:
 
 TickCount:     .byte     10
 UserLedStat:   .byte     0
-SIGNON1:       ;.BYTE     $0C             ; Z80-MBC2: Changed SIGNON1 string
-               ;.BYTE     "S210718-R170591_DEVEL1",$0D,$0A,0
-               .BYTE     "B47",$0D,$0A,0
+SIGNON1:       .BYTE     "B47_IM",$30+INT_MODE,$0D,$0A,0
 SIGNON2:       .BYTE     $0D,$0A         ; Z80-MBC2: Changed SIGNON2 string
                .BYTE     "C/W start ?",0
 
