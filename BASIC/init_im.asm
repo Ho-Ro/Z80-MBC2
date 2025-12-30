@@ -50,7 +50,17 @@ RST_28          .EQU     $EF             ; Z80 Opcode for INT
 RST_30          .EQU     $F7             ; Z80 Opcode for INT
 RST_38          .EQU     $FF             ; Z80 Opcode for INT
 
+#IFDEF          INTMODE0
+INT_MODE        .EQU     0
+#ENDIF
+
+#IFDEF          INTMODE1
+INT_MODE        .EQU     1
+#ENDIF
+
+#IFDEF          INTMODE2
 INT_MODE        .EQU     2
+#ENDIF
 
                 .ORG $0000
 ;------------------------------------------------------------------------------
@@ -78,10 +88,28 @@ RST10:          JP      RXA
 RST18:          JP      CKINCHAR
 
 ;------------------------------------------------------------------------------
-; INTERRUPT VECTOR [ for IM 2 ]
+; INTERRUPT VECTOR [ for IM 0 ]
+;
+#IFDEF          INTMODE0
+                .ORG    $20
+                ;JR      serialInt
+#ENDIF
 
-                .ORG 0020H
+;------------------------------------------------------------------------------
+; INTERRUPT VECTOR [ for IM 1 ]
+;
+#IFDEF          INTMODE1
+                .ORG    $38
+                ;JR      serialInt
+#ENDIF
+
+;------------------------------------------------------------------------------
+; INTERRUPT VECTOR [ for IM 2 ]
+;
+#IFDEF          INTMODE2
+                .ORG    (($+1) & $7E)   ; put vector at even address
 VECTOR:         .WORD   serialInt
+#ENDIF
 
 ;------------------------------------------------------------------------------
 ; *****************************************************************************
@@ -182,7 +210,7 @@ conout1:        PUSH     AF              ; Store character
                 RET
 
 ;------------------------------------------------------------------------------
-CKINCHAR        LD       A,(serBufUsed)
+CKINCHAR:       LD       A,(serBufUsed)
                 CP       $0
                 RET
 
@@ -195,63 +223,77 @@ PRINTS:         LD       A,(HL)          ; Get character
                 RET
 ;------------------------------------------------------------------------------
 HWINIT:
-               ld        a, 0eh          ; SETIRQ opcode
-               out       (01h),a
-               ld        a, 03h          ; Enable RX and SYSTICK IRQ
-               out       (00h),a
-               ld        a, 13h          ; SETVECT opcode
-               out       (01h),a
-               ld        a, VECTOR & $0FF ; LO byte of VECTOR
-               out       (00h),a
-               ld        a, VECTOR >> 8  ; HI byte of VECTOR
-               ld        i,a
-               LD        HL,TEMPSTACK    ; Temp stack
-               LD        SP,HL           ; Set up a temporary stack
-               LD        HL,serBuf
-               LD        (serInPtr),HL
-               LD        (serRdPtr),HL
-               XOR       A               ;0 to accumulator
-               LD        (serBufUsed),A
-               IM        INT_MODE
-               EI
-               LD        HL,SIGNON1      ; Sign-on message
-               CALL      PRINTS          ; Output string
-               LD        A,(basicStarted); Check the BASIC STARTED flag
-               CP        'Y'             ; to see if this is power-up
-               JR        NZ,COLDSTART    ; If not BASIC started then always do cold start
-               LD        HL,SIGNON2      ; Cold/warm message
-               CALL      PRINTS          ; Output string
+                LD       A,0EH           ; SETIRQ opcode
+                OUT      (01H),A
+                LD       A,03H           ; Enable RX and SYSTICK IRQ
+                OUT      (00H),A
+
+#IFDEF          INTMODE0
+                LD       A,13H           ; SETVECT opcode
+                OUT      (01H),A
+                LD       A,RST_20        ; Set RST 20 Z80 opcode as vector
+                OUT      (00H),A
+#ENDIF
+
+#IFDEF          INTMODE1
+#ENDIF
+
+#IFDEF          INTMODE2
+                LD       A,13H           ; SETVECT opcode
+                OUT      (01H),A
+                LD       A,VECTOR & $0FF ; LO byte of VECTOR
+                OUT      (00H),A
+                LD       A,VECTOR >> 8   ; HI byte of VECTOR
+                LD       I,A
+#ENDIF
+
+                LD       HL,TEMPSTACK    ; Temp stack
+                LD       SP,HL           ; Set up a temporary stack
+                LD       HL,serBuf
+                LD       (serInPtr),HL
+                LD       (serRdPtr),HL
+                XOR      A               ;0 to accumulator
+                LD       (serBufUsed),A
+                IM       INT_MODE
+                EI
+                LD       HL,SIGNON1      ; Sign-on message
+                CALL     PRINTS          ; Output string
+                LD       A,(basicStarted); Check the BASIC STARTED flag
+                CP       'Y'             ; to see if this is power-up
+                JR       NZ,COLDSTART    ; If not BASIC started then always do cold start
+                LD       HL,SIGNON2      ; Cold/warm message
+                CALL     PRINTS          ; Output string
 CORW:
-               CALL      RXA
-               AND       %11011111       ; lower to uppercase
-               CP        'C'
-               JR        NZ, CHECKWARM
-               RST       08H
-               LD        A,$0D
-               RST       08H
-               LD        A,$0A
-               RST       08H
-COLDSTART:     LD        A,'Y'           ; Set the BASIC STARTED flag
-               LD        (basicStarted),A
-               JP        $0150           ; Start BASIC COLD
+                CALL     RXA
+                AND      %11011111       ; lower to uppercase
+                CP       'C'
+                JR       NZ, CHECKWARM
+                RST      08H
+                LD       A,$0D
+                RST      08H
+                LD       A,$0A
+                RST      08H
+COLDSTART:      LD       A,'Y'           ; Set the BASIC STARTED flag
+                LD       (basicStarted),A
+                JP       $0150           ; Start BASIC COLD
 CHECKWARM:
-               CP        'W'
-               JR        NZ, CORW
-               RST       08H
-               LD        A,$0D
-               RST       08H
-               LD        A,$0A
-               RST       08H
-               JP        $0153           ; Start BASIC WARM
+                CP       'W'
+                JR       NZ, CORW
+                RST      08H
+                LD       A,$0D
+                RST      08H
+                LD       A,$0A
+                RST      08H
+                JP       $0153           ; Start BASIC WARM
 
-TickCount:     .byte     10
-UserLedStat:   .byte     0
-SIGNON1:       .BYTE     "B47_IM",$30+INT_MODE,$0D,$0A,0
-SIGNON2:       .BYTE     $0D,$0A         ; Z80-MBC2: Changed SIGNON2 string
-               .BYTE     "C/W start ?",0
+TickCount:      .BYTE    10
+UserLedStat:    .BYTE    0
+SIGNON1:        .BYTE    "BASIC47_IM",'0'+INT_MODE,$0D,$0A,0
+SIGNON2:        .BYTE    $0D,$0A         ; Z80-MBC2: Changed SIGNON2 string
+                .BYTE    "Cold / Warm start (C/W)?",0
 
-               .org      $14f            ; Z80-MBC2: Last byte for this uBIOS (BASIC starts next one)!
-LastByte:      .byte     $00
+                .ORG     $14F            ; Z80-MBC2: Last byte for this uBIOS (BASIC starts next one)!
+LastByte:       .BYTE    $00
 
-               .END
+                .END
 

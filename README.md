@@ -20,6 +20,7 @@ the progress of our ongoing work.
 [tnylpo](https://gitlab.com/gbrein/tnylpo).
 - `IOS-Z80-MBC2-NG.ino` supports up to 512 Kbyte RAM (with HW modification) that is used
 as data and directory buffer.
+- IOS support for Z80 interrupt modes `IM0`, `IM1` and `IM2`.
 - `Makefile` allows the compiling of the `*.ino` under Linux via
 [arduino-cli](https://arduino.github.io/arduino-cli/latest/) tool.
 
@@ -94,6 +95,7 @@ I am thinking, for example, of connecting a 64-pin DIN 41612 socket with reduced
 [ECB](https://en.wikipedia.org/wiki/Europe_Card_Bus) assignment, which provides the signals
 `GND`, `VCC`, `/RESET`, `CLK`, `A0..A15`, `D0..D7`, `/IORQ`, `/RD`, `/WR` required for Z80 I/O – possibly also
 `/IRQ`, `/NMI` and `/M1` for interrupt handling.
+Unfortunately this modification breaks the IOS interrupt handling (see below) because the PC and not an I/O address is put on the address bus during INT ACK.
 
 ```
 Cut Z80 /IORQ ---/ /--- U1/9 and add the 74HC32 devices in the dotted box
@@ -120,6 +122,28 @@ U2/20                                   CUT           9 +--\  Q
 :                  Add 3/4 74HC32            :      |
 :............................................:      +--------------- /WAIT_RES
 ```
+## Z80 interrupt handling
+
+IOS provides two interrupt sources for the Z80, RX and SYSTICK, which can be activated
+either from IOS, e.g. for BASIC (RX) and FUZIX (RX and SYSTICK) or from the Z80 side
+with the IOS call `SETIRQ` (0x0E). The original IOS only works with the Z80 IM1, which
+responds to INT ACK with a fixed call of `RST 38`, regardless of what is on the data bus.
+
+IOS-NG supports also `IM0` and `IM2`, the new IOS opcode `SETVECTOR` defines the byte
+that will be placed on the address bus during INT ACK (/IORQ without /RD or /WR).
+This can be either an opcode for `IM0` (typically `RST XX`) or the low byte of the
+interrupt vector for `IM2` (the high byte comes from Z80 register `I`).
+The content of the data bus is ignored in `IM1`.
+
+### Testing the interrupt modes
+
+For testing purposes, there are some versions of the Basic interpreter in directory
+[BASIC](BASIC) that can be loaded via iLoad. Their names are self-explanatory:
+`basic47_im0.hex`, `basic47_im1.hex`, `basic47_im2.hex` with RX INT and SYSTICK INT,
+which causes the user LED to flash. All files use the same BASIC source code `basic.asm`,
+and an init module `init_im.asm` with different defines in the `Makefile`.
+In addition, there is the original BASIC `basic47.hex` (`init.asm` + `basic.asm`),
+which only uses IM1 for RX INT.
 
 ## System preparation
 
