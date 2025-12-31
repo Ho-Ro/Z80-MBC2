@@ -11,7 +11,7 @@ Notes:
 1:  This SW is ONLY for the Atmega32A used as EEPROM and I/O subsystem
     (16/20MHz external oscillator) for the Z80 CPU.
 
-2:  Tested on Atmega32A/Atmega1284P @ Arduino IDE 1.8.19 and MightyCore v.2.2.2
+2:  Tested on Atmega32A/Atmega1284P @ Arduino IDE 1.8.19 and MightyCore v.3.0.2
 
 3:  Embedded FW: S200718 iLoad (Intel-Hex loader)
 
@@ -102,6 +102,7 @@ S220718-D080825   SvenMB: corrected handling for ram extension
 S220718-D051225   Ho-Ro: fix SIOB adressing #12 (https://github.com/Ho-Ro/Z80-MBC2/issues/12)
 S220718-D261225   Ho-Ro: prepare for ATmega1284 build
 S220718-D281225   Ho-Ro: add SETVECTOR opcode, enable Z80 IM0, IM1 and IM2 interrupt modes
+S220718-D311225   Ho-Ro: Z80 INT trigger only if outside opcode processing
 --------------------------------------------------------------------------------- */
 // clang-format off
 
@@ -111,7 +112,7 @@ S220718-D281225   Ho-Ro: add SETVECTOR opcode, enable Z80 IM0, IM1 and IM2 inter
 #define HW_STRING "\r\n\nZ80-MBC2 - A040618 - ATmega1284"
 #endif
 
-#define VERSION_STRING "S220718-R290823-D281225"
+#define VERSION_STRING "S220718-R290823-D311225"
 #define BUILD_STRING __DATE__ " " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -325,12 +326,15 @@ byte          clockMode;                  // Z80 clock HI/LO speed selector (0 =
 byte          LastRxIsEmpty;              // "Last Rx char was empty" flag. Is set when a serial Rx operation was done
                                           //  when the Rx buffer was empty
 byte          irqStatus      = 0;         // Store the interrupt status byte (every bit is the status of a different
+                                          //  interrupt. See the SYSIRQ Opcode)
 byte          intVector      = RST_38H;   // Restart opcode for IM0 interrupt. See the INTVECTOR Opcode)
 byte          sysTickTime    = 100;       // Period in milliseconds of the Z80 Systick interrupt (if enabled)
-byte          RxDoneFlag     = 1;         // This flag is set (= 1) soon after a Serial Rx operation (used for Rx interrupt control)
-byte          cpmWarmBootFlg = 0;         // This flag enable/disable (1/0) the message "CP/M WARM BOOT" if
-byte          ramCfg;                     // size of RAM in 2^(17+value)
+byte          RxDoneFlag     = 1;         // This flag is set (= 1) soon after a Serial Rx operation
+                                          //  (used for Rx interrupt control)
+byte          serEventSeen   = 0;         // This flag is set (= 1) from serialEvent to trigger the RX INT
+byte          cpmWarmBootFlg = 0;         // This flag enable/disable (1/0) the message "CP/M WARM BOOT"
                                           //  the CP/M CBIOS supports this switch (see the SETOPT Opcode)
+byte          ramCfg;                     // Size of RAM in 2^(17+value)
 
 // DS3231 RTC variables
 byte          foundRTC;                   // Set to 1 if RTC is found, 0 otherwise
@@ -976,9 +980,77 @@ void setup() {
 
 // ------------------------------------------------------------------------------
 
+// Currently defined Opcodes for I/O read operations:
+//          Name         OPCODE   Exchanged bytes
+// -------------------------------------------------
+//
+#define OPC_USER_LED      0x00  //   1
+#define OPC_SERIAL_TX     0x01  //   1
+#define OPC_GPIOA_WRITE   0x03  //   1
+#define OPC_GPIOB_WRITE   0x04  //   1
+#define OPC_IODIRA_WRITE  0x05  //   1
+#define OPC_IODIRB_WRITE  0x06  //   1
+#define OPC_GPPUA_WRITE   0x07  //   1
+#define OPC_GPPUB_WRITE   0x08  //   1
+#define OPC_SELDISK       0x09  //   1
+#define OPC_SELTRACK      0x0A  //   2
+#define OPC_SELSECT       0x0B  //   1
+#define OPC_WRITESECT     0x0C  // 512
+#define OPC_SETBANK       0x0D  //   1
+#define OPC_SETIRQ        0x0E  //   1
+#define OPC_SETTICK       0x0F  //   1
+#define OPC_SETOPT        0x10  //   1
+#define OPC_SETSPP        0x11  //   1
+#define OPC_WRSPP         0x12  //   1
+#define OPC_SETVECTOR     0x13  //   1
+#define OPC_SIOA_TXD      0x20  //   1
+#define OPC_SIOB_TXD      0x21  //   1
+#define OPC_SIOA_CTRL     0x22  //   1
+#define OPC_SIOB_CTRL     0x23  //   1
+#define OPC_SET VERBOSITY 0x7E  //   1
+
+// Currently defined Opcodes for I/O read operations:
+//          Name         OPCODE   Exchanged bytes
+// -------------------------------------------------
+#define OPC_USER_KEY      0x80  //   1
+#define OPC_GPIOA_READ    0x81  //   1
+#define OPC_GPIOB_READ    0x82  //   1
+#define OPC_SYSFLAGS      0x83  //   1
+#define OPC_DATETIME      0x84  //   7
+#define OPC_ERRDISK       0x85  //   1
+#define OPC_READSECT      0x86  // 512
+#define OPC_SDMOUNT       0x87  //   1
+#define OPC_ATXBUFF       0x88  //   1
+#define OPC_SYSIRQ        0x89  //   1
+#define OPC_GETSPP        0x8A  //   1
+#define OPC_SIOA_RXD      0xA0  //   1
+#define OPC_SIOB_RXD      0xA1  //   1
+#define OPC_SIOA_RXSTAT   0xA2  //   1
+#define OPC_SIOB_RXSTAT   0xA3  //   1
+#define OPC_SIOA_TXSTAT   0xA4  //   1
+#define OPC_SIOB_TXSTAT   0xA5  //   1
+#define OPC_GET_VERBOSITY 0xFE  //   1
+
+#define OPC_NO_OP         0xFF  //   -
+
+// .........................................................................................................
+//
+// AD0 = 1 (I/O write address = 0x01). STORE Opcode.
+//
+// Store (write) an "I/O operation code" (Opcode) and reset the exchanged bytes counter.
+//
+// NOTE 1: An Opcode can be a write or read Opcode, if the I/O operation is read or write.
+// NOTE 2: the STORE Opcode operation must always precede an EXECUTE WRITE Opcode or EXECUTE READ Opcode
+//         operation.
+// NOTE 3: For multi-byte read Opcode (as DATETIME) read sequentially all the data bytes without to send
+//         a STORE Opcode operation before each data byte after the first one.
+// .........................................................................................................
+
+
 void loop() {
     if ( !digitalRead( WAIT_ ) ) {
         // I/O operaton requested
+
         if ( !digitalRead( WR_ ) ) {
             // I/O WRITE operation requested
 
@@ -990,88 +1062,9 @@ void loop() {
             ioData = PINA;                  // Read Z80 data bus D0-D7 (PA0-PA7)
             if ( ioAddress ) {              // Check the I/O address (only AD0 is checked!)
                 // .........................................................................................................
-                //
-                // AD0 = 1 (I/O write address = 0x01). STORE Opcode.
-                //
-                // Store (write) an "I/O operation code" (Opcode) and reset the exchanged bytes counter.
-                //
-                // NOTE 1: An Opcode can be a write or read Opcode, if the I/O operation is read or write.
-                // NOTE 2: the STORE Opcode operation must always precede an EXECUTE WRITE Opcode or EXECUTE READ Opcode
-                //         operation.
-                // NOTE 3: For multi-byte read Opcode (as DATETIME) read sequentially all the data bytes without to send
-                //         a STORE Opcode operation before each data byte after the first one.
-                // .........................................................................................................
-                //
-                // Currently defined Opcodes for I/O write operations:
-                //
-                //   Opcode     Name            Exchanged bytes
-                // -------------------------------------------------
-                // Opcode 0x00  USER LED        1
-                // Opcode 0x01  SERIAL TX       1
-                // Opcode 0x03  GPIOA Write     1
-                // Opcode 0x04  GPIOB Write     1
-                // Opcode 0x05  IODIRA Write    1
-                // Opcode 0x06  IODIRB Write    1
-                // Opcode 0x07  GPPUA Write     1
-                // Opcode 0x08  GPPUB Write     1
-                // Opcode 0x09  SELDISK         1
-                // Opcode 0x0A  SELTRACK        2
-                // Opcode 0x0B  SELSECT         1
-                // Opcode 0x0C  WRITESECT       512
-                // Opcode 0x0D  SETBANK         1
-                // Opcode 0x0E  SETIRQ          1
-                // Opcode 0x0F  SETTICK         1
-                // Opcode 0x10  SETOPT          1
-                // Opcode 0x11  SETSPP          1
-                // Opcode 0x12  WRSPP           1
-                // Opcode 0x13  SETVECTOR       1
-                // Opcode 0x20  SIOA TXD        1
-                // Opcode 0x21  SIOB TXD        1
-                // Opcode 0x22  SIOA CTRL       1
-                // Opcode 0x23  SIOB CTRL       1
-#define OPC_SIOA_TxD 0x20
-#define OPC_SIOB_TxD 0x21
-#define OPC_SIOA_CTRL 0x22
-#define OPC_SIOB_CTRL 0x23
-                // Opcode 0x7E  SET VERBOSITY   1
-                // Opcode 0xFF  No operation    1
-                //
-                //
-                // Currently defined Opcodes for I/O read operations:
-                //
-                //   Opcode     Name            Exchanged bytes
-                // -------------------------------------------------
-                // Opcode 0x80  USER KEY        1
-                // Opcode 0x81  GPIOA Read      1
-                // Opcode 0x82  GPIOB Read      1
-                // Opcode 0x83  SYSFLAGS        1
-                // Opcode 0x84  DATETIME        7
-                // Opcode 0x85  ERRDISK         1
-                // Opcode 0x86  READSECT        512
-                // Opcode 0x87  SDMOUNT         1
-                // Opcode 0x88  ATXBUFF         1
-                // Opcode 0x89  SYSIRQ          1
-                // Opcode 0x8A  GETSPP          1
-                // Opcode 0xA0  SIOA RXD        1
-                // Opcode 0xA1  SIOB RXD        1
-                // Opcode 0xA2  SIOA Rx STAT    1
-                // Opcode 0xA3  SIOB Rx STAT    1
-                // Opcode 0xA4  SIOA Tx STAT    1
-                // Opcode 0xA5  SIOB Tx STAT    1
-#define OPC_SIOA_RxD 0xA0
-#define OPC_SIOB_RxD 0xA1
-#define OPC_SIOA_RxSTAT 0xA2
-#define OPC_SIOB_RxSTAT 0xA3
-#define OPC_SIOA_TxSTAT 0xA4
-#define OPC_SIOB_TxSTAT 0xA5
-                // Opcode 0xFE  GET VERBOSITY   1
-                // Opcode 0xFF  No operation    1
-                //
-                // See the following lines for the Opcodes details.
-                //
-                // .........................................................................................................
                 ioOpcode = ioData; // Store the I/O operation code (Opcode)
                 ioByteCnt = 0;     // Reset the exchanged bytes counter
+
             } else {
                 // .........................................................................................................
                 //
@@ -1083,7 +1076,7 @@ void loop() {
                 //
                 switch ( ioOpcode ) {
                     // Execute the requested I/O WRITE Opcode. The 0xFF value is reserved as "No operation".
-                case 0x00:
+                case OPC_USER_LED:
                     // USER LED:
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
                     //                            ---------------------------------------------------------
@@ -1096,7 +1089,7 @@ void loop() {
                         digitalWrite( USER, HIGH );
                     break;
 
-                case 0x01:
+                case OPC_SERIAL_TX:
                     // SERIAL TX:
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
                     //                            ---------------------------------------------------------
@@ -1105,7 +1098,7 @@ void loop() {
                     Serial.write( ioData );
                     break;
 
-                case 0x03:
+                case OPC_GPIOA_WRITE:
                     // GPIOA Write (GPE Option):
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1120,7 +1113,7 @@ void loop() {
                     }
                     break;
 
-                case 0x04:
+                case OPC_GPIOB_WRITE:
                     // GPIOB Write (GPE Option):
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1135,7 +1128,7 @@ void loop() {
                     }
                     break;
 
-                case 0x05:
+                case OPC_IODIRA_WRITE:
                     // IODIRA Write (GPE Option):
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1150,7 +1143,7 @@ void loop() {
                     }
                     break;
 
-                case 0x06:
+                case OPC_IODIRB_WRITE:
                     // IODIRB Write (GPE Option):
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1165,7 +1158,7 @@ void loop() {
                     }
                     break;
 
-                case 0x07:
+                case OPC_GPPUA_WRITE:
                     // GPPUA Write (GPE Option):
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1180,7 +1173,7 @@ void loop() {
                     }
                     break;
 
-                case 0x08:
+                case OPC_GPPUB_WRITE:
                     // GPPUB Write (GPIO Exp. Mod. ):
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1195,7 +1188,7 @@ void loop() {
                     }
                     break;
 
-                case 0x09:
+                case OPC_SELDISK:
                     // DISK EMULATION
                     // SELDISK - select the emulated disk number (binary). 100 disks are supported [0..99]:
                     //
@@ -1239,7 +1232,7 @@ void loop() {
                         diskErr = 16; // Illegal disk number
                     break;
 
-                case 0x0A:
+                case OPC_SELTRACK:
                     // DISK EMULATION
                     // SELTRACK - select the emulated track number (word splitted in 2 bytes in sequence: DATA 0 and DATA 1):
                     //
@@ -1285,7 +1278,7 @@ void loop() {
                     ioByteCnt++;
                     break;
 
-                case 0x0B:
+                case OPC_SELSECT:
                     // DISK EMULATION
                     // SELSECT - select the emulated sector number (binary):
                     //
@@ -1319,7 +1312,7 @@ void loop() {
                     }
                     break;
 
-                case 0x0C:
+                case OPC_WRITESECT:
                     // DISK EMULATION
                     // WRITESECT - write 512 data bytes sequentially into the current emulated disk/track/sector:
                     //
@@ -1382,7 +1375,7 @@ void loop() {
                     ioByteCnt++; // Increment the counter of the exchanged data bytes
                     break;
 
-                case 0x0D:
+                case OPC_SETBANK:
                     // BANKEDD RAM - NEED DOCUMENTATION OF EXTENDED RAM!
                     // SETBANK - select the Os RAM Bank (binary):
                     //
@@ -1596,7 +1589,7 @@ void loop() {
                     break;
 
 
-                case 0x0E:
+                case OPC_SETIRQ:
                     // SETIRQ - enable/disable the IRQ generation
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1627,8 +1620,12 @@ void loop() {
                     //
                     // Note about the Z80 CPU interrupt signal generation (INT_ signal):
                     //
-                    // The current version of IOS is designed to use the Interrupt Mode 1 of the Z80 CPU (when enabled).
-                    // Using this mode an occuring interrupt will cause a jump to the fixed address 0x0038.
+                    // The current version of IOS is designed to use the Interrupt Mode 0, 1, 2 of the Z80 CPU (when enabled).
+                    // Using this mode an occuring interrupt will cause:
+                    // - IM0: Execution of the one-byte opcode (typical RSTnn) set with OPC_SETVECTOR (default RST 38).
+                    // - IM1: A jump to the fixed address 0x0038.
+                    // - IM2: A jump to the address retrieved from memory that is addressed by
+                    //   256*REG_I + value set with OPC_SETVECTOR.
                     // Therefore to know wich kind of interrupt was triggered you need to use the SYSIRQ Opcode inside the
                     //  ISR and store the result (the SYSIRQ Opcode resets this IRQ flags after every call) to jump to the
                     //  needed serving sub-routines.
@@ -1657,8 +1654,8 @@ void loop() {
                     // When interrupt is enabled care must be taken when calling IOS Opcodes as they must be considered as an
                     //  atomic action (calling an Opcode requires at least two I/O operations, where the first one is used to
                     //  set the operation code).
-                    // To ensure safe Opcode calls inside the Z80 user code, before every Opcode call the interrupt must be
-                    //  disabled an re-enabled soon after the completion of the Opcode call.
+                    // To ensure safe Opcode calls inside the Z80 user code, no interrupt will be generated by IOS
+                    //  between opcode setting (ioOpcode != 0xFF) and execution is finished (ioOpcode == 0xFF).
                     //
                     // ...................................................................................
 
@@ -1666,7 +1663,7 @@ void loop() {
                     Z80IntSysTick = ( ioData & ( 1 << 1 ) ) >> 1; // Enable/disable the Serial Rx IRQ generation
                     break;
 
-                case 0x0F:
+                case OPC_SETTICK:
                     // SETTICK - set the Systick timer time (milliseconds)
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1683,7 +1680,7 @@ void loop() {
                         sysTickTime = ioData;
                     break;
 
-                case 0x10:
+                case OPC_SETOPT:
                     // SETOPT - set system options
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1701,7 +1698,7 @@ void loop() {
                     cpmWarmBootFlg = ioData & 0x01;
                     break;
 
-                case 0x11:
+                case OPC_SETSPP:
                     // SPP EMULATION
                     // SETSPP - set the GPIO port into SPP mode:
                     //
@@ -1787,7 +1784,7 @@ void loop() {
                     }
                     break;
 
-                case 0x12:
+                case OPC_WRSPP:
                     // SPP EMULATION
                     // WRSPP - send a byte to the printer attached to the SPP port:
                     //
@@ -1821,7 +1818,7 @@ void loop() {
                     }
                     break;
 
-                case 0x13:
+                case OPC_SETVECTOR:
                     // SETVECTOR - set the Interrupt Vector
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -1837,11 +1834,11 @@ void loop() {
 
                     // ------------------------------------------------------------------------------
 
-                case OPC_SIOA_TxD:
-                case OPC_SIOB_TxD:
+                case OPC_SIOA_TXD:
+                case OPC_SIOB_TXD:
                     // SIO TXD Write:
                     if ( moduleSIO )
-                        SC16IS752_WriteByte( ioOpcode == OPC_SIOA_TxD ? 0 : 1, ioData );
+                        SC16IS752_WriteByte( ioOpcode == OPC_SIOA_TXD ? 0 : 1, ioData );
                     break;
 
                 case OPC_SIOA_CTRL:
@@ -1903,14 +1900,14 @@ void loop() {
                     }
                     break;
 
-                case 0x7E:
+                case OPC_GET_VERBOSITY:
                     // set verbosity byte, also used for NMOS/CMOS CPU test
                     verbosity = ioData;
                     break;
-                }
-                if ( ( ioOpcode != 0x0A ) && ( ioOpcode != 0x0C ) )
-                    ioOpcode = 0xFF; // All done for the single byte Opcodes.
-                                     //  Set ioOpcode = "No operation"
+                } // switch ( ioOpcode )
+                if ( ( ioOpcode != OPC_SELTRACK ) && ( ioOpcode != OPC_WRITESECT ) )
+                    ioOpcode = OPC_NO_OP; // All done for the single byte Opcodes.
+                                          //  Set ioOpcode = "No operation"
             }
 
             // Control bus sequence to exit from a wait state (M I/O write cycle)
@@ -1918,6 +1915,7 @@ void loop() {
             digitalWrite( WAIT_RES_, LOW );  // Reset WAIT FF exiting from WAIT state
             digitalWrite( WAIT_RES_, HIGH ); // Now Z80 is in DMA, so it's safe set WAIT_RES_ HIGH again
             digitalWrite( BUSREQ_, HIGH );   // Resume Z80 from DMA
+
         } else if ( !digitalRead( RD_ ) ) {
             // I/O READ operation requested
 
@@ -1981,7 +1979,7 @@ void loop() {
                 //
                 switch ( ioOpcode ) {
                     // Execute the requested I/O READ Opcode. The 0xFF value is reserved as "No operation".
-                case 0x80:
+                case OPC_USER_KEY:
                     // USER KEY:
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
                     //                            ---------------------------------------------------------
@@ -1995,7 +1993,7 @@ void loop() {
                     digitalWrite( USER, tempByte ); // Restore USER led status
                     break;
 
-                case 0x81:
+                case OPC_GPIOA_READ:
                     // GPIOA Read (GPE Option):
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -2016,7 +2014,7 @@ void loop() {
                     }
                     break;
 
-                case 0x82:
+                case OPC_GPIOB_READ:
                     // GPIOB Read (GPE Option):
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -2037,7 +2035,7 @@ void loop() {
                     }
                     break;
 
-                case 0x83:
+                case OPC_SYSFLAGS:
                     // SYSFLAGS (Various system flags for the OS):
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
                     //                            ---------------------------------------------------------
@@ -2063,7 +2061,7 @@ void loop() {
                              ( ( LastRxIsEmpty > 0 ) << 3 ) | ( cpmWarmBootFlg << 4 | ( ramCfg << 6 ) );
                     break;
 
-                case 0x84:
+                case OPC_DATETIME:
                     // DATETIME (Read date/time and temperature from the RTC. Binary values):
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
                     //                            ---------------------------------------------------------
@@ -2114,7 +2112,7 @@ void loop() {
                         ioOpcode = 0xFF; // Nothing to do. Set ioOpcode = "No operation"
                     break;
 
-                case 0x85:
+                case OPC_ERRDISK:
                     // DISK EMULATION
                     // ERRDISK - read the error code after a SELDISK, SELSECT, SELTRACK, WRITESECT, READSECT
                     //           or SDMOUNT operation
@@ -2154,7 +2152,7 @@ void loop() {
                     ioData = diskErr;
                     break;
 
-                case 0x86:
+                case OPC_READSECT:
                     // DISK EMULATION
                     // READSECT - read 512 data bytes sequentially from the current emulated disk/track/sector:
                     //
@@ -2209,7 +2207,7 @@ void loop() {
                     ioByteCnt++; // Increment the counter of the exchanged data bytes
                     break;
 
-                case 0x87:
+                case OPC_SDMOUNT:
                     // DISK EMULATION
                     // SDMOUNT - mount a volume on SD, returning an error code (binary):
                     //
@@ -2228,7 +2226,7 @@ void loop() {
                     ioData = mountSD( &filesysSD );
                     break;
 
-                case 0x88:
+                case OPC_ATXBUFF:
                     // ATXBUFF - return the current available free space (in bytes) in the TX buffer:
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -2241,7 +2239,7 @@ void loop() {
                     ioData = Serial.availableForWrite();
                     break;
 
-                case 0x89:
+                case OPC_SYSIRQ:
                     // SYSIRQ - return the "interrupt status byte":
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -2285,7 +2283,7 @@ void loop() {
 
                     break;
 
-                case 0x8A:
+                case OPC_GETSPP:
                     // SPP EMULATION
                     // GETSPP - read the Status Lines of the SPP Port and the SPP emulation status:
                     //
@@ -2324,18 +2322,18 @@ void loop() {
                     }
                     break;
 
-                case OPC_SIOA_RxD:
-                case OPC_SIOB_RxD:
+                case OPC_SIOA_RXD:
+                case OPC_SIOB_RXD:
                     // SIOA RXD Read:
                     // NOTE: a value 0x1A is forced if the SIO Option is not present
                     if ( moduleSIO )
-                        ioData = SC16IS752_ReadByte( ioOpcode == OPC_SIOA_RxD ? 0 : 1 );
+                        ioData = SC16IS752_ReadByte( ioOpcode == OPC_SIOA_RXD ? 0 : 1 );
                     else
                         ioData = 0x1A; // ^Z (EOF)
                     break;
 
-                case OPC_SIOA_RxSTAT:
-                case OPC_SIOB_RxSTAT:
+                case OPC_SIOA_RXSTAT:
+                case OPC_SIOB_RXSTAT:
                     // SIO Rx Status Read:
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -2344,13 +2342,13 @@ void loop() {
                     //
                     // NOTE: a value 0x40 is forced if the SIO Option is not present
                     if ( moduleSIO ) {
-                        ioData = SC16IS752_RxDataAvailable( ioOpcode == OPC_SIOA_RxSTAT ? 0 : 1 );
+                        ioData = SC16IS752_RxDataAvailable( ioOpcode == OPC_SIOA_RXSTAT ? 0 : 1 );
                     } else
                         ioData = 0x40; // RxFIFO full - USED BY CP/M CHARIO.MAC
                     break;
 
-                case OPC_SIOA_TxSTAT:
-                case OPC_SIOB_TxSTAT:
+                case OPC_SIOA_TXSTAT:
+                case OPC_SIOB_TXSTAT:
                     // SIO Tx Status Read:
                     //
                     //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
@@ -2359,20 +2357,21 @@ void loop() {
                     //
                     // NOTE: a value 0x40 is forced if the SIO Option is not present
                     if ( moduleSIO ) {
-                        ioData = SC16IS752_TxSpaceAvailable( ioOpcode == OPC_SIOA_TxSTAT ? 0 : 1 );
+                        ioData = SC16IS752_TxSpaceAvailable( ioOpcode == OPC_SIOA_TXSTAT ? 0 : 1 );
                     } else
                         ioData = 0x40; // Tx FIFO empty - USED BY CP/M CHARIO.MAC
                     break;
 
-                case 0xFE:
+                case OPC_GET_VERBOSITY:
                     // read back verbosity byte, also used for NMOS/CMOS CPU test
                     ioData = verbosity;
                     break;
-                }
-                if ( ( ioOpcode != 0x84 ) && ( ioOpcode != 0x86 ) )
-                    ioOpcode = 0xFF; // All done for the single byte Opcodes.
-                                     //  Set ioOpcode = "No operation"
-            }
+                } // switch ( ioOpcode )
+                if ( ( ioOpcode != OPC_DATETIME ) && ( ioOpcode != OPC_READSECT ) )
+                    ioOpcode = OPC_NO_OP; // All done for the single byte Opcodes.
+                                          //  Set ioOpcode = "No operation"
+            } // EXECUTE READ Opcode
+
             DDRA = 0xFF;    // Configure Z80 data bus D0-D7 (PA0-PA7) as output
             PORTA = ioData; // Current output on data bus
 
@@ -2384,6 +2383,7 @@ void loop() {
             PORTA = 0xFF;
             digitalWrite( WAIT_RES_, HIGH ); // Now Z80 is in DMA (HiZ), so it's safe set WAIT_RES_ HIGH again
             digitalWrite( BUSREQ_, HIGH );   // Resume Z80 from DMA
+
         } else { // neither /WR nor /RD -> /IORQ & /M1
             // INTERRUPT operation setting IORQ_ LOW
 
@@ -2416,19 +2416,31 @@ void loop() {
             PORTA = 0xFF;
             digitalWrite( WAIT_RES_, HIGH ); // Now Z80 is in DMA, so it's safe set WAIT_RES_ HIGH again
             digitalWrite( BUSREQ_, HIGH );   // Resume Z80 from DMA
-        }
-    }
+        } // neither /WR nor /RD -> /IORQ & /M1
+    } // if ( !digitalRead( WAIT_ ) )
 
-    if ( Z80IntSysTick ) {
-        // Systick interrupt generation is enabled. Check if the INT_ signal must be activated
-        if ( ( micros() - timeStamp ) > ( (long unsigned)( sysTickTime ) * 1000 ) ) {
-            // <sysTickTime> milliseconds are elapsed, so a Systick interrupt is required
-            digitalWrite( INT_, LOW );
-            irqStatus = irqStatus | B00000010; // Set the Systick IRQ status bit (see SYSIRQ Opcode)
-            timeStamp = micros();
+    if ( ioOpcode == OPC_NO_OP ) { // Z80 INT trigger only if outside opcode processing
+        if ( Z80IntRx ) {
+            // Set INT_ to ACTIVE if there are received chars from serial to read
+            // and if the interrupt generation is enabled and a previous serial Rx was done by the Z80 CPU
+            if ( serEventSeen && RxDoneFlag && ( Serial.available() > 0 ) ) {
+                digitalWrite( INT_, LOW );
+                irqStatus = irqStatus | B00000001; // Set the serial Rx IRQ status bit (see SYSIRQ Opcode)
+                RxDoneFlag = 0;
+                serEventSeen = 0;
+            }
+        }
+        if ( Z80IntSysTick ) {
+            // Systick interrupt generation is enabled. Check if the INT_ signal must be activated
+            if ( ( micros() - timeStamp ) > ( (long unsigned)( sysTickTime ) * 1000 ) ) {
+                // <sysTickTime> milliseconds are elapsed, so a Systick interrupt is required
+                digitalWrite( INT_, LOW );
+                irqStatus = irqStatus | B00000010; // Set the Systick IRQ status bit (see SYSIRQ Opcode)
+                timeStamp = micros();
+            }
         }
     }
-}
+} // void loop()
 
 
 // ------------------------------------------------------------------------------
@@ -2451,13 +2463,8 @@ void printMsg1() { Serial.println( F( "\r\nPress CR to accept, ESC to exit or an
 // ------------------------------------------------------------------------------
 
 void serialEvent() {
-    // Set INT_ to ACTIVE if there are received chars from serial to read and if the interrupt generation is enabled
-    // and a previous serial Rx was done by the Z80 CPU
-    if ( ( Serial.available() > 0 ) && ( Z80IntRx == 1 ) && ( RxDoneFlag ) ) {
-        digitalWrite( INT_, LOW );
-        irqStatus = irqStatus | B00000001; // Set the serial Rx IRQ status bit (see SYSIRQ Opcode)
-        RxDoneFlag = 0;
-    }
+    // set marker to trigger a RX INT in main loop
+    serEventSeen = 1;
 }
 
 // ------------------------------------------------------------------------------

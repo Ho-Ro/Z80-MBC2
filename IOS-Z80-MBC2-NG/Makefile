@@ -59,12 +59,15 @@ IOS_INO_BL_HEX = $(BUILD)/$(PRJ).ino.with_bootloader.hex
 # targets in intel hex format
 TARGET = $(PRJ)_ATmega$(ATMEGA)_$(CLK)MHz.hex
 TARGET_BL = $(PRJ)_ATmega$(ATMEGA)_BL_$(CLK)MHz.hex
-ALL_TARGETS = $(TARGET) $(TARGET_BL)
+TARGETS = $(TARGET) $(TARGET_BL)
 
+
+.PHONY: IOS
+IOS: $(TARGETS)
 
 .PHONY: all
-all: $(ALL_TARGETS)
-
+all:
+	$(MAKE) -C .. IOS32 IOS1284
 
 $(TARGET_BL) : $(INO) $(SOURCE) $(HEADER) Makefile
 	arduino-cli compile --export-binaries --warnings all --fqbn $(FQBN_BO) $(INO)
