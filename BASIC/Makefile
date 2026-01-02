@@ -27,13 +27,13 @@ basic47_im2.bin: init_im2.bin basic.bin
 init.bin: init.asm
 	uz80as $< $@
 
-init_im0.bin: init_im.asm
+init_im0.bin: init_im.asm Makefile
 	uz80as -dINTMODE0 $< $@ init_im0.lst
 
-init_im1.bin: init_im.asm
+init_im1.bin: init_im.asm Makefile
 	uz80as -dINTMODE1 $< $@ init_im1.lst
 
-init_im2.bin: init_im.asm
+init_im2.bin: init_im.asm Makefile
 	uz80as -dINTMODE2 $< $@ init_im2.lst
 
 basic.bin: basic.asm
