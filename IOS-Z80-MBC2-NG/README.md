@@ -11,7 +11,7 @@ of 20 MHz (in spec) with an overclocking option of 24 MHz (out of spec).
 ![ATmega32 fuses](ATmega32_fuses.png)
 
 ```sh
-avrdude -v -patmega32 -cstk500 -P /dev/ttyUSB0 -e -Ulfuse:w:0xBF:m -Uhfuse:w:0xC7:m
+avrdude -v -patmega32 -cstk500 -P /dev/ttyUSB0 -e -Ulfuse:w:0x3F:m -Uhfuse:w:0xC6:m
 ```
 
 ## Set ATmega1284p Fuses
@@ -19,5 +19,5 @@ avrdude -v -patmega32 -cstk500 -P /dev/ttyUSB0 -e -Ulfuse:w:0xBF:m -Uhfuse:w:0xC
 ![ATmega1284 fuses](ATmega1284_fuses.png)
 
 ```sh
-avrdude -v -patmega1284p -cstk500 -P /dev/ttyUSB0 -Ulfuse:w:0xF7:m -Uhfuse:w:0xD7:m -Uefuse:w:0xFD:m
+avrdude -v -patmega1284p -cstk500 -P /dev/ttyUSB0 -Ulfuse:w:0xF7:m -Uhfuse:w:0xD6:m -Uefuse:w:0xFC:m
 ```

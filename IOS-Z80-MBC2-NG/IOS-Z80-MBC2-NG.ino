@@ -11,7 +11,7 @@ Notes:
 1:  This SW is ONLY for the Atmega32A used as EEPROM and I/O subsystem
     (16/20MHz external oscillator) for the Z80 CPU.
 
-2:  Tested on Atmega32A/Atmega1284P @ Arduino IDE 1.8.19 and MightyCore v.3.0.2
+2:  Tested on Atmega32A/Atmega1284P @ Arduino IDE 1.8.19 and MightyCore v.3.0.3
 
 3:  Embedded FW: S200718 iLoad (Intel-Hex loader)
 
@@ -1386,7 +1386,7 @@ void loop() {
                     //
                     // Set a 32kB RAM bank for the lower half of the Z80 address space (from 0x0000 to 0x7FFF).
                     // The upper half (from 0x8000 to 0xFFFF) is the common fixed bank.
-                    // Allowed Os Bank numbers are from 0 to 2.
+                    // Allowed Os Bank numbers are from 0 to 14.
                     //
                     // Please note that there are three kinds of Bank numbers (see the A040618 schematic):
                     //
@@ -1394,6 +1394,7 @@ void loop() {
                     // * the "Log Bank" number is the bank seen by the Atmega32a (through BK3..BK0 address lines);
                     // * the "Phy Bank" number is the real bank addressed inside the RAM chip (through A18..A15);
                     //
+                    // Log and Phy Bank differ b/c A15 is inverted BK0 line (U1A)
                     // The following tables shows the relations:
                     //
                     //  Os Bank |  Logical Bank   | Z80 | Phys. RAM Addr. |            Notes
@@ -1418,174 +1419,20 @@ void loop() {
                     //    14    |  1   1   1   0  |  0  |  1   1   1   1  |  Phy Bank 15 (Logical Bank 14)
                     //
                     //
-                    //
-                    //      Physical Bank      |    Logical Bank     |   Physical Bank   |   Physical RAM Addresses
-                    //          number         |       number        |  RAM_A16 RAM_A15  |
-                    // ------------------------------------------------------------------------------------------------
-                    //            0            |         1           |     0       0     |   From 0x00000 to 0x07FFF
-                    //            1            |         0           |     0       1     |   From 0x08000 to 0x0FFFF
-                    //            2            |         3           |     1       0     |   From 0x01000 to 0x17FFF
-                    //            3            |         2           |     1       1     |   From 0x18000 to 0x1FFFF
-                    //
-                    //
-                    // Note that the Logical Bank 0 can't be used as switchable Os Bank bacause it is the common
+                    // Note that the Logical Bank 0 can't be used as switchable Os Bank because it is the common
                     //  fixed bank mapped in the upper half of the Z80 address space (from 0x8000 to 0xFFFF).
                     //
                     //
-                    // NOTE: If the Os Bank number is greater than 14 no selection is done.
-
-                    switch ( ioData ) {
-                    case 0: // Os bank 0
-                        // Set physical bank 0 (logical bank 1)
-                        digitalWrite( BANK0, HIGH );
-                        digitalWrite( BANK1, LOW );
+                    if ( ioData <= 14 ) { // no selection for Os Bank number greater than 14
+                        uint8_t bank = ioData ? ioData + 1 : 0;
+                        digitalWrite( BANK0, !(bank & 0x01) ); // BANK0 is inverted by U1A
+                        digitalWrite( BANK1, bank & 0x02 );
                         if ( ramCfg > 0 )
-                            digitalWrite( BANK2, LOW );
+                            digitalWrite( BANK2, bank & 0x04 );
                         if ( ramCfg > 1 )
-                            digitalWrite( BANK3, LOW );
-                        break;
-
-                    case 1: // Os bank 1
-                        // Set physical bank 2 (logical bank 3)
-                        digitalWrite( BANK0, HIGH );
-                        digitalWrite( BANK1, HIGH );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, LOW );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, LOW );
-                        break;
-
-                    case 2: // Os bank 2
-                        // Set physical bank 3 (logical bank 2)
-                        digitalWrite( BANK0, LOW );
-                        digitalWrite( BANK1, HIGH );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, LOW );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, LOW );
-                        break;
-
-                    case 3: // Os bank 3
-                        // Set physical bank 4 (logical bank 5)
-                        digitalWrite( BANK0, HIGH );
-                        digitalWrite( BANK1, LOW );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, HIGH );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, LOW );
-                        break;
-
-                    case 4: // Os bank 4
-                        // Set physical bank 5 (logical bank 4)
-                        digitalWrite( BANK0, LOW );
-                        digitalWrite( BANK1, LOW );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, HIGH );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, LOW );
-                        break;
-
-                    case 5: // Os bank 5
-                        // Set physical bank 6 (logical bank 7)
-                        digitalWrite( BANK0, HIGH );
-                        digitalWrite( BANK1, HIGH );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, HIGH );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, LOW );
-                        break;
-
-                    case 6: // Os bank 6
-                        // Set physical bank 7 (logical bank 6)
-                        digitalWrite( BANK0, LOW );
-                        digitalWrite( BANK1, HIGH );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, HIGH );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, LOW );
-                        break;
-
-                    case 7: // Os bank 7
-                        // Set physical bank 8 (logical bank 9)
-                        digitalWrite( BANK0, HIGH );
-                        digitalWrite( BANK1, LOW );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, LOW );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, HIGH );
-                        break;
-
-                    case 8: // Os bank 8
-                        // Set physical bank 9 (logical bank 8)
-                        digitalWrite( BANK0, LOW );
-                        digitalWrite( BANK1, LOW );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, LOW );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, HIGH );
-                        break;
-
-                    case 9: // Os bank 9
-                        // Set physical bank 10 (logical bank 11)
-                        digitalWrite( BANK0, HIGH );
-                        digitalWrite( BANK1, HIGH );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, LOW );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, HIGH );
-                        break;
-
-                    case 10: // Os bank 10
-                        // Set physical bank 11 (logical bank 10)
-                        digitalWrite( BANK0, LOW );
-                        digitalWrite( BANK1, HIGH );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, LOW );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, HIGH );
-                        break;
-
-
-                    case 11: // Os bank 11
-                        // Set physical bank 12 (logical bank 13)
-                        digitalWrite( BANK0, HIGH );
-                        digitalWrite( BANK1, LOW );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, HIGH );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, HIGH );
-                        break;
-
-                    case 12: // Os bank 12
-                        // Set physical bank 13 (logical bank 12)
-                        digitalWrite( BANK0, LOW );
-                        digitalWrite( BANK1, LOW );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, HIGH );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, HIGH );
-                        break;
-
-                    case 13: // Os bank 13
-                        // Set physical bank 14 (logical bank 15)
-                        digitalWrite( BANK0, HIGH );
-                        digitalWrite( BANK1, HIGH );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, HIGH );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, HIGH );
-                        break;
-
-                    case 14: // Os bank 14
-                        // Set physical bank 15 (logical bank 14)
-                        digitalWrite( BANK0, LOW );
-                        digitalWrite( BANK1, HIGH );
-                        if ( ramCfg > 0 )
-                            digitalWrite( BANK2, HIGH );
-                        if ( ramCfg > 1 )
-                            digitalWrite( BANK3, HIGH );
-                        break;
+                            digitalWrite( BANK3, bank & 0x08 );
                     }
+
                     break;
 
 

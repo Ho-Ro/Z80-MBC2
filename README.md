@@ -196,12 +196,12 @@ select `128/64` or `256/64`:
   256/256
 ```
 
-You can use the provided [`*.diff`](IOS-Z80-MBC2-NG/arduino15_packages_MightyCore_hardware_avr_3.0.2_boards.txt.diff)
+You can use the provided [`*.diff`](IOS-Z80-MBC2-NG/arduino15_packages_MightyCore_hardware_avr_3.0.3_boards.txt.diff)
 file to change the MightyCore library,
 go to the directory with the `boards.txt` file and apply the patch.
 These are the Linux and Windows locations for the current library version:
-- /home/<username>/.arduino15/packages/MightyCore/hardware/avr/3.0.2
-- C:\Users\<username>\AppData\Local\Arduino15\packages\MightyCore\hardware\avr\3.0.2
+- /home/<username>/.arduino15/packages/MightyCore/hardware/avr/3.0.3
+- C:\Users\<username>\AppData\Local\Arduino15\packages\MightyCore\hardware\avr\3.0.3
 
 ### iLoad
 
