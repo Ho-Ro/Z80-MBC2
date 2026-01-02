@@ -172,7 +172,7 @@ clock frequency 16MHz or 20 MHz, depending on your XTAL.
 `IOS-Z80-MBC2-NG_BL_??MHz.hex` files initially (unless you
 have already installed a bootloader, in which case you can proceed directly to 2.).
 Check/set the correct AVR fuse values
-lfuse = 0xAF, hfuse = 0xD6 (avrdude: `-U lfuse:w:0xAF:m -U hfuse:w:0xD6:m`)
+lfuse = 0x3F, hfuse = 0xC6 (avrdude: `-U lfuse:w:0x3F:m -U hfuse:w:0xC6:m`)
 and program the hex file with your programmer.
 
 2. Later updates can be done via the serial interface using the Arduino IDE
