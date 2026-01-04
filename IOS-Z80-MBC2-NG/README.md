@@ -19,7 +19,7 @@ I've set up an [urboot](https://github.com/stefanrueger/urboot) boot loader `urb
 that flashes the Z80-MBC2 USER LED during data upload with these parameters:
 
 ```sh
-make MCU=atmega32 AUTOBAUD=1 CHIPERASE=1 BLINK=1 LED=AtmelPD5 LEDPOLARITY=-1 NAME=urboot_m32
+make MCU=atmega32 AUTOBAUD=1 CHIP_ERASE=0 UPDATE_FL=4 BLINK=1 LED=AtmelPD5 LEDPOLARITY=-1 NAME=mbc2boot_m32
 ```
 This boot loader is concatenated with the IOS hexfile to the file `IOS-Z80-MBC2-NG_BL_xxx.hex`
 that can be programmed via ISP interface with the command `make flash`, this sets also the
@@ -47,7 +47,7 @@ I've set up an [urboot](https://github.com/stefanrueger/urboot) boot loader `urb
 that flashes the Z80-MBC2 USER LED during data upload with these parameters:
 
 ```sh
-make MCU=atmega1284 AUTOBAUD=1 CHIPERASE=1 BLINK=1 LED=AtmelPD5 LEDPOLARITY=-1 NAME=urboot_m1284
+make MCU=atmega1284 AUTOBAUD=1 CHIP_ERASE=0 UPDATE_FL=4 BLINK=1 LED=AtmelPD5 LEDPOLARITY=-1 NAME=mbc2boot_m1284
 ```
 This boot loader is concatenated with the IOS hexfile to the file `IOS-Z80-MBC2-NG_BL_xxx.hex`
 that can be programmed via ISP interface with the command `make flash`, this sets also the

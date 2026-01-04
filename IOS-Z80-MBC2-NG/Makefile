@@ -61,7 +61,7 @@ BUILD = build/$(subst :,.,$(FQBN))
 INO = $(PRJ).ino
 HEADER = *.h
 SOURCE = *.cpp
-BOOTLOADER = urboot_m$(ATMEGA).hex
+BOOTLOADER = mbc2boot_m$(ATMEGA).hex
 HEX = $(BUILD)/*.hex
 LST = *.lst $(BUILD)/*.lst
 
@@ -102,7 +102,7 @@ iLoad.h: iLoad.asm Makefile
 # update AVR via serial bootloader
 .PHONY: update
 update: $(TARGET)
-	avrdude -pm$(ATMEGA) -P $(PORT) -c urclock -U $<
+	avrdude -pm$(ATMEGA) -P $(PORT) -b 500000 -c urclock -U $<
 
 # update AVR via arduino serial bootloader
 .PHONY: upload
