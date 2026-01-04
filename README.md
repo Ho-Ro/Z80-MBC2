@@ -20,6 +20,7 @@ the progress of our ongoing work.
 [tnylpo](https://gitlab.com/gbrein/tnylpo).
 - `IOS-Z80-MBC2-NG.ino` supports up to 512 Kbyte RAM (with HW modification) that is used
 as data and directory buffer.
+- Bootloader flashes the Z80-MBC2 USER LED during data upload.
 - IOS support for Z80 interrupt modes `IM0`, `IM1` and `IM2`.
 - `Makefile` allows the compiling of the `*.ino` under Linux via
 [arduino-cli](https://arduino.github.io/arduino-cli/latest/) tool.
@@ -55,7 +56,7 @@ These level shifters are available as a cheap small module, even with a
 DB9 connector, search the typical sources for
 *"Converter RS232 - UART with connector DB9 - SP3232 3.3V/5V"*.
 
-I decided to use the DCE (female) connector b/c this allows the direct
+I decided to use the DCE (female) connector for SIOA b/c this allows the direct
 connection of an USB-RS232 interface or a real PC serial I/O.
 
 ## HW modification for 512 KB RAM
@@ -86,6 +87,29 @@ U3/16 PD2 --:----/<--+----  A17 U4/1   :                            |    CUT   |
           Add 4 Schottky diodes, 2 x 1K0        Cut /CE1 and CE2 at U4 and add 1/4 74HC32
 ```
 
+## Z80 interrupt handling
+
+IOS provides two interrupt sources for the Z80, RX and SYSTICK, which can be activated
+either from IOS, e.g. for BASIC (RX) and FUZIX (RX and SYSTICK) or from the Z80 side
+with the IOS call `SETIRQ` (0x0E). The original IOS only works with the Z80 IM1, which
+responds to INT ACK with a fixed call of `RST 38`, regardless of what is on the data bus.
+
+IOS-NG supports also `IM0` and `IM2`, the new IOS opcode `SETVECTOR` defines the byte
+that will be placed on the address bus during INT ACK (/IORQ without /RD or /WR).
+This can be either an opcode for `IM0` (typically `RST XX`) or the low byte of the
+interrupt vector for `IM2` (the high byte comes from Z80 register `I`).
+The content of the data bus is ignored in `IM1`.
+
+### Testing the interrupt modes
+
+For testing purposes, there are some versions of the Basic interpreter in directory
+[BASIC](BASIC) that can be loaded via iLoad. Their names are self-explanatory:
+`basic47_im0.hex`, `basic47_im1.hex`, `basic47_im2.hex` with RX INT and SYSTICK INT,
+which causes the user LED to flash. All files use the same BASIC source code `basic.asm`,
+and an init module `init_im.asm` with different defines in the `Makefile`.
+In addition, there is the original BASIC `basic47.hex` (`init.asm` + `basic.asm`),
+which only uses IM1 for RX INT.
+
 ## Optional HW modification for freeing Z80 I/O-Addr = 0x20..0xFF
 
 The Z80-MBC2 occupies all I/O addresses for the IOS interface, even if only the two addresses
@@ -93,9 +117,7 @@ The Z80-MBC2 occupies all I/O addresses for the IOS interface, even if only the 
 range can be restricted to `0x00..0x1F`, thus freeing up the range `0x20..0xFF` for own experiments.
 I am thinking, for example, of connecting a 64-pin DIN 41612 socket with reduced
 [ECB](https://en.wikipedia.org/wiki/Europe_Card_Bus) assignment, which provides the signals
-`GND`, `VCC`, `/RESET`, `CLK`, `A0..A15`, `D0..D7`, `/IORQ`, `/RD`, `/WR` required for Z80 I/O – possibly also
-`/IRQ`, `/NMI` and `/M1` for interrupt handling.
-Unfortunately this modification breaks the IOS interrupt handling (see below) because the PC and not an I/O address is put on the address bus during INT ACK.
+`GND`, `VCC`, `/RESET`, `CLK`, `A0..A15`, `D0..D7`, `/IORQ`, `/RD`, `/WR` required for Z80 I/O.
 
 ```
 Cut Z80 /IORQ ---/ /--- U1/9 and add the 74HC32 devices in the dotted box
@@ -122,28 +144,8 @@ U2/20                                   CUT           9 +--\  Q
 :                  Add 3/4 74HC32            :      |
 :............................................:      +--------------- /WAIT_RES
 ```
-## Z80 interrupt handling
 
-IOS provides two interrupt sources for the Z80, RX and SYSTICK, which can be activated
-either from IOS, e.g. for BASIC (RX) and FUZIX (RX and SYSTICK) or from the Z80 side
-with the IOS call `SETIRQ` (0x0E). The original IOS only works with the Z80 IM1, which
-responds to INT ACK with a fixed call of `RST 38`, regardless of what is on the data bus.
-
-IOS-NG supports also `IM0` and `IM2`, the new IOS opcode `SETVECTOR` defines the byte
-that will be placed on the address bus during INT ACK (/IORQ without /RD or /WR).
-This can be either an opcode for `IM0` (typically `RST XX`) or the low byte of the
-interrupt vector for `IM2` (the high byte comes from Z80 register `I`).
-The content of the data bus is ignored in `IM1`.
-
-### Testing the interrupt modes
-
-For testing purposes, there are some versions of the Basic interpreter in directory
-[BASIC](BASIC) that can be loaded via iLoad. Their names are self-explanatory:
-`basic47_im0.hex`, `basic47_im1.hex`, `basic47_im2.hex` with RX INT and SYSTICK INT,
-which causes the user LED to flash. All files use the same BASIC source code `basic.asm`,
-and an init module `init_im.asm` with different defines in the `Makefile`.
-In addition, there is the original BASIC `basic47.hex` (`init.asm` + `basic.asm`),
-which only uses IM1 for RX INT.
+Unfortunately this modification breaks the IOS interrupt handling (see above) because the PC and not an I/O address is put on the address bus during INT ACK.
 
 ## System preparation
 
@@ -162,23 +164,23 @@ e.g. as `DS2N00.SAV`. In case of trouble you can always go back.
 ### IOS update
 
 The new BIOS requires an updated IOS, ver. S220718-R290823-D051225 or later.
-Program one of the `IOS-Z80-MBC2-NG_??MHz.hex` files on your
-AVR, using a programmer HW with a tool like e.g. `avrdude`. Chose the correct
-clock frequency 16MHz or 20 MHz, depending on your XTAL.
 
-#### Update IOS using a bootloader
+#### Update via ISP
 
-1. If you want to update via the serial bootloader then load one of the
-`IOS-Z80-MBC2-NG_BL_??MHz.hex` files initially (unless you
-have already installed a bootloader, in which case you can proceed directly to 2.).
-Check/set the correct AVR fuse values
-lfuse = 0x3F, hfuse = 0xC6 (avrdude: `-U lfuse:w:0x3F:m -U hfuse:w:0xC6:m`)
+If you want to perform the update via the serial bootloader, first load one of the files
+`IOS-Z80-MBC2-NG_BL_ATmega32_??MHz.hex` via ISP (unless you have already installed a bootloader, in which case you can proceed directly to the next section).
+
+Check/set the correct AVR fuse values `lfuse = 0x3F`, `hfuse = 0xC6`
+(avrdude: `-U lfuse:w:0x3F:m -U hfuse:w:0xC6:m`), see also [this document](IOS-Z80-MBC2-NG/README.md)
 and program the hex file with your programmer.
 
-2. Later updates can be done via the serial interface using the Arduino IDE
-or the `urboot` loader (`avrdude -p m32 -c urclock -U IOS-Z80-MBC2-NG_xxMHz.hex`),
-no need to attach the HW programmer again.
-The bootloader option depends on the serial DTR-Reset.
+#### Update via bootloader
+
+Subsequent updates can be performed via the serial interface using the Arduino IDE (or CLI)
+or directly via avrdude using the `urclock` protocol
+(`avrdude -p m32 -c urclock -U IOS-Z80-MBC2-NG_ATmega32_xxMHz.hex`),
+without having to reconnect the HW programmer.
+The bootloader option depends on the serial DTR Reset.
 
 #### Extended RX buffer for CP/M XMODEM
 
@@ -205,10 +207,10 @@ These are the Linux and Windows locations for the current library version:
 
 ### iLoad
 
-The file `boot_A_.h` is built from the source code in `iLoad.asm` that was found
+The file `iLoad.h` is built from the source code in `iLoad.asm` that was found
 as `S200718 iLoad.asm` in the `src` directory of the zipped SD card `SD-S220718-R290823-v2.zip`.
-The content of `boot_A_.h` is byte-by-byte identical to `boot_A_[]` in the original `IOS*.ino`.
-It can be assembled with the linux [z80assembler](https://github.com/Ho-Ro/Z80DisAssembler).
+`iLoad.asm` can be assembled with the linux [z80assembler](https://github.com/Ho-Ro/Z80DisAssembler).
+The content of `iLoad.h` is byte-by-byte identical to `boot_A_[]` in the original `IOS*.ino`.
 
 ## Testing
 

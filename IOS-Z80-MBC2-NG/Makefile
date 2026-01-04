@@ -61,6 +61,7 @@ BUILD = build/$(subst :,.,$(FQBN))
 INO = $(PRJ).ino
 HEADER = *.h
 SOURCE = *.cpp
+BOOTLOADER = urboot_m$(ATMEGA).hex
 HEX = $(BUILD)/*.hex
 LST = *.lst $(BUILD)/*.lst
 
@@ -82,15 +83,15 @@ IOS: $(TARGETS)
 all:
 	$(MAKE) -C .. IOS32 IOS1284
 
-$(TARGET_BL) : $(INO) $(SOURCE) $(HEADER) Makefile
+$(TARGET) : $(INO) $(SOURCE) $(HEADER) Makefile
 	arduino-cli compile --export-binaries --warnings all --fqbn $(FQBN_BO) $(INO)
-	@-cp $(IOS_INO_BL_HEX) $@
-	@unix2dos --keepdate --quiet $@
-
-$(TARGET) : $(TARGET_BL)
 	@-cp $(IOS_INO_HEX) $@
 	@unix2dos --keepdate --quiet $@
-	@ls -l *.hex
+
+$(TARGET_BL) : $(TARGET)
+	@./hexcat $(TARGET) $(BOOTLOADER) -o $@
+	@unix2dos --keepdate --quiet $@
+	@ls -l $(PRJ)_*.hex
 
 
 iLoad.h: iLoad.asm Makefile
@@ -126,4 +127,4 @@ clean:
 
 .PHONY: distclean
 distclean: clean
-	-rm -f *.hex
+	-rm -f $(PRJ)_*.hex

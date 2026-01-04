@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+import sys
+import argparse
+
+def cat_hex_files(filenames, output_file=None):
+    """Concatenate Intel HEX files in order, removing EOF markers from intermediate files."""
+
+    # First, verify all files exist
+    for filename in filenames:
+        try:
+            with open(filename, 'r'):
+                pass  # Just test if file can be opened
+        except FileNotFoundError:
+            print(f"Error: File '{filename}' not found.", file=sys.stderr)
+            sys.exit(1)  # Exit without creating any output
+
+    # Determine output destination
+    if output_file:
+        output = open(output_file, 'w')
+    else:
+        output = sys.stdout
+
+    try:
+        # Now process all files
+        for i, filename in enumerate(filenames):
+            with open(filename, 'r') as f:
+                lines = f.readlines()
+
+                for line in lines:
+                    line = line.rstrip('\n')  # Keep original formatting except newline
+
+                    # Skip empty lines
+                    if not line.strip():
+                        continue
+
+                    # For all files except the last one, skip the EOF record
+                    if i < len(filenames) - 1 and line.startswith(':00000001FF'):
+                        continue
+
+                    # Output the line
+                    print(line, file=output)
+    finally:
+        # Close the file if we opened one
+        if output_file and output:
+            output.close()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description='Concatenate Intel HEX files, removing intermediate EOF records.',
+        epilog='Example: hexcat file1.hex file2.hex -o combined.hex'
+    )
+    parser.add_argument(
+        'files',
+        nargs='+',
+        metavar='FILE',
+        help='Intel HEX files to concatenate (in order)'
+    )
+    parser.add_argument(
+        '-o', '--outfile',
+        metavar='FILE',
+        help='Write output to FILE instead of stdout'
+    )
+
+    args = parser.parse_args()
+
+    cat_hex_files(args.files, args.outfile)
+
