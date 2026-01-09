@@ -1,5 +1,5 @@
---- boards.txt.orig	2024-05-23 21:24:40.000000000 +0200
-+++ boards.txt	2025-12-26 11:30:24.203500724 +0100
+--- boards.txt.orig	2024-11-20 22:50:45.000000000 +0100
++++ boards.txt	2026-01-08 17:18:54.187176580 +0100
 @@ -16,6 +16,7 @@
  menu.pinout=Pinout
  menu.bootloader=Bootloader
@@ -37,6 +37,26 @@
  # Variants
  1284.menu.variant.modelP=1284P
  1284.menu.variant.modelP.build.mcu=atmega1284p
+@@ -115,15 +138,15 @@
+ 
+ # Compiler link time optimization
+ 1284.menu.LTO.Os_flto=LTO enabled
+-1284.menu.LTO.Os_flto.compiler.c.extra_flags=-Wextra -flto -g
++1284.menu.LTO.Os_flto.compiler.c.extra_flags={compilerSB.c.extra_flags} -Wextra -flto -g
+ 1284.menu.LTO.Os_flto.compiler.c.elf.extra_flags=-w -flto -g
+-1284.menu.LTO.Os_flto.compiler.cpp.extra_flags=-Wextra -flto -g
++1284.menu.LTO.Os_flto.compiler.cpp.extra_flags={compilerSB.c.extra_flags} -Wextra -flto -g
+ 1284.menu.LTO.Os_flto.ltoarcmd=avr-gcc-ar
+ 
+ 1284.menu.LTO.Os=LTO disabled
+-1284.menu.LTO.Os.compiler.c.extra_flags=
++1284.menu.LTO.Os.compiler.c.extra_flags={compilerSB.c.extra_flags}
+ 1284.menu.LTO.Os.compiler.c.elf.extra_flags=
+-1284.menu.LTO.Os.compiler.cpp.extra_flags=
++1284.menu.LTO.Os.compiler.cpp.extra_flags={compilerSB.c.extra_flags}
+ 1284.menu.LTO.Os.ltoarcmd=avr-ar
+ 
+ # Clock frequencies
 @@ -139,6 +162,13 @@
  1284.menu.clock.20MHz_external.build.clkpr=
  1284.menu.clock.20MHz_external.build.f_cpu=20000000L

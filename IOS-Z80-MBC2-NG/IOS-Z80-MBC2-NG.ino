@@ -103,16 +103,19 @@ S220718-D051225   Ho-Ro: fix SIOB adressing #12 (https://github.com/Ho-Ro/Z80-MB
 S220718-D261225   Ho-Ro: prepare for ATmega1284 build
 S220718-D281225   Ho-Ro: add SETVECTOR opcode, enable Z80 IM0, IM1 and IM2 interrupt modes
 S220718-D311225   Ho-Ro: Z80 INT trigger only if outside opcode processing
+S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
 --------------------------------------------------------------------------------- */
 // clang-format off
 
 #if defined( __AVR_ATmega32__ )
-#define HW_STRING "\r\n\nZ80-MBC2 - A040618 - ATmega32"
-#elif defined( __AVR_ATmega1284__ ) || defined( __AVR_ATmega1284P__ )
-#define HW_STRING "\r\n\nZ80-MBC2 - A040618 - ATmega1284"
+#define HW_STRING "\r\n\nZ80-MBC2-NG - A040618 - ATmega32"
+#elif defined( __AVR_ATmega1284__ )
+#define HW_STRING "\r\n\nZ80-MBC2-NG - A040618 - ATmega1284"
+#elif defined( __AVR_ATmega1284P__ )
+#define HW_STRING "\r\n\nZ80-MBC2-NG - A040618 - ATmega1284p"
 #endif
 
-#define VERSION_STRING "S220718-R290823-D311225"
+#define VERSION_STRING "S220718-R290823-D090126"
 #define BUILD_STRING __DATE__ " " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -214,36 +217,7 @@ S220718-D311225   Ho-Ro: Z80 INT trigger only if outside opcode processing
 //
 // ------------------------------------------------------------------------------
 
-// Check for overclocking
-#if F_CPU == 24000000
-  #define CLOCK_LOW   "6"
-  #define CLOCK_HIGH  "12"
-  #define CLOCK_IOS   "24 MHz"
-#endif
-#if F_CPU == 22000000
-  #define CLOCK_LOW   "5.5"
-  #define CLOCK_HIGH  "11"
-  #define CLOCK_IOS   "22 MHz"
-#endif
-#if F_CPU == 20000000
-  #define CLOCK_LOW   "5"
-  #define CLOCK_HIGH  "10"
-  #define CLOCK_IOS   "20 MHz"
-#endif
-#if F_CPU == 18000000
-  #define CLOCK_LOW   "4.5"
-  #define CLOCK_HIGH  "9"
-  #define CLOCK_IOS   "18 MHz"
-#endif
-
-// standard clock frequency
-#if F_CPU == 16000000
-  #define CLOCK_LOW   "4"
-  #define CLOCK_HIGH  "8"
-  #define CLOCK_IOS   "16 MHz"
-#endif
-
-#if not defined CLOCK_LOW or not defined CLOCK_HIGH
+#if not defined F_CPU or F_CPU < 12000000L or F_CPU > 26000000L
   #error Clock frequency F_CPU undefined or invalid
 #endif
 
@@ -285,6 +259,7 @@ const byte    maxBaudIndex = 10;          // Max number of serial speed values
 const byte    maxDiskNum   = 99;          // Max number of virtual disks
 const byte    maxDiskSet   = 6;           // Number of configured Disk Sets
 const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256KByte,2=512KByte)
+const byte    fCPU         = F_CPU / 1000000L;
 
 // Z80 programs images into flash and related constants
 
@@ -294,7 +269,7 @@ const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256
 
 #include "iLoad.h"
 
-const byte * const flahBootTable[1] PROGMEM = {boot_A_}; // Payload pointers table (flash)
+const byte * const flashBootTable[1] PROGMEM = {boot_A_}; // Payload pointers table (flash)
 
 
 // ------------------------------------------------------------------------------
@@ -398,8 +373,6 @@ void setup() {
     // ------------------------------------------------------------------------------
     // byte          data;                       // External RAM data byte
     // word          address;                    // External RAM current address;
-    char minBootChar = '1'; // Minimum allowed ASCII value selection (boot selection)
-    char maxSelChar = '8';  // Maximum allowed ASCII value selection (boot selection)
     byte maxBootMode = 4;   // Default maximum allowed value for bootMode [0..4]
     byte bootSelection = 0; // Flag to enter into the boot mode selection
 
@@ -450,8 +423,8 @@ void setup() {
     // Print some system information
     Serial.begin( indexToBaud( EEPROM.read( serBaudAddr ) ) );
 
-#if defined HW_STRING && defined CLOCK_IOS
-    Serial.println( F( HW_STRING " - " CLOCK_IOS ) ); // defined on top of file
+#if defined HW_STRING
+    Serial.printf( F( HW_STRING " - %d MHz\r\n" ), fCPU ); // defined on top of file
 #endif
 #if defined VERSION_STRING && defined BUILD_STRING
     Serial.println( F( VERSION_STRING " - " BUILD_STRING ) ); // defined on top of file
@@ -545,15 +518,10 @@ void setup() {
     }
 
     // Print the Z80 clock speed mode
-    Serial.print( F( "IOS: Z80 clock set at " ) );
-    if ( clockMode )
-        Serial.print( CLOCK_LOW );
-    else
-        Serial.print( CLOCK_HIGH );
-    Serial.println( F( "MHz" ) );
+    Serial.printf( F( "IOS: Z80 clock set at %d MHz\r\n" ), clockMode ? fCPU / 4 : fCPU / 2 );
 
     // Print the RAM size
-    Serial.printf( F( "IOS: %dKBytes RAM" ), ( 128 << ramCfg ) );
+    Serial.printf( F( "IOS: %d KBytes RAM" ), ( 128 << ramCfg ) );
     if ( ramCfg == 1 )
         Serial.print( F( " (CTS used as BANK2 signal)" ) );
     else if ( ramCfg == 2 )
@@ -568,22 +536,54 @@ void setup() {
         Serial.println( F( "IOS: Found SIOA / SIOB Option" ) );
 
     // Print CP/M Autoexec on cold boot status
-    Serial.print( F( "IOS: CP/M Autoexec is " ) );
     if ( EEPROM.read( autoexecFlagAddr ) > 1 )
         EEPROM.update( autoexecFlagAddr, 0 );       // Reset AUTOEXEC flag to OFF if invalid
     autoexecFlag = EEPROM.read( autoexecFlagAddr ); // Read the previous stored AUTOEXEC flag
-    if ( autoexecFlag )
-        Serial.println( F( "ON" ) );
-    else
-        Serial.println( F( "OFF" ) );
+    Serial.printf( F( "IOS: CP/M Autoexec is %s\r\n" ),
+                   autoexecFlag ? "ON" : "OFF" );
 
     // ----------------------------------------
     // BOOT SELECTION AND SYS PARAMETERS MENU
     // ----------------------------------------
 
     // Boot selection and system parameters menu if requested
-    mountSD( &filesysSD );
+
+    const char M_EXIT = 'X';
+    //
+    const char M_BASIC = 'B';
+    const char M_FORTH = 'F';
+    const char M_DISKOS = 'D';
+    const char M_AUTOBOOT = 'A';
+    const char M_ILOAD = 'L';
+    //
+    const char M_CLOCK = 'C';
+    const char M_AUTOEXEC = 'E';
+    const char M_SERSPEED = 'S';
+    const char M_TIMEDATE = 'T';
+    const char M_RAMSIZE = 'R';
+
+    const char CR = '\x0D';
+    const char ESC = '\x1B';
+
+    char menuCharSet[] = {
+            M_EXIT,
+            //
+            M_BASIC,
+            M_FORTH,
+            M_DISKOS,
+            M_AUTOBOOT,
+            M_ILOAD,
+            //
+            M_CLOCK,
+            M_AUTOEXEC,
+            M_SERSPEED,
+            M_TIMEDATE,
+            M_RAMSIZE
+    };
+
     mountSD( &filesysSD );                  // Try to mount the SD volume
+    mountSD( &filesysSD );
+
     bootMode = EEPROM.read( bootModeAddr ); // Read the previous stored boot mode
     if ( ( bootSelection == 1 ) || ( bootMode > maxBootMode ) ) {
         // Enter in the boot selection menu if USER key was pressed at startup
@@ -591,78 +591,64 @@ void setup() {
         while ( Serial.available() > 0 ) { // Flush input serial Rx buffer
             Serial.read();
         }
-        Serial.println();
-        Serial.println( F( "IOS: Select boot mode or system parameters:" ) );
-        Serial.println();
-        if ( bootMode <= maxBootMode ) {
-            // Previous valid boot mode read, so enable '0' selection
-            minBootChar = '0';
-            Serial.print( F( " 0: No change (" ) );
-            Serial.print( bootMode + 1 );
-            Serial.println( ")" );
+        Serial.printf( F( "\r\nIOS: Select Boot Mode or System Parameters:\r\n\n" ) );
+
+        if ( bootMode <= maxBootMode ) { // valid boot mode found
+            Serial.printf( F( "  %c: Exit without change ('%c')\r\n\n" ),
+                         M_EXIT, menuCharSet[ bootMode + 1 ] );
+        } else { // disable EXIT option
+            byte pos = findChar( M_EXIT, menuCharSet );
+            if ( pos )
+                menuCharSet[ pos - 1 ] = tolower( M_EXIT );
         }
-        Serial.println( F( " 1: Basic" ) );
-        Serial.println( F( " 2: Forth" ) );
-        Serial.print( F( " 3: Load/set OS " ) );
+        //
+        // Boot programs
+        Serial.printf( F( "  %c: Basic\r\n" ), M_BASIC ); // B
+        Serial.printf( F( "  %c: Forth\r\n" ), M_FORTH ); // F
+        Serial.printf( F( "  %c: Load/Set OS " ), M_DISKOS ); // D
         printOsName( diskSet );
-        Serial.println( F( "\r\n 4: Autoboot" ) );
-        Serial.println( F( " 5: iLoad" ) );
-        Serial.print( F( " 6: Change Z80 clock speed (->" ) );
-        if ( clockMode )
-            Serial.print( CLOCK_HIGH );
-        else
-            Serial.print( CLOCK_LOW );
-        Serial.println( F( "MHz)" ) );
-        Serial.print( F( " 7: Toggle CP/M Autoexec (->" ) );
-        if ( !autoexecFlag )
-            Serial.print( "ON" );
-        else
-            Serial.print( F( "OFF" ) );
-        Serial.println( ")" );
-        Serial.print( F( " 8: Set serial port speed (" ) );
-        Serial.print( indexToBaud( EEPROM.read( serBaudAddr ) ) );
-        Serial.println( ")" );
+        Serial.printf( F( "\r\n  %c: Autoboot\r\n" ), M_AUTOBOOT ); // A
+        Serial.printf( F( "  %c: iLoad\r\n\n" ), M_ILOAD ); // L
+        //
+        // Option settings
+        Serial.printf( F( "  %c: Change Z80 Clock Speed (-> %d MHz)\r\n" ),
+                       M_CLOCK, clockMode ? fCPU / 2 : fCPU / 4 );
+        Serial.printf( F( "  %c: Toggle CP/M Autoexec (-> %s)\r\n" ),
+                       M_AUTOEXEC, autoexecFlag ? "OFF" : "ON" ); // E
+        Serial.printf( F( "  %c: Set Serial Port Speed (%ld)\r\n" ),
+                      M_SERSPEED, indexToBaud( EEPROM.read( serBaudAddr ) ) ); // S
 
-        // If RTC module is present add a menu choice
-        if ( foundRTC ) {
-            Serial.println( F( " 9: Set RTC time/date" ) );
-            maxSelChar = '9';
+        if ( foundRTC ) {  // If RTC module is present add a menu choice
+            Serial.printf( F( "  %c: Set RTC Time/Date\r\n" ), M_TIMEDATE ); // T
+        } else { // disable RTC
+            byte pos = findChar( M_TIMEDATE, menuCharSet );
+            if ( pos ) // found
+                menuCharSet[ pos - 1 ] = tolower( M_TIMEDATE ); // set inactive
         }
-
-        Serial.print( F( " A: Set RAM-size (" ) );
-        Serial.printf( F( "%dKBytes" ), ( 128 << EEPROM.read( ramCfgAddr ) ) );
-        Serial.println( ")" );
-
-        // only for testing, menu needs to be rewritten!!!
-        maxSelChar = 'a';
-
+        Serial.printf( F( "  %c: RAM size (%d KBytes)\r\n" ),
+                       M_RAMSIZE, 128 << EEPROM.read( ramCfgAddr ) );
 
         // Ask a choice
-        Serial.println();
-        Serial.print( F( "Enter your choice > " ) );
+        Serial.printf( F( "\r\nEnter your choice > " ) );
         do {
             WaitAndBlink( CHECK );
-            inChar = Serial.read();
+            inChar = toupper( Serial.read() );
             // debugging support
             if ( inChar == '?' )
                 ++verbosity;
             else if ( inChar == ' ' )
                 verbosity = 0;
-        } while ( ( inChar < minBootChar ) || ( inChar > maxSelChar ) || (inChar == '?') || (inChar == ' ') );
-        Serial.print( inChar );
-        Serial.println( F( "  Ok" ) );
-        if ( verbosity ) {
-            Serial.print( F( "?Verbosity level " ) );
-            Serial.println( verbosity, DEC );
-        }
+        } while ( !findChar( inChar, menuCharSet ) );
+        Serial.println( inChar );
+        if ( verbosity )
+            Serial.printf( F( "?Verbosity level %d\r\n" ), verbosity );
 
         // Make the selected action for the system parameters choice
         switch ( inChar ) {
-        case '3': // Load/change current Disk Set
+        case M_DISKOS: // Load/change current Disk Set
             printMsg1();
             iCount = (byte)( diskSet - 1 ); // Set the previous Disk Set
-            do {
-                // Print the OS name of the next Disk Set
+            do { // Print the OS name of the next Disk Set
                 iCount = (byte)( iCount + 1 ) % maxDiskSet;
                 Serial.print( F( "\r ->" ) );
                 printOsName( iCount );
@@ -672,58 +658,51 @@ void setup() {
                 while ( Serial.available() < 1 )
                     WaitAndBlink( BLK ); // Wait a key
                 inChar = Serial.read();
-            } while ( ( inChar != 13 ) && ( inChar != 27 ) ); // Continue until a CR or ESC is pressed
-            Serial.println();
-            Serial.println();
-            if ( inChar == 13 ) { // Set and store the new Disk Set if required
+            } while ( ( inChar != CR ) && ( inChar != ESC ) ); // Continue until CR or ESC
+            Serial.printf( F( "\r\n\n") );
+            if ( inChar == CR ) { // Set and store the new Disk Set if required
                 diskSet = iCount;
                 EEPROM.update( diskSetAddr, iCount );
-                inChar = '3'; // Set to boot the current selected OS
+                inChar = M_DISKOS; // Set to boot the current selected OS
             }
             break;
 
-        case '6':                                      // Change the clock speed of the Z80 CPU
+        case M_CLOCK:
             clockMode = !clockMode;                    // Toggle Z80 clock speed mode (High/Low)
             EEPROM.update( clockModeAddr, clockMode ); // Save it to the internal EEPROM
             break;
 
-        case '7':                                            // Toggle CP/M AUTOEXEC execution on cold boot
+        case M_AUTOEXEC:
             autoexecFlag = !autoexecFlag;                    // Toggle AUTOEXEC executiont status
             EEPROM.update( autoexecFlagAddr, autoexecFlag ); // Save it to the internal EEPROM
             break;
 
-        case '8': // Change serial port speed
+        case M_SERSPEED: // Change serial port speed
             printMsg1();
             iCount = EEPROM.read( serBaudAddr ); // Read the serial speed index
             iCount = (byte)( iCount - 1 );       // Set the previous speed index
-            do {
-                // Print the current serial speed
+            do { // Print the current serial speed
                 iCount = (byte)( iCount + 1 ) % maxBaudIndex;
-                Serial.print( F( "\r ->" ) );
-                Serial.print( indexToBaud( iCount ) ); // Print current serial speed
-                Serial.print( F( "   \r" ) );
+                Serial.printf( F( "\r ->%ld   \r" ), indexToBaud( iCount ) );
                 while ( Serial.available() > 0 )
                     Serial.read(); // Flush serial Rx buffer
                 while ( Serial.available() < 1 )
                     WaitAndBlink( BLK ); // Wait a key
                 inChar = Serial.read();
-            } while ( ( inChar != 13 ) && ( inChar != 27 ) ); // Continue until a CR or ESC is pressed
-            Serial.println();
-            Serial.println();
-            if ( ( inChar == 13 ) && ( iCount != EEPROM.read( serBaudAddr ) ) ) {
+            } while ( ( inChar != CR ) && ( inChar != ESC ) ); // Continue until CR or ESC
+            Serial.printf( F( "\r\n\n" ) );
+            if ( ( inChar == CR ) && ( iCount != EEPROM.read( serBaudAddr ) ) ) {
                 // Store new serial speed index
                 EEPROM.update( serBaudAddr, iCount );
-                Serial.println( F( "Changed speed will be effective after next reboot!\r\n\n" ) );
+                Serial.printf( F( "Changed speed will be effective after next reboot!\r\n\n" ) );
             }
-
             break;
 
-        case '9':        // Change RTC Date/Time
+        case M_TIMEDATE:
             ChangeRTC(); // Change RTC Date/Time if requested
             break;
 
-        case 'a':
-        case 'A':
+        case M_RAMSIZE:
             printMsg1();
             iCount = (byte)( ramCfg - 1 ); // Set the previous RAM size
             do {
@@ -736,20 +715,21 @@ void setup() {
                 while ( Serial.available() < 1 )
                     WaitAndBlink( BLK ); // Wait a key
                 inChar = Serial.read();
-            } while ( ( inChar != 13 ) && ( inChar != 27 ) ); // Continue until a CR or ESC is pressed
+            } while ( ( inChar != CR ) && ( inChar != ESC ) ); // Continue until a CR or ESC is pressed
             Serial.println();
             Serial.println();
-            if ( inChar == 13 ) { // Set and store the new ram size if required
+            if ( inChar == CR ) { // Set and store the new ram size if required
                 ramCfg = iCount;
                 EEPROM.update( ramCfgAddr, iCount );
-                inChar = '0'; // Set to boot the current selected OS
+                inChar = M_EXIT; // Set to boot the current selected OS
             }
-
             break;
         };
 
         // Save selectd boot program if changed
-        bootMode = inChar - '1'; // Calculate bootMode from inChar
+        bootMode = findChar( inChar, menuCharSet ) - 2; // Calculate bootMode from inChar
+        if ( verbosity)
+            Serial.printf( F("DEBUG: bootMode: %d\r\n"), bootMode );
         if ( bootMode <= maxBootMode )
             EEPROM.update( bootModeAddr, bootMode ); // Save to the internal EEPROM if required
         else
@@ -822,7 +802,7 @@ void setup() {
         break;
 
     case 4: // Load iLoad from flash
-        BootImage = (byte *)pgm_read_word( &flahBootTable[ 0 ] );
+        BootImage = (byte *)pgm_read_word( flashBootTable );
         BootImageSize = sizeof( boot_A_ );
         BootStrAddr = boot_A_StrAddr;
         break;
@@ -839,10 +819,8 @@ void setup() {
 
         //
         // DEBUG ----------------------------------
-        if ( verbosity ) {
-            Serial.print( F( "DEBUG: Injected JP 0x" ) );
-            Serial.println( BootStrAddr, HEX );
-        }
+        if ( verbosity )
+            Serial.printf( F( "DEBUG: Injected JP 0x%04X\r\n" ), BootStrAddr );
         // DEBUG END ------------------------------
         //
     }
@@ -2297,6 +2275,21 @@ void loop() {
 // ------------------------------------------------------------------------------
 
 
+byte findChar( char c, const char *a ) {
+    // check if the char c is found in array a
+    // return position + 1 if found, else 0
+    byte pos = 1;
+    while ( *a ) {
+        if ( *a == c )
+            return pos;
+        ++a;
+        ++pos;
+    }
+    return 0;
+}
+
+// ------------------------------------------------------------------------------
+
 void printBinaryByte( byte value ) {
     for ( byte mask = 0x80; mask; mask >>= 1 ) {
         Serial.print( ( mask & value ) ? '1' : '0' );
@@ -2482,9 +2475,7 @@ byte autoSetRTC() {
     Serial.println( ")" );
 
     // Print the temperaturefrom the RTC sensor
-    Serial.print( F( "IOS: RTC DS3231 temperature sensor: " ) );
-    Serial.print( (int8_t)tempC );
-    Serial.println( "C" );
+    Serial.printf( F( "IOS: RTC DS3231 temperature sensor: %d°C\r\n" ), (int8_t)tempC );
 
     // Read the "Oscillator Stop Flag"
     Wire.beginTransmission( DS3231_RTC );

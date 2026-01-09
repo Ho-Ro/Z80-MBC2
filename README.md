@@ -7,10 +7,13 @@ SuperFabius' original project [Z80-MBC2](https://hackaday.io/project/159973) see
 of the German club `classic-computing.de`. This repository therefore focuses on documenting and organising
 the progress of our ongoing work.
 
-![Z80-MBC2](HW-DOC/Z80-MBC2_inside.jpeg)
+![Z80-MBC2 HW](HW-DOC/Z80-MBC2_inside.jpeg)
+
+![Z80-MBC2-NG Menu](Z80-MBC2_menu.png)
 
 ## Highlights
 
+- ATmega32 with 16 / 20 MHz (Z80 clock 8 / 10 MHz) or ATmega1284p with 20 / 24 MHz (Z80 clock 10 / 12 MHz).
 - Original BIOS source code in Z80 syntax (`*.MAC`) and using Z80 opcodes.
 - Two new physical serial devices `SIOA` and `SIOB`, connected to the `I2C` bus.
 - The SIOs provide 64 byte RX and TX buffer and (optional) automatic RTS/CTS handshake.
@@ -73,16 +76,16 @@ and data buffers by `gencpm.com` via `gen512k.dat`, speeding up the *"disk"* acc
 - Add the parts in the dotted boxes: 4 Schottky diodes, 2 x 1K0 resistors, 1/4 74HC32
 
 ```
-            ............................        ...................................
-            :             (CE2 128K)   :        :  (RAM_CE2)          4 +--\      :
-U3/29 PC7  -:----/<--+---- A18 U4/30 --:--/  /--.-- PB2  U3/3   --------|---| 6   :
-            :        |                 :  CUT   :                     5 |   |--+  :
-            :  +-/<--+--/\/\/\--> 5V   :        :                   +---|---|  |  :
-            :  |                       :        :                   |   +--/   |  :
-U1/6  /A15 -:--+-/<--+--/\/\/\--> 5V   :        :                   | 74HC32B  |  :
-            :        |                 :        ....................|..........|...
-U3/16 PD2 --:----/<--+----  A17 U4/1   :                            |    CUT   |
-            ............................           /MREQ U2/19  ----+---/  /---+--- U4/22 /CE1
+            ............................        .................................
+            :             (CE2 128K)   :        :  (RAM_CE2)        4 +--\      :
+U3/29 PC7  -:----/<--+---- A18 U4/30 --:--/  /--.-- PB2  U3/3  -------|---| 6   :
+            :        |                 :  CUT   :                   5 |   |--+  :
+            :  +-/<--+--/\/\/\--> 5V   :        :                 +---|---|  |  :
+            :  |                       :        :                 |   +--/   |  :
+U1/6  /A15 -:--+-/<--+--/\/\/\--> 5V   :        :                 | 74HC32B  |  :
+            :        |                 :        ..................|..........|...
+U3/16 PD2 --:----/<--+----  A17 U4/1   :                          |    CUT   |
+            ............................          /MREQ U2/19  ---+---/  /---+--- U4/22 /CE1
 
           Add 4 Schottky diodes, 2 x 1K0        Cut /CE1 and CE2 at U4 and add 1/4 74HC32
 ```
@@ -168,7 +171,8 @@ The new BIOS requires an updated IOS, ver. S220718-R290823-D051225 or later.
 #### Update via ISP
 
 If you want to perform the update via the serial bootloader, first load one of the files
-`IOS-Z80-MBC2-NG_BL_ATmega32_??MHz.hex` via ISP (unless you have already installed a bootloader, in which case you can proceed directly to the next section).
+`IOS-Z80-MBC2-NG_BL_ATmega32_??MHz.hex` via ISP (unless you have already installed
+a bootloader, in which case you can proceed directly to the next section).
 
 Check/set the correct AVR fuse values `lfuse = 0x3F`, `hfuse = 0xC6`
 (avrdude: `-U lfuse:w:0x3F:m -U hfuse:w:0xC6:m`), see also [this document](IOS-Z80-MBC2-NG/README.md)
