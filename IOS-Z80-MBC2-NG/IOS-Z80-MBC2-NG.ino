@@ -104,6 +104,7 @@ S220718-D261225   Ho-Ro: prepare for ATmega1284 build
 S220718-D281225   Ho-Ro: add SETVECTOR opcode, enable Z80 IM0, IM1 and IM2 interrupt modes
 S220718-D311225   Ho-Ro: Z80 INT trigger only if outside opcode processing
 S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
+2.0.260110        Ho-Ro: New versioning 2.0.YYMMDD, small fixes, reformatting
 --------------------------------------------------------------------------------- */
 // clang-format off
 
@@ -115,7 +116,7 @@ S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
 #define HW_STRING "\r\n\nZ80-MBC2-NG - A040618 - ATmega1284p"
 #endif
 
-#define VERSION_STRING "S220718-R290823-D090126"
+#define VERSION_STRING "2.0.260111"
 #define BUILD_STRING __DATE__ " " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -306,6 +307,7 @@ byte          intVector      = RST_38H;   // Restart opcode for IM0 interrupt. S
 byte          sysTickTime    = 100;       // Period in milliseconds of the Z80 Systick interrupt (if enabled)
 byte          RxDoneFlag     = 1;         // This flag is set (= 1) soon after a Serial Rx operation
                                           //  (used for Rx interrupt control)
+word          iSize          = 0;         // Temp variable
 byte          serEventSeen   = 0;         // This flag is set (= 1) from serialEvent to trigger the RX INT
 byte          cpmWarmBootFlg = 0;         // This flag enable/disable (1/0) the message "CP/M WARM BOOT"
                                           //  the CP/M CBIOS supports this switch (see the SETOPT Opcode)
@@ -539,8 +541,7 @@ void setup() {
     if ( EEPROM.read( autoexecFlagAddr ) > 1 )
         EEPROM.update( autoexecFlagAddr, 0 );       // Reset AUTOEXEC flag to OFF if invalid
     autoexecFlag = EEPROM.read( autoexecFlagAddr ); // Read the previous stored AUTOEXEC flag
-    Serial.printf( F( "IOS: CP/M Autoexec is %s\r\n" ),
-                   autoexecFlag ? "ON" : "OFF" );
+    Serial.printf( F( "IOS: CP/M Autoexec is %s\r\n" ), autoexecFlag ? "ON" : "OFF" );
 
     // ----------------------------------------
     // BOOT SELECTION AND SYS PARAMETERS MENU
@@ -565,23 +566,13 @@ void setup() {
     const char CR = '\x0D';
     const char ESC = '\x1B';
 
-    char menuCharSet[] = {
-            M_EXIT,
-            //
-            M_BASIC,
-            M_FORTH,
-            M_DISKOS,
-            M_AUTOBOOT,
-            M_ILOAD,
-            //
-            M_CLOCK,
-            M_AUTOEXEC,
-            M_SERSPEED,
-            M_TIMEDATE,
-            M_RAMSIZE
-    };
+    char menuCharSet[] = { M_EXIT,
+                           //
+                           M_BASIC, M_FORTH, M_DISKOS, M_AUTOBOOT, M_ILOAD,
+                           //
+                           M_CLOCK, M_AUTOEXEC, M_SERSPEED, M_TIMEDATE, M_RAMSIZE };
 
-    mountSD( &filesysSD );                  // Try to mount the SD volume
+    mountSD( &filesysSD ); // Try to mount the SD volume
     mountSD( &filesysSD );
 
     bootMode = EEPROM.read( bootModeAddr ); // Read the previous stored boot mode
@@ -594,8 +585,7 @@ void setup() {
         Serial.printf( F( "\r\nIOS: Select Boot Mode or System Parameters:\r\n\n" ) );
 
         if ( bootMode <= maxBootMode ) { // valid boot mode found
-            Serial.printf( F( "  %c: Exit without change ('%c')\r\n\n" ),
-                         M_EXIT, menuCharSet[ bootMode + 1 ] );
+            Serial.printf( F( "  %c: Exit without change ('%c')\r\n\n" ), M_EXIT, menuCharSet[ bootMode + 1 ] );
         } else { // disable EXIT option
             byte pos = findChar( M_EXIT, menuCharSet );
             if ( pos )
@@ -603,30 +593,26 @@ void setup() {
         }
         //
         // Boot programs
-        Serial.printf( F( "  %c: Basic\r\n" ), M_BASIC ); // B
-        Serial.printf( F( "  %c: Forth\r\n" ), M_FORTH ); // F
+        Serial.printf( F( "  %c: Basic\r\n" ), M_BASIC );     // B
+        Serial.printf( F( "  %c: Forth\r\n" ), M_FORTH );     // F
         Serial.printf( F( "  %c: Load/Set OS " ), M_DISKOS ); // D
         printOsName( diskSet );
         Serial.printf( F( "\r\n  %c: Autoboot\r\n" ), M_AUTOBOOT ); // A
-        Serial.printf( F( "  %c: iLoad\r\n\n" ), M_ILOAD ); // L
+        Serial.printf( F( "  %c: iLoad\r\n\n" ), M_ILOAD );         // L
         //
         // Option settings
-        Serial.printf( F( "  %c: Change Z80 Clock Speed (-> %d MHz)\r\n" ),
-                       M_CLOCK, clockMode ? fCPU / 2 : fCPU / 4 );
-        Serial.printf( F( "  %c: Toggle CP/M Autoexec (-> %s)\r\n" ),
-                       M_AUTOEXEC, autoexecFlag ? "OFF" : "ON" ); // E
-        Serial.printf( F( "  %c: Set Serial Port Speed (%ld)\r\n" ),
-                      M_SERSPEED, indexToBaud( EEPROM.read( serBaudAddr ) ) ); // S
+        Serial.printf( F( "  %c: Change Z80 Clock Speed (-> %d MHz)\r\n" ), M_CLOCK, clockMode ? fCPU / 2 : fCPU / 4 );       // C
+        Serial.printf( F( "  %c: Toggle CP/M Autoexec (-> %s)\r\n" ), M_AUTOEXEC, autoexecFlag ? "OFF" : "ON" );              // E
+        Serial.printf( F( "  %c: Set Serial Port Speed (%ld)\r\n" ), M_SERSPEED, indexToBaud( EEPROM.read( serBaudAddr ) ) ); // S
 
-        if ( foundRTC ) {  // If RTC module is present add a menu choice
+        if ( foundRTC ) {                                                    // If RTC module is present add a menu choice
             Serial.printf( F( "  %c: Set RTC Time/Date\r\n" ), M_TIMEDATE ); // T
-        } else { // disable RTC
+        } else {                                                             // disable RTC
             byte pos = findChar( M_TIMEDATE, menuCharSet );
-            if ( pos ) // found
+            if ( pos )                                          // found
                 menuCharSet[ pos - 1 ] = tolower( M_TIMEDATE ); // set inactive
         }
-        Serial.printf( F( "  %c: RAM size (%d KBytes)\r\n" ),
-                       M_RAMSIZE, 128 << EEPROM.read( ramCfgAddr ) );
+        Serial.printf( F( "  %c: RAM size (%d KBytes)\r\n" ), M_RAMSIZE, 128 << EEPROM.read( ramCfgAddr ) );
 
         // Ask a choice
         Serial.printf( F( "\r\nEnter your choice > " ) );
@@ -648,7 +634,7 @@ void setup() {
         case M_DISKOS: // Load/change current Disk Set
             printMsg1();
             iCount = (byte)( diskSet - 1 ); // Set the previous Disk Set
-            do { // Print the OS name of the next Disk Set
+            do {                            // Print the OS name of the next Disk Set
                 iCount = (byte)( iCount + 1 ) % maxDiskSet;
                 Serial.print( F( "\r ->" ) );
                 printOsName( iCount );
@@ -659,7 +645,7 @@ void setup() {
                     WaitAndBlink( BLK ); // Wait a key
                 inChar = Serial.read();
             } while ( ( inChar != CR ) && ( inChar != ESC ) ); // Continue until CR or ESC
-            Serial.printf( F( "\r\n\n") );
+            Serial.printf( F( "\r\n\n" ) );
             if ( inChar == CR ) { // Set and store the new Disk Set if required
                 diskSet = iCount;
                 EEPROM.update( diskSetAddr, iCount );
@@ -681,7 +667,7 @@ void setup() {
             printMsg1();
             iCount = EEPROM.read( serBaudAddr ); // Read the serial speed index
             iCount = (byte)( iCount - 1 );       // Set the previous speed index
-            do { // Print the current serial speed
+            do {                                 // Print the current serial speed
                 iCount = (byte)( iCount + 1 ) % maxBaudIndex;
                 Serial.printf( F( "\r ->%ld   \r" ), indexToBaud( iCount ) );
                 while ( Serial.available() > 0 )
@@ -728,8 +714,8 @@ void setup() {
 
         // Save selectd boot program if changed
         bootMode = findChar( inChar, menuCharSet ) - 2; // Calculate bootMode from inChar
-        if ( verbosity)
-            Serial.printf( F("DEBUG: bootMode: %d\r\n"), bootMode );
+        if ( verbosity )
+            Serial.printf( F( "DEBUG: bootMode: %d\r\n" ), bootMode );
         if ( bootMode <= maxBootMode )
             EEPROM.update( bootModeAddr, bootMode ); // Save to the internal EEPROM if required
         else
@@ -857,12 +843,12 @@ void setup() {
 
         // Open the selected file to load
         if ( 0 == strcmp( fileNameSD, "CPMLDR.COM" ) // Ho-Ro - HACK for my CP/M3 BIOS development:
-           && ( 0 == openSD( "CPMXLDR.COM" ) ) ) {   // "CPMLDR.COM" requested and "CPMXLDR.COM" found on SD
+             && ( 0 == openSD( "CPMXLDR.COM" ) ) ) { // "CPMLDR.COM" requested and "CPMXLDR.COM" found on SD
             fileNameSD = "CPMXLDR.COM";              // Announce the correct name
             digitalWrite( USER, LOW );               // Switch USER LED as optical hint that the user can now
-        }                                            // press the USER KEY to fall back to the old "CPM3.SYS",
-                                                     // otherwise load the new system "CPMX.SYS"
-        else                                         // Normal boot
+        } // press the USER KEY to fall back to the old "CPM3.SYS",
+          // otherwise load the new system "CPMX.SYS"
+        else // Normal boot
             errCodeSD = openSD( fileNameSD );
         if ( errCodeSD )
             // Error opening the required file. Repeat until error disappears (or the user forces a reset)
@@ -962,54 +948,55 @@ void setup() {
 //          Name         OPCODE   Exchanged bytes
 // -------------------------------------------------
 //
-#define OPC_USER_LED      0x00  //   1
-#define OPC_SERIAL_TX     0x01  //   1
-#define OPC_GPIOA_WRITE   0x03  //   1
-#define OPC_GPIOB_WRITE   0x04  //   1
-#define OPC_IODIRA_WRITE  0x05  //   1
-#define OPC_IODIRB_WRITE  0x06  //   1
-#define OPC_GPPUA_WRITE   0x07  //   1
-#define OPC_GPPUB_WRITE   0x08  //   1
-#define OPC_SELDISK       0x09  //   1
-#define OPC_SELTRACK      0x0A  //   2
-#define OPC_SELSECT       0x0B  //   1
-#define OPC_WRITESECT     0x0C  // 512
-#define OPC_SETBANK       0x0D  //   1
-#define OPC_SETIRQ        0x0E  //   1
-#define OPC_SETTICK       0x0F  //   1
-#define OPC_SETOPT        0x10  //   1
-#define OPC_SETSPP        0x11  //   1
-#define OPC_WRSPP         0x12  //   1
-#define OPC_SETVECTOR     0x13  //   1
-#define OPC_SIOA_TXD      0x20  //   1
-#define OPC_SIOB_TXD      0x21  //   1
-#define OPC_SIOA_CTRL     0x22  //   1
-#define OPC_SIOB_CTRL     0x23  //   1
-#define OPC_SET VERBOSITY 0x7E  //   1
+#define OPC_USER_LED 0x00      //   1
+#define OPC_SERIAL_TX 0x01     //   1
+#define OPC_GPIOA_WRITE 0x03   //   1
+#define OPC_GPIOB_WRITE 0x04   //   1
+#define OPC_IODIRA_WRITE 0x05  //   1
+#define OPC_IODIRB_WRITE 0x06  //   1
+#define OPC_GPPUA_WRITE 0x07   //   1
+#define OPC_GPPUB_WRITE 0x08   //   1
+#define OPC_SELDISK 0x09       //   1
+#define OPC_SELTRACK 0x0A      //   2
+#define OPC_SELSECT 0x0B       //   1
+#define OPC_WRITESECT 0x0C     // 512
+#define OPC_SETBANK 0x0D       //   1
+#define OPC_SETIRQ 0x0E        //   1
+#define OPC_SETTICK 0x0F       //   1
+#define OPC_SETOPT 0x10        //   1
+#define OPC_SETSPP 0x11        //   1
+#define OPC_WRSPP 0x12         //   1
+#define OPC_SETVECTOR 0x13     //   1
+#define OPC_SIOA_TXD 0x20      //   1
+#define OPC_SIOB_TXD 0x21      //   1
+#define OPC_SIOA_CTRL 0x22     //   1
+#define OPC_SIOB_CTRL 0x23     //   1
+#define OPC_SET_VERBOSITY 0x7E //   1
 
 // Currently defined Opcodes for I/O read operations:
 //          Name         OPCODE   Exchanged bytes
 // -------------------------------------------------
-#define OPC_USER_KEY      0x80  //   1
-#define OPC_GPIOA_READ    0x81  //   1
-#define OPC_GPIOB_READ    0x82  //   1
-#define OPC_SYSFLAGS      0x83  //   1
-#define OPC_DATETIME      0x84  //   7
-#define OPC_ERRDISK       0x85  //   1
-#define OPC_READSECT      0x86  // 512
-#define OPC_SDMOUNT       0x87  //   1
-#define OPC_ATXBUFF       0x88  //   1
-#define OPC_SYSIRQ        0x89  //   1
-#define OPC_GETSPP        0x8A  //   1
-#define OPC_SIOA_RXD      0xA0  //   1
-#define OPC_SIOB_RXD      0xA1  //   1
-#define OPC_SIOA_RXSTAT   0xA2  //   1
-#define OPC_SIOB_RXSTAT   0xA3  //   1
-#define OPC_SIOA_TXSTAT   0xA4  //   1
-#define OPC_SIOB_TXSTAT   0xA5  //   1
-#define OPC_GET_VERBOSITY 0xFE  //   1
+#define OPC_USER_KEY 0x80      //   1
+#define OPC_GPIOA_READ 0x81    //   1
+#define OPC_GPIOB_READ 0x82    //   1
+#define OPC_SYSFLAGS 0x83      //   1
+#define OPC_DATETIME 0x84      //   7
+#define OPC_ERRDISK 0x85       //   1
+#define OPC_READSECT 0x86      // 512
+#define OPC_SDMOUNT 0x87       //   1
+#define OPC_ATXBUFF 0x88       //   1
+#define OPC_SYSIRQ 0x89        //   1
+#define OPC_GETSPP 0x8A        //   1
+#define OPC_ARXBUFF 0x8B       //   1
+#define OPC_SIOA_RXD 0xA0      //   1
+#define OPC_SIOB_RXD 0xA1      //   1
+#define OPC_SIOA_RXSTAT 0xA2   //   1
+#define OPC_SIOB_RXSTAT 0xA3   //   1
+#define OPC_SIOA_TXSTAT 0xA4   //   1
+#define OPC_SIOB_TXSTAT 0xA5   //   1
+#define OPC_GET_VERBOSITY 0xFE //   1
 
-#define OPC_NO_OP         0xFF  //   -
+#define OPC_NO_OP 0xFF //   -
 
 // .........................................................................................................
 //
@@ -1403,7 +1390,7 @@ void loop() {
                     //
                     if ( ioData <= 14 ) { // no selection for Os Bank number greater than 14
                         uint8_t bank = ioData ? ioData + 1 : 0;
-                        digitalWrite( BANK0, !(bank & 0x01) ); // BANK0 is inverted by U1A
+                        digitalWrite( BANK0, !( bank & 0x01 ) ); // BANK0 is inverted by U1A
                         digitalWrite( BANK1, bank & 0x02 );
                         if ( ramCfg > 0 )
                             digitalWrite( BANK2, bank & 0x04 );
@@ -1725,7 +1712,7 @@ void loop() {
                     }
                     break;
 
-                case OPC_GET_VERBOSITY:
+                case OPC_SET_VERBOSITY:
                     // set verbosity byte, also used for NMOS/CMOS CPU test
                     verbosity = ioData;
                     break;
@@ -2061,7 +2048,8 @@ void loop() {
                     // NOTE: This Opcode is intended to avoid delays in serial Tx operations, as the IOS holds the Z80
                     //       in a wait status if the TX buffer is full. This is no good in multitasking enviroments.
 
-                    ioData = Serial.availableForWrite();
+                    iSize = Serial.availableForWrite();
+                    ioData = iSize > 255 ? 255 : iSize;
                     break;
 
                 case OPC_SYSIRQ:
@@ -2145,6 +2133,20 @@ void loop() {
                         ioData = Wire.read();
                         ioData = ( ioData & 0b11111000 ) | 0b00000001; // Set D0 = 1, D1 = D2 = 0
                     }
+                    break;
+
+                case OPC_ARXBUFF:
+                    // ARXBUFF - return the current available char (in bytes) in the RX buffer:
+                    //
+                    //                I/O DATA:    D7 D6 D5 D4 D3 D2 D1 D0
+                    //                            ---------------------------------------------------------
+                    //                             D7 D6 D5 D4 D3 D2 D1 D0    available char in bytes (binary)
+                    //
+                    // NOTE: This Opcode is intended to speed up serial Rx operations.
+                    //       No need to query the status for every read.
+
+                    iSize = Serial.available();
+                    ioData = iSize > 255 ? 255 : iSize;
                     break;
 
                 case OPC_SIOA_RXD:
