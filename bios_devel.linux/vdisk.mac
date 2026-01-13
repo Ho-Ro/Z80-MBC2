@@ -25,7 +25,7 @@ lf	equ	0ah
 
 	dseg
 ?vdisk$ver:
-	defb	'VDISK S200918-D261025',cr,lf,0
+	defb	'VDISK    S200918-D261025',cr,lf,0
 
 	public	?vdisk$ver
 

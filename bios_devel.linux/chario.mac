@@ -9,7 +9,7 @@
 ;
 ;******************************************************************************
 ;
-; CHARIO.ASM - S210918-R210923
+; CHARIO.ASM - 2.0
 ; CP/M 3.0 CHARACTER I/O BIOS MODULE FOR THE Z80-MBC2 (HW ref. A040618)
 ;
 ; Required IOS S220718-R290823 (or following revisions until otherwise stated)
@@ -20,16 +20,20 @@
 ; S210918-R090319   Changed CIST0: and CI0: to allow full 8 bit data I/O
 ; S210918-R170319   Added the selection of the mode of CIST0: (7 or 8 bit mode, for XMODEM)
 ; S210918-R210923   Added support for the SPP Adapter board (parallel printer) as Device 1
-; S210918-D150225   DEVEL: support for I2C SIOA and SIOB devices as Device 2/3
+; S210918-D150225   Ho-Ro: support for I2C SIOA and SIOB devices as Device 2/3
+; 2.0.260110        Ho-Ro: new versioning, set banked true,
 ;
 ;******************************************************************************
 
+DEVEL	equ	true
+
 cr	equ	0dh
 lf	equ	0ah
+eof	equ	1ah
 
 	dseg
 ?chario$ver:
-	defb	'CHARIO S210918-R210923-D281125',cr,lf,0
+	defb	'CHARIO   2.0.260111',cr,lf,0
 
 	public	?chario$ver
 
@@ -42,9 +46,8 @@ false	equ	not true
 DBG	equ	false
     endif
 
-
 				; DETERMINE IF FOR BANK SELECT OR NOT:
-banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
+banked	equ	true		; <------ BANKED/NON-BANKED SWITCH
 
 ; -------------------------------------------------------------------
 ;
@@ -57,6 +60,8 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 ; complex one. For this reason the "BANKED" switch is intentionally
 ; set at "FALSE" (although the system is banked)
 ;
+; Ho-Ro: banked equ true b/c IOS-NG prevents interfering of requests
+;
 ; -------------------------------------------------------------------
 
 				; DEFINE PUBLIC LABELS:
@@ -65,7 +70,7 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 	public 	?cnstflg	; CONST mode flag (Z80-MBC2) ***
 
 				; DEFINE EXTERNAL LABELS AND ENTRY POINTS:
-    if	banked
+    if		banked
 	extrn	@cbnk
 	extrn	?bnksl
     endif
@@ -73,30 +78,10 @@ banked	equ	false		; <------ BANKED/NON-BANKED SWITCH
 
 	include modebaud.lib	; EQUATES FOR MODE BYTE BIT FIELDS
 
-; -----------------------------------------------------------------------------
-;
-; Z80-MBC2 IOS equates
-;
-; -----------------------------------------------------------------------------
+	include iosopcod.lib	; IOS-Z80-MBC2 opcode equates
 
-exc$wr$opcd equ	000h		; Address of the EXECUTE WRITE OPCODE write port
-exc$rd$opcd equ	000h		; Address of the EXECUTE READ OPCODE read port
-sto$opcd equ	001h		; Address of the STORE OPCODE write port
-serial$rx equ	001h		; Address of the SERIAL RX read port
-sertx$opc equ	001h		; SERIAL TX opcode
-seldisk$opc equ	009h		; SELDISK opcode
-seltrck$opc equ	00ah		; SELTRACK opcode
-selsect$opc equ	00bh		; SELSECT opcode
-wrtsect$opc equ	00ch		; WRITESECT opcode
-SETSPP$OPC  EQU	011H		; SETSPP opcode
-WRSPP$OPC   EQU	012H		; WRSPP opcoce
-sysflag$opc equ	083h		; SYSFLAG opcode
-datetim$opc equ	084h		; DATETIME opcode
-errdsk$opc equ	085h		; ERRDISK opcode
-rdsect$opc equ	086h		; READSECT opcode
-sdmount$opc equ	087h		; SDMOUNT opcode
-GETSPP$OPC EQU	08AH		; GETSPP opcode
-SPPRDY     EQU	0C9H		; SPP status printer ready pattern (11001001)
+
+spprdy	equ	11001001b	; SPP status printer ready pattern (11001001) 0c9h
 
 
 				; WILL START OFF IN COMMON MEMORY FOR BANKED OR NON-BANKED SYSTEMS:
@@ -113,22 +98,22 @@ SPPRDY     EQU	0C9H		; SPP status printer ready pattern (11001001)
 				; ENTER HERE FOR BANKED SYSTEMS FOR DEVICE INITIALIZATIONS:
 ?cinit:
 	ld	hl,bcinit	; POINT TO BANKED ROUTINE ADDRESS
-	jr bankio		; GO TO DISPATCHER
+	jr	bankio		; GO TO DISPATCHER
 
 				; ;;;; ?CI
 				; ENTER HERE FOR BANKED SYSTEM DEVICE INPUT:
 ?ci:	ld	hl,bci		; POINT TO BANKED ROUTINE ADDRESS
-	jr bankio		; GO TO DISPATCHER
+	jr	bankio		; GO TO DISPATCHER
 
 				; ;;;; ?CO
 				; ENTER HERE FOR BANKED SYSTEM DEVICE OUTPUT:
 ?co:	ld	hl,bco		; POINT TO BANKED ROUTINE ADDRESS
-	jr bankio		; GO TO DISPATCHER
+	jr	bankio		; GO TO DISPATCHER
 
 				; ;;;; ?CIST
 				; ENTER HERE FOR BANKED SYSTEM DEVICE INPUT STATUS:
 ?cist:	ld	hl,bcist	; POINT TO BANKED ROUTINE ADDRESS
-	jr bankio		; GO TO DISPATCHER
+	jr	bankio		; GO TO DISPATCHER
 
 				; ;;;; ?COST
 				; ENTER HERE FOR BANKED SYSTEM DEVICE OUTPUT STATUS:
@@ -327,14 +312,48 @@ dev$dispatch:
 ;
 ; ----------------------------------------------------------
 
+;
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOLE INIT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+; Initializes the physical character device.
+; Input:
+; - C: Device number (0).
+;
 
 cinit0:				; DEVICE 0 INITIALIZATION (Z80-MBC2) 
 	ret			; Nothing to do
 
-; 
-;<<<<<<<<<<<<<<<<<<< MAIN CONSOLE/DEVICE 0 STATUS ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOLE INPUT STATUS ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;
+; Check for the next input character.
+; Input:
+; - B: Device number (0).
+; Return:
+; - A: 00H (no input char) or 0FFH (input char available).
 ;
 
+    ifdef	DEVEL
+
+cist0:				; DEVICE 0 INPUT STATUS
+	ld	a,(rxavail)	; buffered number of rx char
+	or	a		; = 0?
+	jr	nz,cist0$1	; no
+	ld	a, arxbuff$opc	; get current RX number from IOS
+	out	(sto$opcd),a	; write the opcode
+	in	a,(exc$rd$opcd)	; read number into A
+	or	a		; still 0?
+	ret	z		; return CP/M not ready flag ($00)
+				;
+	ld	(rxavail),a	; else update buffered number
+cist0$1:			;
+	ld	a, 0ffh		; return CP/M ready flag ($FF)
+	ret
+
+rxavail:
+	defb	0
+
+
+    else
 
 cist0:				; DEVICE 0 INPUT STATUS
 	ld	a,(?cnstflg)	; A = CONST mode flag
@@ -365,24 +384,79 @@ const7:
 noinchr:			; Set char not ready flag
 	xor	a		; Set no char flag (A = 0)
 	ret			; Return CP/M no char flag ($00)
-	
+
 inchrbuf:
 				; Last read char by CONST ($FF = no char)
 	defb	0ffh		; Initialized as $FF
+
+    endif
+
 ?cnstflg:
 	defb	0h		; CONST mode flag. If = 1 the full 8 bit mode is ac
 				; if = 0 the "legacy" 7 bit mode is used (not really 7 bit
 				; but only the $ff char is ignored and used as "no char" flag ***
 
-cost0:				; DEVICE 0 OUTPUT STATUS (Z80-MBC2) 
+;
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOLE OUTPUT STATUS ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;
+; Check for ready for output.
+; Input:
+; - B: Device number (0).
+; Return:
+; - A: 00H (not ready) or 0FFH (ready).
+;
+
+cost0:				; DEVICE 0 OUTPUT STATUS (Z80-MBC2)
+    ifdef	DEVEL
+
+	ld	a,(txavail)	; buffered number of tx free space
+	or	a		; = 0?
+	jr	nz,cost0$1	; no
+	ld	a, atxbuff$opc	; get current TX free space from IOS
+	out	(sto$opcd),a	; write the opcode
+	in	a,(exc$rd$opcd)	; read number into A
+	or	a		; still zero?
+	ret	z		; return CP/M not ready flag ($00)
+				;
+	ld	(txavail),a	; else update bios account
+cost0$1:			;
+	ld	a, 0ffh		; return CP/M ready flag ($FF)
+	ret
+
+txavail:
+	defb	0		; bios account for free space
+
+    else
+
 	ld	a, 0ffh		; Always ready to TX
 	ret
 
+    endif
 ;
-;<<<<<<<<<<<<<<<<<<<< MAIN CONSOLE/DEVICE 0 INPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<<<<<<<< MAIN CONSOLE INPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>
+;
+; Wait for the next input character.
+; Input:
+; - B: Device number (0).
+; Return:
+; - A: 8-bit ASCII with no parity.
 ;
 
 ci0:				; DEVICE 0 INPUT
+
+    ifdef	DEVEL
+
+	call	cist0		; char avail?
+	; or	a		; A=0, Z flag set
+	jr	z,ci0		; no, loop until ready
+	ld	a,(rxavail)	; available char account
+	dec	a		; adjust for one read char
+	ld	(rxavail),a	; update buffer account
+	in	a,(serial$rx)	; get RX char
+	ret
+
+    else
+
 	ld	a,(inchrbuf)	; A = previous char read by CONST, if any
 	cp	0ffh		; Is = $FF ($FF from UART = no char)?
 	jr	z,getchr	; Yes, jump to read a char
@@ -407,17 +481,36 @@ chkff:				; Check if ffH is a valid char
 	ld	a, 0ffh		; No, it is a valid ffH char
 	ret			; Retun with it in A
 
+    endif
 	
 ;
-;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOLE/DEVICE 0 OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>
+;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOLE OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>
 ;
+; Wait until the device is ready to accept a character and then send the character.
+; Input:
+; - B: Device number.
+; - C: 8-bit ASCII with no parity.
+; Return:
+; - Nothing.
 
 co0:				; DEVICE 0 OUTPUT
+    ifdef	DEVEL
+
+	call	cost0		; space avail?
+	; or	a		; A=0, Z flag set
+	jr	z,co0		; no, loop until ready
+	ld	a,(txavail)	; available char account
+	dec	a		; adjust for one read char
+	ld	(txavail),a	; update buffer account
+
+    endif
+
 	ld	a, sertx$opc	; A = SERIAL TX opcode
 	out	(sto$opcd),a	; Write the opcode
 	ld	a, c
 	out	(exc$wr$opcd),a	; Send A to serial Tx
 	ret
+
 
 ;
 ;<<<<<<<<<<<<<<<<<<< PRINTER/DEVICE 1 STATUS HANDLER ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>>>>
@@ -427,12 +520,12 @@ co0:				; DEVICE 0 OUTPUT
 ;
 
 COST1:
-	ld      a,GETSPP$OPC	; Select GETSPP$OPC opcode (IOS)
+	ld      a,getspp$opc	; Select getspp$opc opcode (IOS)
 	out     (STO$OPCD),a
 	in      a,(EXC$RD$OPCD)	; Read it
 	and     a		; Is SPP enabled?
 	jr	z,COST1RDY	; No, jump
-	cp	SPPRDY		; Yes, is SPP printer ready?
+	cp	spprdy		; Yes, is SPP printer ready?
 	jr	z,COST1RDY	; Yes, jump
 	xor	a		; No, A = not ready flag
 	ret
@@ -440,6 +533,7 @@ COST1:
 COST1RDY:
 	ld      a,0ffH		; A = 0xFF (ready flag)
 	ret
+
 
 ;
 ;<<<<<<<<<<<<<<<<<<< PRINTER/DEVICE 1 OUTPUT ROUTINE (Z80-MBC2) >>>>>>>>>>>>>>>>>>>>>>
@@ -449,14 +543,14 @@ COST1RDY:
 ;
 
 CO1:
-	ld	a,GETSPP$OPC	; Select GETSPP$OPC opcode (IOS)
+	ld	a,getspp$opc	; Select getspp$opc opcode (IOS)
 	out	(STO$OPCD),a
 	in	a,(EXC$RD$OPCD)	; Read it
 	and	a		; Is SPP enabled?
 	jr	z,listRet	; No, nothing to do so jump
-	cp	SPPRDY		; Yes, is SPP printer ready?
+	cp	spprdy		; Yes, is SPP printer ready?
 	jr	nz,CO1		; No, jump and wait
-	ld	a, WRSPP$OPC	; Yes, select WRSPP$OPC opcode (IOS)...
+	ld	a, wrspp$opc	; Yes, select wrspp$opc opcode (IOS)...
 	out	(STO$OPCD),a
 	ld	a,c		; ... and send the current char to the SPP printer
 	out	(EXC$WR$OPCD),a
@@ -466,18 +560,6 @@ listRet:
 ;
 ;<<<<<<<<<<<<<< SIOA / SIOB (Z80-MBC2) >>>>>>>>>>>>>>>>>
 ;
-
-sioa$txd     equ 020h		; SIOB TxD
-siob$txd     equ 021h		; SIOB TxD
-sioa$ctrl    equ 022h		; SIOA set baudrate
-siob$ctrl    equ 023h		; SIOB set baudrate
-sioa$rxd     equ 0a0h		; SIOA RxD
-siob$rxd     equ 0a1h		; SIOB RxD
-sioa$rx$stat equ 0a2h		; SIOA get Rx status
-siob$rx$stat equ 0a3h		; SIOB get Rx status
-sioa$tx$stat equ 0a4h		; SIOA get Tx status
-siob$tx$stat equ 0a5h		; SIOB get Tx status
-
 
 ; SIO status bit mask
 RxLEVEL	equ	07fh		; Rx FIFO level mask
@@ -495,22 +577,6 @@ cinit2:				; DEVICE 2 INITIALIZATION (Z80-MBC2)
 				;          10 - enable RTS/CTS
 				;          01 - enable XON/XOFF (NYI)
 				;          11 - reserved, no change
-    if	DBG
-	push	hl
-	ld	a,(ctbl2$md)	; handshake request
-	rla
-	rla
-	and	03h		; mask handshake mode
-	add	a,'0'		; convert 0..3 to '0'..'3'
-	ld	(cinit2$md),a	; build debug string
-	ld	a,(ctbl2$bd)	; baud rate request
-	and	01Fh		; mask baud rate
-	add	a,'@'		; convert 1..20 to 'A'..'T'
-	ld	(cinit2$bd),a	; build debug string
-	ld	hl,cinit2$msg	; show short debug message
-	call	?pmsg
-	pop	hl
-    endif
 	xor	a
 	ld	(sioa$rfa),a	; no rx fifo data (yet)
 	ld	(sioa$tfs),a	; no space (yet)
@@ -597,22 +663,6 @@ cinit3:				; DEVICE 3 INITIALIZATION (Z80-MBC2)
 				;          10 - enable RTS/CTS
 				;          01 - enable XON/XOFF (NYI)
 				;          11 - reserved, no change
-    if	DBG
-	push	hl
-	ld	a,(ctbl3$md)	; handshake request
-	rla
-	rla
-	and	03h		; mask handshake mode
-	add	a,'0'		; convert 0..3 to '0'..'3'
-	ld	(cinit3$md),a	; build debug string
-	ld	a,(ctbl3$bd)	; baud rate request
-	and	01Fh		; mask baud rate
-	add	a,'@'		; convert 1..20 to 'A'..'T'
-	ld	(cinit3$bd),a	; build debug string
-	ld	hl,cinit3$msg	; show short debug message
-	call	?pmsg
-	pop	hl
-    endif
 	xor	a
 	ld	(siob$rfa),a	; no rx fifo data (yet)
 	ld	(siob$tfs),a	; no space (yet)
@@ -699,7 +749,7 @@ null$cost:
 	xor	a		; RETURN A FALSE STATUS RESULT
 	ret
 null$ci:
-	ld	a,1ah		; FOR INPUT RETURN A CNTL-Z (EOF)
+	ld	a,eof		; FOR INPUT RETURN A CNTL-Z
 null$init:
 null$co:
 null$ret:
@@ -742,23 +792,6 @@ ctbl3$bd:
 
 max$devices equ	($-@ctbl)/8	; # DEVICES IN TABLE
 	defb	0		; TABLE TERMINATOR
-
-    if	DBG
-cinit2$msg:
-	db	'SIOA:'
-cinit2$md:
-	db	' '
-cinit2$bd:
-	db	' '
-	db	cr,lf,0
-cinit3$msg:
-	db	'SIOB:'
-cinit3$md:
-	db	' '
-cinit3$bd:
-	db	' '
-	db	cr,lf,0
-    endif
 
     if		banked
 				; OTHER DATA AREAS:

@@ -95,8 +95,15 @@
 ; duplication so the code in this source file is a bit more elaborate.
 ;-----------------------------------------------------------------------------
 	if2
-	.printx	'BOOTSYS - CPM3.SYS 1.23'
+	.printx	'BOOTSYS - CPM3.SYS 2.00'
 	endif
+
+true	equ	-1
+false	equ	not true
+
+yaze	equ	false
+
+	include iosopcod.lib	; IOS-Z80-MBC2 opcode equates
 
 	.z80	; Code uses Z80 instructions
 
@@ -234,24 +241,19 @@ DOS_Txt:db	13,10,'Z80 or CP/M emulator required!',13,10,10
 ;
 ; 5. ERLEDIGT und getestet
 ;    Nonbanked Sytem booten
+;
+; Ho-Ro 20260113: Modification for Z80-MBC2-NG with banked conout.
+;	Do not use BIOS conout but send output directly to IOS.
 ;---------------------------------------------------------------------------
 ;
 Copyright_message::
 	db	cr,lf
-	db	'BOOTSYS - CPM3.SYS, v'
-
-	db	'1.23 13.01.2014'	;<--- VERSION
-
-	db	' Copyright (c) 2000,2014 by'
-	db	' A. Gerlich',cr,lf
+	db	'BOOTSYS - CPM3.SYS - 2.0.260113'
+	db	cr,lf
+	db	'Copyright (c) 2000,2014 by A. Gerlich'
+	db	cr,lf
 Dollar::db	'$'
 
-; Message die ausgegeben wird wenn bootsys ohne vorhandenem CP/M booten will
-; (hierzu wird das Dollar 3 Zeilen weiter oben ersetzt)
-;
-; Message displayed when CP/M is not found.
-	db	 'No CP/M vectors found; try to boot CP/M 3.1'
-	db	' using yaze-ag ...',cr,lf,'$'
 ;
 ;---------------------------------------------------------------------------
 
@@ -296,6 +298,9 @@ main::	ld	sp,lstack	; Stack setzten
 	; CP/M Vektoren ueberpruefen
 	; Check CP/M vectors
 	ld	a,0C3h		; OP-Code fuer JP
+
+    if	yaze
+
 	ld	ix,0
 	cp	(ix+wboot)	; Ist an der Stelle von WBOOT ein JP-Opcode
 	jp	nz,nocpmvektoren; nein --> direkt CPM booten mit YAZE
@@ -320,6 +325,8 @@ main::	ld	sp,lstack	; Stack setzten
 
 	; CP/M Vektoren sind vorhanden
 
+    endif
+
 	ld	(cpmvek),a	; Boolsche Variable "CP/M Vektoren" setzen.
 				; (Ab jetzt werden Ein-/Ausgaben ueber das
 				; BIOS getaetigt.)
@@ -335,6 +342,8 @@ main::	ld	sp,lstack	; Stack setzten
 	ld	hl,Copyright_message	; Copyright message ausgeben
 	call	PRSTRfunc		; Display copyright message
 
+    if	yaze
+
 	ld	a,(parameter)
 	or	a		; Ist irgend ein Parameter vorhanden?
 
@@ -343,6 +352,8 @@ main::	ld	sp,lstack	; Stack setzten
 ;	jp	wboot		; und beenden
 
 	jp	nz,wboot	; ja --> beenden
+
+    endif
 
 	; Copyright Message von Digital Research in CPM3.SYS ueberpruefen
 
@@ -354,7 +365,7 @@ testcopyright::
 	; Test for copyright message.  If none is present then it is likely
 	; no CPM3.SYS was appended.
 
-	; CPM3.COM wird mit PIP cpm3.com=bootsys.com,cpm3.sys erzeugt.
+	; TESTCPMX.COM wird mit PIP testcpmx.com=bootsys.com,cpmx.sys erzeugt.
 
 	ld	hl,CPM3SYS+copyrmsg
 	ld	de,CopyDRI
@@ -381,6 +392,8 @@ exit::
 	halt
 	db 0ffH			; exit yaze
 
+    if yaze
+
 nocpmvektoren::
 	; Sind keine CP/M Vektoeren vorhanden wird davon ausgegangen
 	; Yaze-ag laeuft.
@@ -397,6 +410,8 @@ nocpmvektoren::
 	ld	hl,Copyright_message
 	call	PRSTRfunc
 	jp	testcopyright
+
+    endif
 
 testecpmversion::
 	ld	a,(cpmvek)	; Sind CP/M Vektoren vorhanden?
@@ -442,11 +457,11 @@ MoveToBank0:
 	ld	hl,bank1_message
 	call	PRSTRfunc
 
-	.comment #
+    if	false
 
- ---------------   DELETED CODE   ---------------
-|    |    |    |		  |    |    |    |
-v    v    v    v		  v    v    v    v
+; ---------------   DELETED CODE   ---------------
+;|    |    |    |		  |    |    |    |
+;v    v    v    v		  v    v    v    v
 
 	; Die folgenden Returnadressen muessen vor dem interbank Move auf
 	; den (lokalen) Stack liegen, damit sie auch in bank 0 existieren !!!
@@ -507,14 +522,16 @@ RET2::	; All is transfered to bank 0; now switch to bank 0.  That must be
 	xor	a		; a <- 0 (bank 0)
 	jp	(hl)		; call SELMEM
 RET3::
-^    ^    ^    ^		  ^    ^    ^    ^
-|    |    |    |		  |    |    |    |
- ---------------   DELETED CODE   ---------------
+;^    ^    ^    ^		  ^    ^    ^    ^
+;|    |    |    |		  |    |    |    |
+; ---------------   DELETED CODE   ---------------
 
- ---------------     NEW CODE     ---------------
-|    |    |    |		  |    |    |    |
-v    v    v    v		  v    v    v    v
-	#
+    else
+
+; ---------------     NEW CODE     ---------------
+;|    |    |    |		  |    |    |    |
+;v    v    v    v		  v    v    v    v
+
 
 	; The next six lines were copied from the original code ...
 	ld	ix,CPM3SYS	; dort beginnt CPM3.SYS
@@ -561,11 +578,13 @@ copy128:
 bank0:
 	xor	a		; Set bank 0
 	bios	SELMEM
-	.comment #
-^    ^    ^    ^		  ^    ^    ^    ^
-|    |    |    |		  |    |    |    |
- ---------------     NEW CODE     ---------------
-	#
+
+;^    ^    ^    ^		  ^    ^    ^    ^
+;|    |    |    |		  |    |    |    |
+; ---------------     NEW CODE     ---------------
+
+    endif
+
 	nop	; now this instruction will be executed in bank 0
 
 	ld	hl,bank0_message
@@ -899,6 +918,7 @@ trans1::ld	bc,80h		;  Laenge
 	jr	nz,trans1
 	ret
 
+    if	false
 .comment #
 ------------------------ Not used -------------------------
 callbios::
@@ -923,6 +943,7 @@ DEreg::	dw	0
 HLreg::	dw	0
 ----------------------------------------------------------
 #
+    endif
 
 PRSTRfunc::
 	ld	a,(hl)
@@ -934,6 +955,8 @@ PRSTRfunc::
 	pop	hl
 	inc	hl		; pointer to the next char
 	jr	PRSTRfunc
+
+    if	yaze
 
 conout::
 	ld	a,(cpmvek)
@@ -951,6 +974,41 @@ yaze_conout::
 	halt
 	db 04			; call conout im yaze-bios
 	ret
+
+    else
+
+conout::			; CONSOLE OUTPUT (Z80-MBC2-NG)
+	call	cost		; space avail?
+	; or	a		; A=0, Z flag set
+	jr	z,conout	; no, loop until ready
+	ld	a,(txavail)	; available char account
+	dec	a		; adjust for one read char
+	ld	(txavail),a	; update buffer account
+	ld	a, sertx$opc	; A = SERIAL TX opcode
+	out	(sto$opcd),a	; Write the opcode
+	ld	a, c
+	out	(exc$wr$opcd),a	; Send A to serial Tx
+	ret
+
+cost:				; CONSOLE OUTPUT STATUS (Z80-MBC2-NG)
+	ld	a,(txavail)	; buffered number of tx free space
+	or	a		; = 0?
+	jr	nz,cost$1	; no
+	ld	a, atxbuff$opc	; get current TX free space from IOS
+	out	(sto$opcd),a	; write the opcode
+	in	a,(exc$rd$opcd)	; read number into A
+	or	a		; still zero?
+	ret	z		; return CP/M not ready flag ($00)
+				;
+	ld	(txavail),a	; else update bios account
+cost$1:			;
+	ld	a, 0ffh		; return CP/M ready flag ($FF)
+	ret
+
+txavail:
+	defb	0		; bios account for free space
+
+    endif
 
 ;--------------------------------------------------------------------------
 
@@ -972,26 +1030,21 @@ loadmsg::db	cr,lf,'Loading CP/M 3.1 ...',cr,lf,'$'
 
 bank1_message::
 	db	cr,lf
-	db	'CP/M 3.1 is already running and bank 1 is selected!'
-	db	cr,lf
+	db	'CP/M 3.1 is already running; bank 1 is selected!',cr,lf
 	db	'Now move everything to bank 0 ...',cr,lf
 	db	'$'
 
 bank0_message::
-	db	cr,lf
-	db	'Everything is copied and bank 0 is selected; '
-	db	'CPM3.SYS will be loaded. :-)'
-	db	cr,lf
-	db	'(This message is printed after a switch to bank 0)'
-	db	cr,lf
+	db	'Done, bank 0 is selected; '
+	db	'CPM3.SYS will be loaded.',cr,lf
 	db	'$'
 
 m_nocopyright::
 	db	cr,lf
-	db	'No signature found.  It seems there is no CPM3.SYS attached.'
+	db	'No signature found.  It seems there is no CPMX.SYS attached.'
 	db	cr,lf
-	db	'Use "pip cpm3.com=bootsys.com,cpm3.sys" to attach a'
-	db	' CPM3.SYS.',cr,lf,lf
+	db	'Use "pip testcpmx.com=bootsys.com,cpmx.sys" to attach a'
+	db	' CPMX.SYS.',cr,lf,lf
 	db	'$'
 
 cpmvek::	db	0	; Muss 0 sein, wird so erwartet !!!

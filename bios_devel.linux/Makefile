@@ -33,7 +33,6 @@ all:		cpmxldr.com testcpmx.com
 testcpmx.com:	bootsys.bin cpmx.sys
 		@echo
 		$(PIP) testcpmx.com=bootsys.bin[o],cpmx.sys[o]
-		cp testcpmx.com tcx.com
 		ls -l bootsys.bin *cpmx.*
 
 
@@ -59,13 +58,13 @@ cpmxldr.com:	cpmxldr.rel ldrbios.rel
 		@echo
 		$(LINK) cpmxldr=cpmxldr,ldrbios
 
-# check the AUTOEXEC bit and load cpm3.sys (=0) or cpmx.sys (=1)
+# check the USER KEY and load cpmx.sys (not pressed) or cpm3.sys (pressed)
 # to have a fallback solution for BIOS tests
 cpmxldr.rel:	cpmxldr.mac
 		@echo -e \\n$(ZSM4) cpmxldr,cpmxldr.lis=cpmxldr
 		@$(ZSM4) cpmxldr,cpmxldr.lis=cpmxldr | tee /dev/tty | grep -q "Errors: 0"
 
-ldrbios.rel:	ldrbios.mac
+ldrbios.rel:	ldrbios.mac iosopcod.lib
 		@echo -e \\n$(ZSM4) ldrbios,ldrbios.lis=ldrbios
 		@$(ZSM4) ldrbios,ldrbios.lis=ldrbios | tee /dev/tty | grep -q "Errors: 0"
 
@@ -81,15 +80,15 @@ bioskrnl.rel:	bioskrnl.mac
 		@$(ZSM4) bioskrnl,bioskrnl.lis=bioskrnl | tee /dev/tty | grep -q "Errors: 0"
 
 # enable ZPM3 message with /dZPM3=1
-boot.rel:	boot.mac
+boot.rel:	boot.mac iosopcod.lib
 		@echo -e \\n$(ZSM4) boot,boot.lis=boot /dZPM3=1
 		@$(ZSM4) boot,boot.lis=boot /dZPM3=1 | tee /dev/tty | grep -q "Errors: 0"
 
-chario.rel:	chario.mac
+chario.rel:	chario.mac iosopcod.lib
 		@echo -e \\n$(ZSM4) chario,chario.lis=chario
 		@$(ZSM4) chario,chario.lis=chario | tee /dev/tty | grep -q "Errors: 0"
 
-move.rel:	move.mac
+move.rel:	move.mac iosopcod.lib
 		@echo -e \\n$(ZSM4) move,move.lis=move
 		@$(ZSM4) move,move.lis=move | tee /dev/tty | grep -q "Errors: 0"
 
@@ -97,7 +96,7 @@ scb.rel:	scb.mac
 		@echo -e \\n$(ZSM4) scb,scb.lis=scb
 		@$(ZSM4) scb,scb.lis=scb | tee /dev/tty | grep -q "Errors: 0"
 
-vdisk.rel:	vdisk.mac
+vdisk.rel:	vdisk.mac iosopcod.lib
 		@echo -e \\n$(ZSM4) vdisk,vdisk.lis=vdisk
 		@$(ZSM4) vdisk,vdisk.lis=vdisk | tee /dev/tty | grep -q "Errors: 0"
 
@@ -113,5 +112,5 @@ clean:
 
 .PHONY:	distclean
 distclean:	clean
-		rm -f bnkbios3.spr cpmx.sys cpmxldr.com tcx.com testcpmx.com
+		rm -f bnkbios3.spr cpmx.sys cpmxldr.com testcpmx.com
 

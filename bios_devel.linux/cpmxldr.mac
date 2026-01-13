@@ -80,10 +80,9 @@ osentry equ	abase+84h
 	cseg	; Code Segment
 
 rbase::				; Read the IOS USER KEY flag
-	ld	a,USERKEY$OPC	; Select USER KEY opcode
+	ld	a,USERKEY$OPC	; Select USER KEY opcode (0x80)
 	out     (STO$OPCD),a
 	in	a,(EXC$RD$OPCD)	; A = USER KEY
-	push	af
 	xor	01h		; Invert the USER KEY -> X flag bit
 	ld	(sys$x$flag),a	; save status of X flag
 	xor	a		;

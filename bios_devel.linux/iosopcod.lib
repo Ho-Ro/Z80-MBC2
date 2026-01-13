@@ -1,0 +1,39 @@
+; -----------------------------------------------------------------------------
+;
+; Z80-MBC2 IOS equates
+;
+; -----------------------------------------------------------------------------
+
+exc$wr$opcd	equ	000h		; Address of the EXECUTE WRITE OPCODE write port
+exc$rd$opcd	equ	000h		; Address of the EXECUTE READ OPCODE read port
+
+sto$opcd	equ	001h		; Address of the STORE OPCODE write port
+serial$rx 	equ	001h		; Address of the SERIAL RX read port
+
+sertx$opc	equ	001h		; SERIAL TX opcode
+seldisk$opc	equ	009h		; SELDISK opcode
+seltrck$opc	equ	00ah		; SELTRACK opcode
+selsect$opc	equ	00bh		; SELSECT opcode
+wrtsect$opc	equ	00ch		; WRITESECT opcode
+setbank$opc	equ	00dh		; SETBANK opcode
+setspp$opc 	equ	011h		; SETSPP opcode
+wrspp$opc  	equ	012h		; WRSPP opcoce
+sioa$txd	equ	020h		; SIOB TxD
+siob$txd	equ	021h		; SIOB TxD
+sioa$ctrl	equ	022h		; SIOA set baudrate
+siob$ctrl	equ	023h		; SIOB set baudrate
+
+sysflag$opc	equ	083h		; SYSFLAG opcode
+datetim$opc	equ	084h		; DATETIME opcode
+errdsk$opc	equ	085h		; ERRDISK opcode
+rdsect$opc	equ	086h		; READSECT opcode
+sdmount$opc	equ	087h		; SDMOUNT opcode
+atxbuff$opc	equ	088h		; TX AVAIL opcode
+getspp$opc	equ	08ah		; GETSPP opcode
+arxbuff$opc	equ	08bh		; RX AVAIL opcode
+sioa$rxd	equ	0a0h		; SIOA RxD
+siob$rxd	equ	0a1h		; SIOB RxD
+sioa$rx$stat	equ	0a2h		; SIOA get Rx status
+siob$rx$stat	equ	0a3h		; SIOB get Rx status
+sioa$tx$stat	equ	0a4h		; SIOA get Tx status
+siob$tx$stat	equ	0a5h		; SIOB get Tx status

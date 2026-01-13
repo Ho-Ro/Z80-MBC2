@@ -261,7 +261,8 @@ settrack:
 	ld	a, 1		; Set error code
 	ret			; Return with A = 1 (read error)
 	
-lastdsk:defb	0ffh		; Last disk number (= ff after cold boot)
+lastdsk::
+	defb	0ffh		; Last disk number (= ff after cold boot)
 
 
 ;=============================================================================
