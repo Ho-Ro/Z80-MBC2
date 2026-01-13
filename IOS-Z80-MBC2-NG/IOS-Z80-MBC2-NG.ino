@@ -104,7 +104,7 @@ S220718-D261225   Ho-Ro: prepare for ATmega1284 build
 S220718-D281225   Ho-Ro: add SETVECTOR opcode, enable Z80 IM0, IM1 and IM2 interrupt modes
 S220718-D311225   Ho-Ro: Z80 INT trigger only if outside opcode processing
 S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
-2.0.260110        Ho-Ro: New versioning 2.0.YYMMDD, small fixes, reformatting
+2.0.260111        Ho-Ro: New versioning 2.0.YYMMDD, support for IOS User context
 --------------------------------------------------------------------------------- */
 // clang-format off
 
@@ -283,8 +283,10 @@ const byte * const flashBootTable[1] PROGMEM = {boot_A_}; // Payload pointers ta
 enum          baudRecCheck  {BLK, CHECK}; // Used to set on/off the baud recovery option in the boot menu
 byte          ioAddress;                  // Virtual I/O address. Only two possible addresses are valid (0x00 and 0x01)
 byte          ioData;                     // Data byte used for the I/O operation
-byte          ioOpcode       = 0xFF;      // I/O operation code or Opcode (0xFF means "No Operation")
-word          ioByteCnt;                  // Exchanged bytes counter during an I/O operation
+byte          ioOpcode       = 0xFF;      // I/O operation Opcode (0xFF means "No Operation")
+byte          ioOpcodeUser   = 0xFF;      // User I/O operation Opcode (0xFF means "No Operation")
+word          ioByteCnt      = 0;         // Exchanged bytes counter during an I/O operation
+word          ioByteCntUser  = 0;         // Exchanged bytes counter during an user I/O operation
 byte          tempByte;                   // Temporary variable (buffer)
 byte          moduleGPIO     = 0;         // Set to 1 if the module is found, 0 otherwise
 byte          SPPmode        = 0;         // Set to 1 if the GPIO port is used as a standard SPP (SPP Adapter)
@@ -343,14 +345,14 @@ byte          moduleSIO       = 0;        // Set to 1 if found
 
 // CP/M3 baud rate values (See cap. 3.2 CP/M 3 System Guide)
                                 // the 1st 16 baud rates are CP/M standard
-uint32_t      cpmBaudRate[] = {     0,    50,    75,   110, // div = -, 2304, 1536, 1047
-                                  134,   150,   300,   600, // div = 859, 768, 384, 192
-                                 1200,  1800,  2400,  3600, // div = 96, 64, 48, 32
-                                 4800,  7200,  9600, 19200, // div = 24, 16, 12, 6
-                                // additional useful possible baud rates
-                                14400, 28800, 38400, 57600, // div = 8, 4, 3, 2
-                                115200                      // div = 1
-                              };
+const uint32_t      cpmBaudRate[] = {     0,    50,    75,   110, // div = -, 2304, 1536, 1047
+                                        134,   150,   300,   600, // div = 859, 768, 384, 192
+                                       1200,  1800,  2400,  3600, // div = 96, 64, 48, 32
+                                       4800,  7200,  9600, 19200, // div = 24, 16, 12, 6
+                                    // additional useful possible baud rates
+                                      14400, 28800, 38400, 57600, // div = 8, 4, 3, 2
+                                     115200                       // div = 1
+                                    };
 
 // IOS debugging support
 // Can be set in boot menu by typing one ore more '?'
@@ -607,7 +609,7 @@ void setup() {
 
         if ( foundRTC ) {                                                    // If RTC module is present add a menu choice
             Serial.printf( F( "  %c: Set RTC Time/Date\r\n" ), M_TIMEDATE ); // T
-        } else {                                                             // disable RTC
+        } else {                                                             // else disable RTC menu
             byte pos = findChar( M_TIMEDATE, menuCharSet );
             if ( pos )                                          // found
                 menuCharSet[ pos - 1 ] = tolower( M_TIMEDATE ); // set inactive
@@ -865,9 +867,7 @@ void setup() {
             } while ( errCodeSD );
 
         // Read the selected file from SD and load it into RAM until an EOF is reached
-        Serial.print( F( "IOS: Loading boot program (" ) );
-        Serial.print( fileNameSD );
-        Serial.print( F( ")..." ) );
+        Serial.printf( F( "IOS: Loading boot program (%s)..." ), fileNameSD );
         do {
             // If an error occurs repeat until error disappears (or the user forces a reset)
             do {
@@ -1027,9 +1027,12 @@ void loop() {
             ioData = PINA;                  // Read Z80 data bus D0-D7 (PA0-PA7)
             if ( ioAddress ) {              // Check the I/O address (only AD0 is checked!)
                 // .........................................................................................................
-                ioOpcode = ioData; // Store the I/O operation code (Opcode)
+                if ( ioOpcode != OPC_NO_OP ) { // Non-atomic user action was interrupted
+                    ioOpcodeUser = ioOpcode;   // Save user context
+                    ioByteCntUser = ioByteCnt;
+                }
+                ioOpcode = ioData; // Store the I/O Opcode
                 ioByteCnt = 0;     // Reset the exchanged bytes counter
-
             } else {
                 // .........................................................................................................
                 //
@@ -1238,7 +1241,8 @@ void loop() {
                             else
                                 diskErr = 18; // Illegal sector number
                         }
-                        ioOpcode = 0xFF; // All done. Set ioOpcode = "No operation"
+                        ioOpcode = ioOpcodeUser;   // All done
+                        ioByteCnt = ioByteCntUser; // Restore user context
                     }
                     ioByteCnt++;
                     break;
@@ -1333,7 +1337,8 @@ void loop() {
                                 // Finalize write operation and check result (if no previous error occurred)
                                 if ( !diskErr )
                                     diskErr = writeSD( NULL, &numWriBytes );
-                                ioOpcode = 0xFF; // All done. Set ioOpcode = "No operation"
+                                ioOpcode = ioOpcodeUser;   // All done
+                                ioByteCnt = ioByteCntUser; // Restore user context
                             }
                         }
                     }
@@ -1717,9 +1722,10 @@ void loop() {
                     verbosity = ioData;
                     break;
                 } // switch ( ioOpcode )
-                if ( ( ioOpcode != OPC_SELTRACK ) && ( ioOpcode != OPC_WRITESECT ) )
-                    ioOpcode = OPC_NO_OP; // All done for the single byte Opcodes.
-                                          //  Set ioOpcode = "No operation"
+                if ( ( ioOpcode != OPC_SELTRACK ) && ( ioOpcode != OPC_WRITESECT ) ) {
+                    ioOpcode = ioOpcodeUser;   // All done for the single byte Opcodes
+                    ioByteCnt = ioByteCntUser; // Restore user context
+                }
             }
 
             // Control bus sequence to exit from a wait state (M I/O write cycle)
@@ -1918,10 +1924,14 @@ void loop() {
                                 break;
                             }
                             ioByteCnt++;
-                        } else
-                            ioOpcode = 0xFF; // All done. Set ioOpcode = "No operation"
-                    } else
-                        ioOpcode = 0xFF; // Nothing to do. Set ioOpcode = "No operation"
+                        } else {
+                            ioOpcode = ioOpcodeUser;   // All done
+                            ioByteCnt = ioByteCntUser; // Restore user context
+                        }
+                    } else {
+                        ioOpcode = ioOpcodeUser;   // Nothing to do
+                        ioByteCnt = ioByteCntUser; // Restore user context
+                    }
                     break;
 
                 case OPC_ERRDISK:
@@ -2014,7 +2024,8 @@ void loop() {
                             ioData = bufferSD[ tempByte ]; // If no errors, exchange current data byte with the CPU
                     }
                     if ( ioByteCnt >= 511 ) {
-                        ioOpcode = 0xFF; // All done. Set ioOpcode = "No operation"
+                        ioOpcode = ioOpcodeUser;   // All done
+                        ioByteCnt = ioByteCntUser; // Restore user context
                     }
                     ioByteCnt++; // Increment the counter of the exchanged data bytes
                     break;
@@ -2194,9 +2205,10 @@ void loop() {
                     ioData = verbosity;
                     break;
                 } // switch ( ioOpcode )
-                if ( ( ioOpcode != OPC_DATETIME ) && ( ioOpcode != OPC_READSECT ) )
-                    ioOpcode = OPC_NO_OP; // All done for the single byte Opcodes.
-                                          //  Set ioOpcode = "No operation"
+                if ( ( ioOpcode != OPC_DATETIME ) && ( ioOpcode != OPC_READSECT ) ) {
+                    ioOpcode = ioOpcodeUser;   // All done for the single byte Opcodes
+                    ioByteCnt = ioByteCntUser; // Restore user context
+                }
             } // EXECUTE READ Opcode
 
             DDRA = 0xFF;    // Configure Z80 data bus D0-D7 (PA0-PA7) as output
