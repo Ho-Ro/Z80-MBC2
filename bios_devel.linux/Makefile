@@ -24,36 +24,35 @@ ZSM4 =    $(TNYLPO) ../CPM.COM/zsm4
 
 
 .PHONY:		all
-all:		cpmxldr.com testcpmx.com
+all:		cpmxldr.com testcpm3.com
 
 
 # BIOS test #
 # testcpmx.com boots the contained cpmx.sys from a running CP/M
 # for CP/M 2.2 use the option [o] b/c cpmx.sys is a binary file
-testcpmx.com:	bootsys.bin cpmx.sys
+testcpm3.com:	bootsys.com cpm3.sys
 		@echo
-		$(PIP) testcpmx.com=bootsys.bin[o],cpmx.sys[o]
-		ls -l bootsys.bin *cpmx.*
+		$(PIP) testcpm3.com=bootsys.com[o],cpm3.sys[o]
+		ls -l bootsys.com *cpm3.*
 
 
 # cpm3.sys #
-# renamed to cpmx.sys, put it on A: and boot with the modified cpmldr3.com
-cpmx.sys:	bnkbios3.spr bnkbdos3.spr resbdos3.spr gencpm.dat
+# cpm3.sys, put it as cpmx.sys on A: and boot with the modified cpmxldr.com
+cpm3.sys:	bnkbios3.spr bnkbdos3.spr resbdos3.spr gencpm.dat
 		@echo
 		$(GENCPM3) auto display > gencpm.log
-		mv cpm3.sys cpmx.sys
 
-bootsys.bin:	bootsys.rel
+bootsys.com:	bootsys.rel
 		@echo
-		$(LINK) bootsys.bin=bootsys.rel
+		$(LINK) bootsys
 
 bootsys.rel:	bootsys.mac
-		@echo -e \\n$(ZSM4) bootsys,bootsys.lis=bootsys.mac
-		@$(ZSM4) bootsys,bootsys.lis=bootsys.mac | tee /dev/tty | grep -q "Errors: 0"
+		@echo -e \\n$(ZSM4) bootsys,bootsys.lis=bootsys.mac /dLINUX
+		@$(ZSM4) bootsys,bootsys.lis=bootsys.mac /dLINUX | tee /dev/tty | grep -q "Errors: 0"
 
 
 # CP/M boot loader #
-# put cpmldr3.com as CPMLDR.com on the root of the SD card
+# put cpmxldr.com on the root of the SD card
 cpmxldr.com:	cpmxldr.rel ldrbios.rel
 		@echo
 		$(LINK) cpmxldr=cpmxldr,ldrbios
@@ -112,5 +111,5 @@ clean:
 
 .PHONY:	distclean
 distclean:	clean
-		rm -f bnkbios3.spr cpmx.sys cpmxldr.com testcpmx.com
+		rm -f bnkbios3.spr cpm3.sys cpmxldr.com testcpm3.com
 
