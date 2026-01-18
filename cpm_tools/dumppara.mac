@@ -1,0 +1,114 @@
+; test program that dumps the parameter buffer at 80H and the two FCBs at 5CH / 5CH
+;
+
+; CP/M addresses
+wboot	equ	0
+bdos	equ	5
+fcb1	equ	5ch
+fcb2	equ	6ch
+param	equ	80h
+
+; BDOS functions
+conout	equ	2
+strout	equ	9
+
+; char constants
+cr	equ	0dh
+lf	equ	0ah
+
+	cseg
+
+main:
+	ld	sp,lstack	; local stack
+	ld	hl,param
+	ld	a,(hl)		; string len
+	ld	b,a
+	inc	b		; display string len and string
+	call	dump
+
+	ld	hl,fcb1		; 1st FCB
+	ld	b,16
+	call	dump
+
+	ld	hl,fcb2		; 2nd FCB
+	ld	b,16
+	call	dump
+
+	jp	wboot		; exit
+
+; ============================================
+; subroutines
+; ============================================
+
+dump:
+        call    DispHLhex
+        ld	a,':'
+        call	PRTchar
+        ld	a,' '
+        call	PRTchar
+dumppara1:
+	ld	a,(hl)
+	inc	hl
+	call	DispAhex
+	ld	a,' '
+	call	PRTchar
+	djnz	dumppara1
+
+	ld	hl,newline
+	call	PRSTRfunc
+
+	ret
+
+
+PRSTRfunc:
+	ld	a,(hl)
+	cp	'$'
+	ret	z		; if ch='$' --> return
+	push	hl		; HL can be modified by cout
+	call	PRTchar		; call cout in bdos
+	pop	hl
+	inc	hl		; pointer to the next char
+	jr	PRSTRfunc
+
+
+DispHLhex:
+	ld	a,h
+	call	DispAhex
+	ld	a,l
+	; fall through
+DispAhex:
+	push	AF
+	rrca
+	rrca
+	rrca
+	rrca
+	call	DispAhex1
+	pop	AF
+	; fall through
+DispAhex1:
+	and	0FH
+	cp	10
+	jr	C,isdigit
+	add	A,'A'-10
+	jr	PRTchar
+isdigit:
+	add	A,'0'
+PRTchar:
+	push	bc
+	push	hl
+	ld	c,conout
+	ld	e,a
+	call	bdos
+	pop	hl
+	pop	bc
+	ret
+
+	dseg
+
+newline:
+	db	cr,lf,'$'
+
+	ds	32
+lstack	equ	$
+
+	end

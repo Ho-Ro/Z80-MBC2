@@ -1,6 +1,8 @@
+; SPDX-License-Identifier: GPL-2.0-or-later
+
 	title	BOOTSYS	- CPM3.SYS 1.20
 	subttl	Copyright (C) 2000,2014 Andreas Gerlich
-	; page	70
+
 ;------------------------------------------------------------------------------
 ; BOOTSYS relocates and places the resident and banked (if present) parts
 ; of a CPM3.SYS to their right places into memory and starts CP/M 3.1.
@@ -126,82 +128,6 @@ quote	equ	22h
 
 begin:	jp	main
 
-;---------------------------------------------------------------------------
-; TODO:
-;
-; 0. ERLEDIGT und getestet
-;    Wenn CP/M 3 laeuft!
-;    Bootsys+cpm3.sys mit Interbankmove alles nach Bank 0 transferieren
-;    (source und dest beides 0100H) dort ausfuehren (durch wechsel nach
-;    bank 0).  (BIOS Funktion xmove ueberpruefen ob vorhanden)
-;	Die funktion cout und conin sollten alle direkt ueber das
-;	Bios gehen und die Adresse von wboot sollte am Anfang abgesichert
-;	werden und nur diese fuer alle spaeteren Operationen benutzt werden.
-;	Warum? Nach dem Wechsel von bank 1 nach 0 werden noch Ausgaben
-;	und Eingaben getaetigt (diese duerfen (nach page 67/68 System Guide)
-;	direkt im bios aufgerufen werden), die CP/M Vektoren sind aber nicht
-;	mehr vorhanden.
-;
-; 0. Done and tested:
-;    When CP/M 3 is running
-;    Transfer bootsys+cpm3.sys from bank 0 to bank 1 with interbank move
-;    (source and destination both 100h) and execute from 0:100h.  Ensure
-;    BIOS function XMOVE exists.
-;
-;    The functions CONOUT and CONIN should be in common memory and the warm
-;    boot address should be at the start.  This will be used for subsequent
-;    operations.  Why?  After the transfer from bank 1 to bank 0 the program
-;    still needs to make console I/O calls and according to page 66/67 of
-;    the system guide these functions may be called directly via the jump
-;    vector.
-;
-; 1. ERLEDIGT und getestet
-;    Nachsehen ob die Vektoren bei 0 und 5 da sind (C3H nachsehen und ob
-;    die zwei Adressen plausibel sind (wboot > bdos)).
-;	Nein --> Auf jedenfall Booten und fuer die Ein-/Ausgaben direkt YAZE
-;		 benutzen (Ein anderes System wird bei Halt entsprechen
-;						nicht mehr reagieren ;-))
-;	Ja   --> Fuer die Ausgaben CP/M benutzen (cout/-in ueber bios).
-;		 Parameter nachpruefen (wenn gegeben nur Copyright ausgeben).
-;
-; 1. DONE and tested
-;    See if the vectors at 0 and 5 exist (check for jp and see whether
-;    the two addresses are plausible (?wboot > BDOS).
-;       No ->	boot anyway and if running YAZE then it should work.
-;		(Another system will no longer respond ;-))
-;       Yes ->	For spending CP/M use (cout/conin about bios).
-;		Parameter re-examine (if given only spend copyright).
-;
-; 2. ERLEDIGT und getestet bzw. siehe 0.
-;    CP/M Version ueberpruefen (nur wenn Vektoren da sind).
-;	Wenn Version 3 dann Meldung ausgeben (Bitte unter 2.2 ausfuehren).
-;
-;	ODER siehe 0 (Diese Funktion sollte nach der ueberpruefung der
-;	Copyright Message erfolgen.)
-;
-; 2. Done and tested (or see #0)
-;    CP/M version checking (only when vectors are present).  If version 3
-;    then output message.  (For CP/M 2.2 please specify.)
-;
-; 3. ERLEDIGT und getestet
-;    Ueberpruefen ob eine CPM3.SYS angehaengt ist. (ueber Copyright Message)
-;
-; 3. Done and tested
-;    Check that CPM3.SYS is appended. (Look for Copyright message.)
-;
-; 4. VERWORFEN
-;    Zwischenpuffer auf printrecord (wieder verworfen und absolute auf 0080H
-;    gesetzt. Diese File wird immer auf 0100H geladen)
-;
-; 4. Rejected
-;    Use intermediate file buffer in print record. (Again, always use absolute
-;    address 80h.  This file is always loaded at 100h.)
-;
-; 5. ERLEDIGT und getestet
-;    Nonbanked Sytem booten
-;
-;---------------------------------------------------------------------------
-;
 
 CR	equ	0dh
 LF	equ	0ah
@@ -291,11 +217,11 @@ main:	ld	sp,lstack	; Stack setzten
 	jr	z,testecpmversion ; yes
 
 checkarg:
-	ld	a,(parameter)	; file as cmd line parameter?
-	or	a
+	ld	a,(cpmfcb+1)	; file as cmd line parameter?
+	cp	' '		; valid FCB?
 	jr	nz,loadfile	; yes, load and check for CPM3.SYS format
 
-	ld	hl,nocopyright1 ; no
+	ld	hl,nocopyright1 ; no, FCB is empty
 	call	PRSTRfunc
 	jp	wboot
 
