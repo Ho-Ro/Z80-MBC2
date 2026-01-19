@@ -1,9 +1,9 @@
 .PHONY: all
-all: dumppara.com zde17.com zdr.com zdr3.com
+all: dmpzrpg.com zde17.com zdr.com zdr3.com
 
-dumppara.com: dumppara.mac
-	tnylpo zsm4 =dumppara
-	tnylpo link dumppara
+dmpzrpg.com: dmpzrpg.mac
+	tnylpo zsm4 =dmpzrpg
+	tnylpo link dmpzrpg
 
 zde17.com: zde17.mac
 	tnylpo zsm4 =zde17

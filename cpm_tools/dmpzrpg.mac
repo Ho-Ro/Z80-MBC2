@@ -1,4 +1,9 @@
-; test program that dumps the parameter buffer at 80H and the two FCBs at 5CH / 5CH
+; SPDX-License-Identifier: GPL-3.0-or-later
+;
+; simple test program:
+; - dump the CP/M zero page 00..FF
+; - if cmd line parameter exist, dump the buffer at 80H
+; - dump also FCB1 / FCB2 at 5CH / 5CH if populated
 ;
 
 ; CP/M addresses
@@ -15,32 +20,77 @@ strout	equ	9
 ; char constants
 cr	equ	0dh
 lf	equ	0ah
+dollar	equ	'$'
 
 	cseg
 
 main:
 	ld	sp,lstack	; local stack
+	ld	hl,zeropagems
+	call	PRSTRfunc
+	;
+	ld	hl,wboot
+	ld	b,16
+loop:
+	push	bc
+	push	hl
+	ld	b,16
+	call	dump
+	pop	hl
+	ld	bc,16
+	add	hl,bc
+	pop	bc
+	djnz	loop
+	;ld	hl,newline
+	;call	PRSTRfunc
+
+	; check for cmd line parameter
+	ld	a,(param)
+	or	a		; check
+	jp	z,wboot		; no, return
+
+	ld	hl,parameterms
+	call	PRSTRfunc
 	ld	hl,param
-	ld	a,(hl)		; string len
-	ld	b,a
+	ld	b,(hl)
 	inc	b		; display string len and string
 	call	dump
 
+	ld	a,(fcb1+1)
+	cp	' '		; 1st FCB populated?
+	jp	z,wboot		; no, ready
+	ld	hl,fcb1ms
+	call	PRSTRfunc
 	ld	hl,fcb1		; 1st FCB
 	ld	b,16
 	call	dump
 
+	ld	a,(fcb2+1)
+	cp	' '		; 2nd FCB populated?
+	jp	z,wboot		; no, ready
+	ld	hl,fcb2ms
+	call	PRSTRfunc
 	ld	hl,fcb2		; 2nd FCB
 	ld	b,16
 	call	dump
 
 	jp	wboot		; exit
 
+zeropagems:
+	db	'zero page:',cr,lf,dollar
+parameterms:
+	db	'parameter:',cr,lf,dollar
+fcb1ms:
+	db	'FCB1:',cr,lf,dollar
+fcb2ms:
+	db	'FCB2:',cr,lf,dollar
+
 ; ============================================
 ; subroutines
 ; ============================================
 
-dump:
+dump:	push	hl
+	push	bc
         call    DispHLhex
         ld	a,':'
         call	PRTchar
@@ -54,6 +104,17 @@ dumppara1:
 	call	PRTchar
 	djnz	dumppara1
 
+	pop	bc
+	pop	hl
+dp1:	ld	a,(hl)
+	inc	hl
+	cp	20h
+	jr	c,dp2
+	cp	80h
+	jr	c,dp3
+dp2:	ld	a,'.'
+dp3:	call	PRTchar
+	djnz	dp1
 	ld	hl,newline
 	call	PRSTRfunc
 
