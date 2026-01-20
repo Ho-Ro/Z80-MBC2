@@ -4,8 +4,8 @@ SuperFabius' original project [Z80-MBC2](https://hackaday.io/project/159973) see
 [GitHub](https://github.com/SuperFabius/Z80-MBC2) since April '24. Further development was mainly carried out by
 [SvenMb](https://github.com/SvenMb/Z80-MBC2) and myself in the
 [forum](https://forum.classic-computing.de/forum/index.php?thread/19422-z80-mbc-2-aufbau-und-inbetriebnahme/)
-of the German club `classic-computing.de`. This repository therefore focuses on documenting and organising
-the progress of our ongoing work.
+of the German club `classic-computing.de`. This repository therefore focuses on documenting
+and organising the progress of our ongoing work.
 
 ![Z80-MBC2 HW](HW-DOC/Z80-MBC2_inside.jpeg)
 
@@ -113,42 +113,45 @@ and an init module `init_im.asm` with different defines in the `Makefile`.
 In addition, there is the original BASIC `basic47.hex` (`init.asm` + `basic.asm`),
 which only uses IM1 for RX INT.
 
-## Optional HW modification for freeing Z80 I/O-Addr = 0x20..0xFF
+## Optional HW modification for freeing Z80 I/O-Addr range 0x40..0xFF
 
-The Z80-MBC2 occupies all I/O addresses for the IOS interface, even if only the two addresses
-0x00 and 0x01 are used. With the remaining 3/4 `74HC32` OR gates from the RAM mod, the IOS address
-range can be restricted to `0x00..0x1F`, thus freeing up the range `0x20..0xFF` for own experiments.
-I am thinking, for example, of connecting a 64-pin DIN 41612 socket with reduced
-[ECB](https://en.wikipedia.org/wiki/Europe_Card_Bus) assignment, which provides the signals
-`GND`, `VCC`, `/RESET`, `CLK`, `A0..A15`, `D0..D7`, `/IORQ`, `/RD`, `/WR` required for Z80 I/O.
+The Z80-MBC2 occupies all 256 I/O addresses for the IOS interface, even if only the two addresses
+0x00 and 0x01 are used. With two of the remaining OR gates (`74HC32C`,`74HC32D`) from the RAM mod,
+the IOS address range can be restricted to `0x00..0x3F`, thus freeing up the range `0x40..0xFF`
+for own experiments. The 3rd OR device `74HC32A` provides the `/INT_ACK` signal
+(`/IORQ` together with `/M1`). This signal is wire-ored with the restricted `/IORQ_IOS` range
+to activate the Z80 `/WAIT` for IOS operation.
+The modification works perfectly with all three interrupt modes as described above.
 
 ```
-Cut Z80 /IORQ ---/ /--- U1/9 and add the 74HC32 devices in the dotted box
-                                                     /S
-U2/20                                   CUT           9 +--\  Q
-/IORQ ---------------------------+-----/  /-----+-------|   | 8
-                                 |              |    10 |   |o--o-->|--/\/\/\--|
-.................................|............  |   +---|   |  /   D3    R6   GND
-:                                |           :  |    \  +--/  /
-:                                | 9 +--\    :  |     \ U1C  /
-:                                +---|---| 8 :  |      \    /
-:                                 10 |   |---:--+       \  /
-:                                +---|---|   :           \/
-:  U2/37              13 +--\    |   +--/    :           /\
-:  A7 -------------------|---|   | 74HC32C   :          /  \
-:                     12 |   |---+           :         /    \
-:                    +---|---| 11            :        /      \
-:  U2/36   1 +--\    |   +--/                :       /  +--\  \
-:  A6 -------|---| 3 | 74HC32D               :      +---|   |  \
-:          2 |   |---+                       :       12 |   |o--o--- /WAIT
-:  A5 -------|---|                           :      +---|   | 11
-:  U2/35     +--/                            :      |13 +--/  /Q
-:          74HC32A                           :      |/R  U1D
-:                  Add 3/4 74HC32            :      |
-:............................................:      +--------------- /WAIT_RES
+Cut the connection /IORQ ---/ /--- U1/9 and add the devices in the dotted box
+                                                       /S
+   U2/20                    CUT                         9 +--\  Q
+   /IORQ ------------o-----/  /-----o----o---o------------|   | 8
+                     |              |    |   |         10 |   |O--o-->|--/\/\--|
+.....................|..............|....|...|......  +---|   |  /   D3   R6  GND
+:                    |              |    |   |     :   \  +--/  /   LED
+:                    |              V    V   \     :    \ U1C  /
+:                    | 9 +--\     D ~  D ~   /  R  :     \    /
+:  U2/37  13 +--\    o---|---| 8    |    |   \ 1K0 :      \  /
+:  A7 -------|---|   |10 |   |------+    |   /     :       \/
+:         12 |   |---|---|---| /IORQ_IOS |   |     :       /\
+:  A6 -------|---| 11|   +--/            |   |     :      /  \
+:  U2/36     +--/    | 74HC32C           |   |     :     /    \
+:          74HC32D   |                   |   V     :    /      \
+:                    | 1 +--\            |  Vcc    :   /  +--\  \
+:                    +---|---| 3         |         :  +---|   |  \
+:                      2 |   |-----------+         :   12 |   |O--o--- /WAIT
+:  U2/27 ----------------|---|  /INT_ACK           :  +---|   | 11
+:  /M1                   +--/                      :  |13 +--/  /Q
+:                      74HC32A                     :  |/R  U1D
+:  Add 3/4 74HC32, 2 Schottky diodes D, and R 1K0  :  +-------------- /WAIT_RES
+:...................................................
 ```
+I am planning to connect a 64-pin DIN 41612 socket with reduced
+[ECB](https://en.wikipedia.org/wiki/Europe_Card_Bus) assignment, which provides the signals                  required for Z80 I/O:
 
-Unfortunately this modification breaks the IOS interrupt handling (see above) because the PC and not an I/O address is put on the address bus during INT ACK.
+    GND, VCC, /RESET, CLK, A0..A7, D0..D7, /IORQ, /RD, /WR, /INT
 
 ## System preparation
 
@@ -159,10 +162,10 @@ Take out the SD-card and copy the file `DS2N13.DSK` to the root directory,
 replacing the old (previously) empty CP/M3 disk image for drive `N:`.
 Make a backup of the old disk image if you like.
 You can also use any other CP/M3 drive except `A:` aka `DS2N00.DSK`, just
-rename the `DS2N??.DSK` file accordingly.
+rename the `DS2N13.DSK` file accordingly.
 
-You should also make a copy of your working drive `A:` image `DS2N00.DSK`,
-e.g. as `DS2N00.SAV`. In case of trouble you can always go back.
+You should also regularly make copies of your working drive `A:` image `DS2N00.DSK`,
+e.g. as `DS2N00.SAV`. This allows you to go back at any time in case of problems.
 
 ### IOS update
 
@@ -218,7 +221,7 @@ The content of `iLoad.h` is byte-by-byte identical to `boot_A_[]` in the origina
 
 ## Testing
 
-For a first test you can execute `N:TESTCPMX.COM`.
+For a first test you can execute `N:TESTCPM3.COM`.
 This boots your system with the new BIOS showing someting like:
 
 ```
@@ -227,11 +230,11 @@ This boots your system with the new BIOS showing someting like:
 
 Z80-MBC2 512 KB (Banked) CP/M Plus with ZPM3 - BIOS:
 BIOSKRNL S170319
-BOOT S220918-R031125
-CHARIO S210918-R210923-D281125
-MOVE S290918
-SCB stable
-VDISK S200918-D261025
+BOOT     S220918-R031125
+CHARIO   S210918-R210923-D281125
+MOVE     S290918
+SCB      stable
+VDISK    S200918-D261025
 
 A>
 ```
@@ -239,14 +242,14 @@ Pressing the `RESET` button brings you back to the original system.
 
 ## Installation - the simple way
 
-If it works you can copy `N:CPMX.SYS` to `A:CPM3.SYS` - ready.
+If it works you can copy `N:CPM3.SYS` to `A:CPM3.SYS` - ready.
 Your system will now start up with the new BIOS.
 
 ## Installation - the safe way
 
 If you want a quick fallback-solution w/o SD-card handling keep your
-original `A:CPM3.SYS` and copy the file `N:CPMX.SYS` to `A:CPMX.SYS`.
-This can be done with `PIP A:=N:CPMX.SYS` or `MAKE INSTALL` from `N:`.
+original `A:CPM3.SYS` and copy the file `N:CPM3.SYS` to `A:CPMX.SYS`.
+This can be done with `PIP A:CPMX.SYS=N:CPM3.SYS` or `MAKE INSTALL` from `N:`.
 To be able to boot either the original `CPM3.SYS` or the new `CPMX.SYS`, copy
 the provided file [`cpmxldr.com`](bios_devel.linux/cpmxldr.com) as `CPMXLDR.COM`
 to the root directory of the Z80-MBC2 SD card. If IOS detects `CPMXLDR.COM`
