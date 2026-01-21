@@ -127,27 +127,29 @@ The modification works perfectly with all three interrupt modes as described abo
 Cut the connection /IORQ ---/ /--- U1/9 and add the devices in the dotted box
                                                        /S
    U2/20                    CUT                         9 +--\  Q
-   /IORQ ------------o-----/  /-----o----o---o------------|   | 8
+   Z80 /IORQ --------o-----/  /-----o----o---o------------|   | 8
                      |              |    |   |         10 |   |O--o-->|--/\/\--|
 .....................|..............|....|...|......  +---|   |  /   D3   R6  GND
 :                    |              |    |   |     :   \  +--/  /   LED
 :                    |              V    V   \     :    \ U1C  /
 :                    | 9 +--\     D ~  D ~   /  R  :     \    /
 :  U2/37  13 +--\    o---|---| 8    |    |   \ 1K0 :      \  /
-:  A7 -------|---|   |10 |   |------+    |   /     :       \/
+:  Z80 A7 ---|---|   |10 |   |------+    |   /     :       \/
 :         12 |   |---|---|---| /IORQ_IOS |   |     :       /\
-:  A6 -------|---| 11|   +--/            |   |     :      /  \
+:  Z80 A6 ---|---| 11|   +--/            |   |     :      /  \
 :  U2/36     +--/    | 74HC32C           |   |     :     /    \
 :          74HC32D   |                   |   V     :    /      \
 :                    | 1 +--\            |  Vcc    :   /  +--\  \
 :                    +---|---| 3         |         :  +---|   |  \
 :                      2 |   |-----------+         :   12 |   |O--o--- /WAIT
 :  U2/27 ----------------|---|  /INT_ACK           :  +---|   | 11
-:  /M1                   +--/                      :  |13 +--/  /Q
+:  Z80 /M1               +--/                      :  |13 +--/  /Q
 :                      74HC32A                     :  |/R  U1D
 :  Add 3/4 74HC32, 2 Schottky diodes D, and R 1K0  :  +-------------- /WAIT_RES
 :...................................................
 ```
+My [1st modification](HW-DOC/IO_mod_20_FF.md) did not support Z80 interrupts.
+
 I am planning to connect a 64-pin DIN 41612 socket with reduced
 [ECB](https://en.wikipedia.org/wiki/Europe_Card_Bus) assignment, which provides the signals                  required for Z80 I/O:
 
