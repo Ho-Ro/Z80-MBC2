@@ -1,10 +1,11 @@
 
 HEX = tinybasic2.hex tinybasic8080.hex
+HEADER = tinybasic2.h
 README = README.md
 ROMSIZE = 0x0800
 
 .PHONY:	all
-all: $(HEX) $(README)
+all: $(HEX) $(HEADER) $(README)
 
 
 .PHONY:	clean
@@ -30,6 +31,9 @@ ld8080:	tinybasic8080.hex
 
 %.cim:	%.z80 Makefile
 	zmac -c -o $@ -o `basename $< .z80`.lst $<
+
+tinybasic2.h: tinybasic2.hex
+	./hex2header $< $@ tinybasic2 PROGMEM
 
 
 #tinybasic2.hex: tinybasic2.cim

@@ -57,8 +57,8 @@ def main():
                         help="Serial port (default: /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=115200,
                         help="Baud rate (default: 115200)")
-    parser.add_argument("-d", "--delay", type=float, default=50,
-                        help="Delay between lines in ms (default: 50)")
+    parser.add_argument("-d", "--delay", type=float, default=5,
+                        help="Delay between lines in ms (default: 5)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Verbose output")
     parser.add_argument("-t", "--text", action="store_true",

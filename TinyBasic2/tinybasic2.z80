@@ -1183,8 +1183,6 @@ PT1:            RST     RFINISH         ; READY
 ;
 PT2:            JR      QWHAT           ; ELSE SAY: "WHAT?"
 
-BYE:            HALT                    ; HALT CPU (return to analyser)
-
 ;
 ; *************************************************************
 ;
@@ -1781,7 +1779,7 @@ TAB2:                                   ; DIRECT OR PROGRAM STATEMENT
                 .ASCII  "STOP"          ; Warm start
                 DWA     STOP
                 .ASCII  "HALT"          ; HALT the Z80 CPU
-                DWA     HALT
+                DWA     HALTCPU
                 DWA     DEFLT           ; END OF LIST
 ;
 TAB4:                                   ; FUNCTIONS AND CONSTANTS
@@ -1828,6 +1826,8 @@ TAB8:                                   ; RELATION OPERATORS
                 DWA     XPGT
                 DWA     XP17            ; END OF REL OPERATOR LIST
 
+HALTCPU:        HALT
+
 ;
 LSTROM:                                 ; ALL ABOVE CAN BE ROM
 
@@ -1838,7 +1838,7 @@ BYTES_FREE:     .EQU    RAMBGN-LSTROM
                 .ASSERT $ <= RAMBGN
 
 
-                .DC     RAMBGN-$,$00    ; fill with $00 until RAMBGN
+                .DC     RAMBGN-$,HALT    ; fill with HALT until RAMBGN
 ;
 ;
 ; *************************************************************

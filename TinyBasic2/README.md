@@ -27,7 +27,7 @@ interpreter software were stealing from him personally.
 
 *Tiny BASIC* uses 16bit signed integer arithmetic with the operators `+`, `-`, `*`, `/`
 and nested parantheses, has 26 staticly assigned variables `A` to `Z` and one dynamic
-array `@` that occupies the remaining free RAM space. 
+array `@()` that occupies the remaining free RAM space.
 
 *Tiny BASIC* can be build with the [zmac](https://github.com/gp48k/zmac) assembler.
 
@@ -70,12 +70,13 @@ The I/O functions `ROUTC` and `CHKIO` and the memory size were modified for the 
 This Z80 version was built and tested with my [Z80 dongle](https://github.com/Ho-Ro/Z80_dongle).
 Originally written in 8080 syntax I converted it to the nicer Z80 syntax using the
 [8080 z80](https://hc-ddr.hucki.net/wiki/doku.php/cpm/8080_z80) tool and assembled it with the
-[zmac](https://github.com/gp48k/zmac) assembler (with [one fix](https://github.com/Ho-Ro/zmac/tree/fix_hash)).
-I also added some HW-oriented functionality like `GET(addr)`, `PUT addr,val,val,...` as well as char constants (`'x'`)
+[zmac](https://github.com/gp48k/zmac) assembler
+(with [one fix](https://github.com/Ho-Ro/zmac/tree/fix_hash)). I also added some HW-oriented
+functionality like `GET(addr)`, `PUT addr,val,val,...` as well as char constants (`'x'`)
 and hex constants that are written as `$xxxx` and the possibility to print values as `uint16_t`
 in different number bases n=2..16 using the format specifier `%n`, e.g.
 `PRINT %16,expression,...` prints in unsigned hex up to the end of this `PRINT` statement.
-The BASIC statement `BYE` executes the Z80 opcode `HALT` that halts the CPU.
+The BASIC statement `HALT` executes the Z80 opcode `HALT` that halts the CPU.
 
 *TinyBASIC2* supports
 the arithmetic operators `*`, `/`, `&` (level 3), `+`, `-`, `|` (level 2) and the logical operators
@@ -83,7 +84,7 @@ the arithmetic operators `*`, `/`, `&` (level 3), `+`, `-`, `|` (level 2) and th
 *TinyBASIC2* interpreter with my additions still uses less than 2K ROM.
 
 ```
-TB2
+TinyBASIC2
 
 OK
 >

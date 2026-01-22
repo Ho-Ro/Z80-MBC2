@@ -27,7 +27,7 @@ interpreter software were stealing from him personally.
 
 *Tiny BASIC* uses 16bit signed integer arithmetic with the operators `+`, `-`, `*`, `/`
 and nested parantheses, has 26 staticly assigned variables `A` to `Z` and one dynamic
-array `@` that occupies the remaining free RAM space. 
+array `@()` that occupies the remaining free RAM space.
 
 *Tiny BASIC* can be build with the [zmac](https://github.com/gp48k/zmac) assembler.
 
