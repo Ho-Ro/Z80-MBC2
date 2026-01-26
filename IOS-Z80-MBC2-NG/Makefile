@@ -74,7 +74,7 @@ BUILD = build/$(subst :,.,$(FQBN))
 
 # source code for the Arduino project
 INO = $(PRJ).ino
-HEADER = *.h
+HEADER = *.h tinybasic2.h
 SOURCE = *.cpp
 BOOTLOADER = mbc2boot_m$(ATMEGA).hex
 HEX = $(BUILD)/*.hex
@@ -111,12 +111,17 @@ $(TARGET_BL) : $(TARGET)
 
 iLoad.h: iLoad.asm Makefile
 	z80assembler -c iLoad.asm
-	sed -i 's/iLoadAddr/boot_A_StrAddr/g; s/iLoadSize/boot_A_Size/g; s/iLoad\[\]/boot_A_\[\] PROGMEM/g' $@
+	sed -i 's/iLoad\[\]/iLoad\[\] PROGMEM/g' $@
+
+tinybasic2.h: ../TinyBasic2/tinybasic2.z80
+	$(MAKE) -C ../TinyBasic2
+	cp ../TinyBasic2/tinybasic2.h $@
 
 
 # update AVR via serial bootloader
 .PHONY: update
 update: $(TARGET)
+	-killall picocom && sleep 1
 	avrdude --part m$(ATMEGA) --port $(URPORT) --programmer urclock --baud $(URSPEED) -U $<
 
 # update AVR via arduino serial bootloader

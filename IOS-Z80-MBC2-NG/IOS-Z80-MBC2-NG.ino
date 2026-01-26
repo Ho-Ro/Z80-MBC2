@@ -105,6 +105,7 @@ S220718-D281225   Ho-Ro: add SETVECTOR opcode, enable Z80 IM0, IM1 and IM2 inter
 S220718-D311225   Ho-Ro: Z80 INT trigger only if outside opcode processing
 S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
 2.0.260111        Ho-Ro: New versioning 2.0.YYMMDD, support for IOS User context
+2.0.260126        Ho-Ro: Add tinybasic to IOS flash ('T')
 --------------------------------------------------------------------------------- */
 // clang-format off
 
@@ -116,7 +117,7 @@ S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
 #define HW_STRING "\r\n\nZ80-MBC2-NG - A040618 - ATmega1284p"
 #endif
 
-#define VERSION_STRING "2.0.260111"
+#define VERSION_STRING "2.0.260122"
 #define BUILD_STRING __DATE__ " " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -270,8 +271,9 @@ const byte    fCPU         = F_CPU / 1000000L;
 
 #include "iLoad.h"
 
-const byte * const flashBootTable[1] PROGMEM = {boot_A_}; // Payload pointers table (flash)
+#include "tinybasic2.h"
 
+// const byte * const flashBootTable[2] PROGMEM = {iLoad,tinybasic2}; // Payload pointers table
 
 // ------------------------------------------------------------------------------
 //
@@ -292,7 +294,7 @@ byte          moduleGPIO     = 0;         // Set to 1 if the module is found, 0 
 byte          SPPmode        = 0;         // Set to 1 if the GPIO port is used as a standard SPP (SPP Adapter)
 byte          SPPautofd      = 0;         // Store the status of the AUTOFD Control Line (active Low) of the SPP
 byte          bootMode       = 0;         // Set the program to boot (from flash or SD)
-byte *        BootImage;                  // Pointer to selected flash payload array (image) to boot
+const byte *  BootImage;                  // Pointer to selected flash payload array (image) to boot
 word          BootImageSize  = 0;         // Size of the selected flash payload array (image) to boot
 word          BootStrAddr;                // Starting address of the selected program to boot (from flash or SD)
 byte          Z80IntRx       = 0;         // Z80 serial Rx INT_ enable flag (0 = disabled, 1 = enabled)
@@ -375,10 +377,8 @@ void setup() {
     //  Local variables
     //
     // ------------------------------------------------------------------------------
-    // byte          data;                       // External RAM data byte
-    // word          address;                    // External RAM current address;
-    byte maxBootMode = 4;   // Default maximum allowed value for bootMode [0..4]
-    byte bootSelection = 0; // Flag to enter into the boot mode selection
+
+    uint8_t bootSelection = 0;     // Flag to enter into the boot mode selection
 
     // ------------------------------------------------------------------------------
 
@@ -555,24 +555,30 @@ void setup() {
     //
     const char M_BASIC = 'B';
     const char M_FORTH = 'F';
-    const char M_DISKOS = 'D';
+    const char M_DISKOS = 'O';
     const char M_AUTOBOOT = 'A';
     const char M_ILOAD = 'L';
+    const char M_TINYBASIC2 = 'T';
     //
     const char M_CLOCK = 'C';
     const char M_AUTOEXEC = 'E';
     const char M_SERSPEED = 'S';
-    const char M_TIMEDATE = 'T';
+    const char M_DATETIME = 'D';
     const char M_RAMSIZE = 'R';
 
     const char CR = '\x0D';
     const char ESC = '\x1B';
 
-    char menuCharSet[] = { M_EXIT,
-                           //
-                           M_BASIC, M_FORTH, M_DISKOS, M_AUTOBOOT, M_ILOAD,
-                           //
-                           M_CLOCK, M_AUTOEXEC, M_SERSPEED, M_TIMEDATE, M_RAMSIZE };
+    char menuCharSet[] = {
+        M_EXIT,
+        // boot
+        M_BASIC, M_FORTH, M_DISKOS, M_AUTOBOOT, M_ILOAD,M_TINYBASIC2,
+        // settings
+        M_CLOCK, M_AUTOEXEC, M_SERSPEED, M_DATETIME, M_RAMSIZE
+    };
+
+    const uint8_t maxSDMode = 3;   // [0..3] Basic, Forth, CP/M etc, AutoBoot
+    const uint8_t maxBootMode = 5; // [0..5] as above and iLoad and tinybasic2
 
     mountSD( &filesysSD ); // Try to mount the SD volume
     mountSD( &filesysSD );
@@ -597,10 +603,11 @@ void setup() {
         // Boot programs
         Serial.printf( F( "  %c: Basic\r\n" ), M_BASIC );     // B
         Serial.printf( F( "  %c: Forth\r\n" ), M_FORTH );     // F
-        Serial.printf( F( "  %c: Load/Set OS " ), M_DISKOS ); // D
+        Serial.printf( F( "  %c: Load/Set OS " ), M_DISKOS ); // O
         printOsName( diskSet );
         Serial.printf( F( "\r\n  %c: Autoboot\r\n" ), M_AUTOBOOT ); // A
-        Serial.printf( F( "  %c: iLoad\r\n\n" ), M_ILOAD );         // L
+        Serial.printf( F( "  %c: iLoad\r\n" ), M_ILOAD );         // L
+        Serial.printf( F( "  %c: TinyBasic2\r\n\n" ), M_TINYBASIC2 ); // T
         //
         // Option settings
         Serial.printf( F( "  %c: Change Z80 Clock Speed (-> %d MHz)\r\n" ), M_CLOCK, clockMode ? fCPU / 2 : fCPU / 4 );       // C
@@ -608,11 +615,11 @@ void setup() {
         Serial.printf( F( "  %c: Set Serial Port Speed (%ld)\r\n" ), M_SERSPEED, indexToBaud( EEPROM.read( serBaudAddr ) ) ); // S
 
         if ( foundRTC ) {                                                    // If RTC module is present add a menu choice
-            Serial.printf( F( "  %c: Set RTC Time/Date\r\n" ), M_TIMEDATE ); // T
+            Serial.printf( F( "  %c: Set RTC Date/Time\r\n" ), M_DATETIME ); // D
         } else {                                                             // else disable RTC menu
-            byte pos = findChar( M_TIMEDATE, menuCharSet );
+            byte pos = findChar( M_DATETIME, menuCharSet );
             if ( pos )                                          // found
-                menuCharSet[ pos - 1 ] = tolower( M_TIMEDATE ); // set inactive
+                menuCharSet[ pos - 1 ] = tolower( M_DATETIME ); // set inactive
         }
         Serial.printf( F( "  %c: RAM size (%d KBytes)\r\n" ), M_RAMSIZE, 128 << EEPROM.read( ramCfgAddr ) );
 
@@ -686,7 +693,7 @@ void setup() {
             }
             break;
 
-        case M_TIMEDATE:
+        case M_DATETIME:
             ChangeRTC(); // Change RTC Date/Time if requested
             break;
 
@@ -790,9 +797,15 @@ void setup() {
         break;
 
     case 4: // Load iLoad from flash
-        BootImage = (byte *)pgm_read_word( flashBootTable );
-        BootImageSize = sizeof( boot_A_ );
-        BootStrAddr = boot_A_StrAddr;
+        BootImage = iLoad;
+        BootImageSize = iLoadSize;
+        BootStrAddr = iLoadAddr;
+        break;
+
+    case 5: // Load tinyBasic from flash
+        BootImage = tinybasic2;
+        BootImageSize = tinybasic2Size;
+        BootStrAddr = tinybasic2Addr;
         break;
     }
     digitalWrite( WAIT_RES_, HIGH ); // Set WAIT_RES_ HIGH (Led LED_0 ON)
@@ -827,7 +840,7 @@ void setup() {
     // DEBUG END ------------------------------
     //
 
-    if ( bootMode < maxBootMode ) {
+    if ( bootMode <= maxSDMode ) {
         // Load from SD
         // Mount a volume on SD
         if ( mountSD( &filesysSD ) ) {

@@ -8,6 +8,8 @@ of the German club `classic-computing.de`. This repository therefore focuses on 
 and organising the progress of our ongoing work.
 
 ![Z80-MBC2 HW](HW-DOC/Z80-MBC2_inside.jpeg)
+![Z80-MBC2 HW](HW-DOC/Z80-MBC2_front.jpeg)
+![Z80-MBC2 HW](HW-DOC/Z80-MBC2_rear.jpeg)
 
 ![Z80-MBC2-NG Menu](Z80-MBC2_menu.png)
 
@@ -76,16 +78,16 @@ and data buffers by `gencpm.com` via `gen512k.dat`, speeding up the *"disk"* acc
 - Add the parts in the dotted boxes: 4 Schottky diodes, 2 x 1K0 resistors, 1/4 74HC32
 
 ```
-            ............................        .................................
-            :             (CE2 128K)   :        :  (RAM_CE2)        4 +--\      :
-U3/29 PC7  -:----/<--+---- A18 U4/30 --:--/  /--.-- PB2  U3/3  -------|---| 6   :
-            :        |                 :  CUT   :                   5 |   |--+  :
-            :  +-/<--+--/\/\/\--> 5V   :        :                 +---|---|  |  :
-            :  |                       :        :                 |   +--/   |  :
-U1/6  /A15 -:--+-/<--+--/\/\/\--> 5V   :        :                 | 74HC32B  |  :
-            :        |                 :        ..................|..........|...
-U3/16 PD2 --:----/<--+----  A17 U4/1   :                          |    CUT   |
-            ............................          /MREQ U2/19  ---+---/  /---+--- U4/22 /CE1
+            ............................        ...............................
+            :             (CE2 128K)   :        :  (RAM_CE2)     4 +--\       :
+U3/29 PC7  ------/<--+---- A18 U4/30 -----/  /----- PB2  U3/3 -----|---| 6    :
+            :        |                 :  CUT   :                5 |   |---+  :
+            :  +-/<--+--/\/\/\--> 5V   :        :              +---|---|   |  :
+            :  |                       :        :              |   +--/    |  :
+U1/6  /A15 ----+-/<--+--/\/\/\--> 5V   :        :              | 74HC32B   |  :
+            :        |                 :        ...............|...........|...
+U3/16 PD2 -------/<--+----  A17 U4/1   :                       |    CUT    |
+            ............................         /MREQ U2/19 --+---/  /----+--- U4/22 /CE1
 
           Add 4 Schottky diodes, 2 x 1K0        Cut /CE1 and CE2 at U4 and add 1/4 74HC32
 ```
