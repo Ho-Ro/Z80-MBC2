@@ -74,7 +74,7 @@ BUILD = build/$(subst :,.,$(FQBN))
 
 # source code for the Arduino project
 INO = $(PRJ).ino
-HEADER = *.h tinybasic2.h
+HEADER = *.h tinybasic2.h wozmon.h
 SOURCE = *.cpp
 BOOTLOADER = mbc2boot_m$(ATMEGA).hex
 HEX = $(BUILD)/*.hex
@@ -109,13 +109,14 @@ $(TARGET_BL) : $(TARGET)
 	@ls -l $(PRJ)_*.hex
 
 
-iLoad.h: iLoad.asm Makefile
-	z80assembler -c iLoad.asm
-	sed -i 's/iLoad\[\]/iLoad\[\] PROGMEM/g' $@
-
 tinybasic2.h: ../TinyBasic2/tinybasic2.z80
 	$(MAKE) -C ../TinyBasic2
 	cp ../TinyBasic2/tinybasic2.h $@
+
+
+wozmon.h: ../WozMon/wozmon.asm
+	$(MAKE) -C ../WozMon
+	cp ../WozMon/wozmon.h $@
 
 
 # update AVR via serial bootloader

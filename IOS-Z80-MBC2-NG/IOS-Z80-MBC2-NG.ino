@@ -106,6 +106,7 @@ S220718-D311225   Ho-Ro: Z80 INT trigger only if outside opcode processing
 S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
 2.0.260111        Ho-Ro: New versioning 2.0.YYMMDD, support for IOS User context
 2.0.260126        Ho-Ro: Add tinybasic to IOS flash ('T')
+2.0.260205        Ho-Ro: HEX loader in IOS replaces iLoad, add WozMon to IOS flash ('W')
 --------------------------------------------------------------------------------- */
 // clang-format off
 
@@ -117,7 +118,7 @@ S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
 #define HW_STRING "\r\n\nZ80-MBC2-NG - A040618 - ATmega1284p"
 #endif
 
-#define VERSION_STRING "2.0.260122"
+#define VERSION_STRING "2.0.260205"
 #define BUILD_STRING __DATE__ " " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -263,17 +264,19 @@ const byte    maxDiskSet   = 6;           // Number of configured Disk Sets
 const byte    maxRamCfg    = 2;           // 2^(value+17)Bytes (0=128KByte,1=256KByte,2=512KByte)
 const byte    fCPU         = F_CPU / 1000000L;
 
-// Z80 programs images into flash and related constants
 
-// The file "iLoad.h" is built from the source code in "iLoad.asm" based on
-// "S200718 iLoad.asm" from the directory `src` of the zipped SD content.
-// The content of "iLoad.h" is byte-by-byte identical to previous "boot_A_[]".
+// ------------------------------------------------------------------------------
+//
+// Load Z80 program images into IOS flash
+//
+// ------------------------------------------------------------------------------
 
-#include "iLoad.h"
-
+// Z80 TinyBASIC2 (improved Palo Alto Tiny BASIC)
 #include "tinybasic2.h"
 
-// const byte * const flashBootTable[2] PROGMEM = {iLoad,tinybasic2}; // Payload pointers table
+// Z80 WozMon (Apple 1 ROM monitor adapted for Z80)
+#include "wozmon.h"
+
 
 // ------------------------------------------------------------------------------
 //
@@ -557,8 +560,10 @@ void setup() {
     const char M_FORTH = 'F';
     const char M_DISKOS = 'O';
     const char M_AUTOBOOT = 'A';
-    const char M_ILOAD = 'L';
+    //
     const char M_TINYBASIC2 = 'T';
+    const char M_WOZMON = 'W';
+    const char M_HEXLOAD = 'H';
     //
     const char M_CLOCK = 'C';
     const char M_AUTOEXEC = 'E';
@@ -571,14 +576,18 @@ void setup() {
 
     char menuCharSet[] = {
         M_EXIT,
-        // boot
-        M_BASIC, M_FORTH, M_DISKOS, M_AUTOBOOT, M_ILOAD,M_TINYBASIC2,
+        // SD card boot
+        M_BASIC, M_FORTH, M_DISKOS, M_AUTOBOOT,
+        // IOS boot
+        M_TINYBASIC2, M_WOZMON,
+        // Intel HEX loader
+        M_HEXLOAD,
         // settings
         M_CLOCK, M_AUTOEXEC, M_SERSPEED, M_DATETIME, M_RAMSIZE
     };
 
     const uint8_t maxSDMode = 3;   // [0..3] Basic, Forth, CP/M etc, AutoBoot
-    const uint8_t maxBootMode = 5; // [0..5] as above and iLoad and tinybasic2
+    const uint8_t maxBootMode = 6; // [0..6] as above and tinybasic2 .. hexload
 
     mountSD( &filesysSD ); // Try to mount the SD volume
     mountSD( &filesysSD );
@@ -600,14 +609,19 @@ void setup() {
                 menuCharSet[ pos - 1 ] = tolower( M_EXIT );
         }
         //
-        // Boot programs
+        // Boot programs from SD
         Serial.printf( F( "  %c: Basic\r\n" ), M_BASIC );     // B
         Serial.printf( F( "  %c: Forth\r\n" ), M_FORTH );     // F
         Serial.printf( F( "  %c: Load/Set OS " ), M_DISKOS ); // O
         printOsName( diskSet );
-        Serial.printf( F( "\r\n  %c: Autoboot\r\n" ), M_AUTOBOOT ); // A
-        Serial.printf( F( "  %c: iLoad\r\n" ), M_ILOAD );         // L
-        Serial.printf( F( "  %c: TinyBasic2\r\n\n" ), M_TINYBASIC2 ); // T
+        Serial.println();
+        Serial.printf( F( "  %c: Autoboot\r\n" ), M_AUTOBOOT );     // A
+        // Boot programs from flash
+        Serial.printf( F( "  %c: TinyBasic2\r\n" ), M_TINYBASIC2 ); // T
+        Serial.printf( F( "  %c: WozMon\r\n" ), M_WOZMON );         // W
+        // Hex loader from IOS
+        Serial.printf( F( "  %c: HexLoad\r\n" ), M_HEXLOAD );       // H
+        Serial.println();
         //
         // Option settings
         Serial.printf( F( "  %c: Change Z80 Clock Speed (-> %d MHz)\r\n" ), M_CLOCK, clockMode ? fCPU / 2 : fCPU / 4 );       // C
@@ -796,18 +810,24 @@ void setup() {
         BootStrAddr = AUTSTRADDR;
         break;
 
-    case 4: // Load iLoad from flash
-        BootImage = iLoad;
-        BootImageSize = iLoadSize;
-        BootStrAddr = iLoadAddr;
-        break;
-
-    case 5: // Load tinyBasic from flash
+    case 4: // Load tinyBasic from IOS FLASH
         BootImage = tinybasic2;
         BootImageSize = tinybasic2Size;
         BootStrAddr = tinybasic2Addr;
         break;
+
+    case 5: // Load WozMon from IOS FLASH
+        BootImage = WozMon;
+        BootImageSize = WozMonSize;
+        BootStrAddr = WozMonAddr;
+        break;
+
+    case 6: // IOS HexLoad
+        Serial.printf( F( "Intel-Hex Loader\r\n" ) );
+        loadIntelHex();
+        break;
     }
+
     digitalWrite( WAIT_RES_, HIGH ); // Set WAIT_RES_ HIGH (Led LED_0 ON)
 
     // Load a JP instruction if the boot program starting addr is > 0x0000
@@ -897,14 +917,16 @@ void setup() {
                 seekSD( 0 ); // Reset the sector pointer
             }
         } while ( errCodeSD );
-    } else {
+    } else if ( bootMode < maxBootMode ) { // skip HEXLOAD
         // Load from flash
         Serial.print( F( "IOS: Loading boot program..." ) );
         for ( word i = 0; i < BootImageSize; i++ ) {
             // Write boot program into external RAM
             loadByteToRAM( pgm_read_byte( BootImage + i ) ); // Write current data byte into RAM
         }
-    }
+    } else // HEX load already done, just be verbose
+        Serial.print( F( "Hex Load" ) );
+
     Serial.println( F( " Done" ) );
 
     // ----------------------------------------
@@ -914,7 +936,7 @@ void setup() {
     digitalWrite( RESET_, LOW ); // Activate the RESET_ signal
 
 #if defined( __AVR_ATmega32__ )
-                                 // Atmega32 MCU
+    // Atmega32 MCU
     // Initialize CLK @ 4/8MHz (@ Fosc = 16MHz). Z80 clock_freq = (Atmega_clock) / ((OCR2 + 1) * 2)
     ASSR &= ~( 1 << AS2 );  // Set Timer2 clock from system clock
     TCCR2 |= ( 1 << CS20 ); // Set Timer2 clock to "no prescaling"
@@ -924,8 +946,9 @@ void setup() {
     TCCR2 |= ( 1 << COM20 ); // Set "toggle OC2 on compare match"
     TCCR2 &= ~( 1 << COM21 );
     OCR2 = clockMode; // Set the compare value to toggle OC2 (0 = low or 1 = high)
+
 #elif defined( __AVR_ATmega1284__ ) || defined( __AVR_ATmega1284P__ )
-                                 // Atmega1284 MCU
+    // Atmega1284 MCU
     // Initialize CLK @ 4/8MHz (@ Fosc = 16MHz). Z80 clock_freq = (Atmega_clock) / ((OCR2 + 1) * 2)
     ASSR &= ~( 1 << AS2 );   // Set Timer2 clock from system clock
     TCCR2B |= ( 1 << CS20 ); // Set Timer2 clock to "no prescaling"
@@ -935,15 +958,15 @@ void setup() {
     TCCR2A |= ( 1 << COM2A0 ); // Set "toggle OC2 on compare match"
     TCCR2A &= ~( 1 << COM2A1 );
     OCR2A = clockMode; // Set the compare value to toggle OC2 (0 = low or 1 = high)
+
 #else
     Serial.print( F( "IOS: Current MCU is not supported. Aborted!" ) );
     while ( 1 )
-        ;
+        ; // idle
 #endif
 
     pinMode( CLK, OUTPUT ); // Set OC2 as output and start to output the clock
     Serial.println( F( "IOS: Z80 is running from now" ) );
-    Serial.println();
 
     // Flush serial Rx buffer
     while ( Serial.available() > 0 ) {
@@ -953,7 +976,8 @@ void setup() {
     // Leave the Z80 CPU running
     delay( 1 );                   // Just to be sure...
     digitalWrite( RESET_, HIGH ); // Release Z80 from reset and let it run
-}
+
+} // void setup()
 
 // ------------------------------------------------------------------------------
 
@@ -3103,5 +3127,119 @@ void printOsName( byte currentDiskSet ) {
         Serial.print( ")" );
     }
 }
+
+
+// ------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
+
+
+// Helper function to convert hex char to 4-bit value
+static uint8_t hexCharToVal(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return 0; // Invalid character
+}
+
+// Helper function to convert two hex chars to byte
+static uint8_t hexToByte(const char* hex) {
+    return (hexCharToVal(hex[0]) << 4) | hexCharToVal(hex[1]);
+}
+
+// Main function to process Intel Hex from Serial
+void loadIntelHex() {
+
+    char lineBuffer[100];
+    uint8_t lineIndex = 0;
+    bool inLine = false;
+
+    Serial.printf( F( "Waiting HEX input stream...\r\n" ) );
+
+    while (true) {
+        // Wait for serial data
+        while (!Serial.available()) {
+            delay(1);
+        }
+
+        char c = Serial.read();
+
+        // Start of ihex line
+        if (c == ':') {
+            inLine = true;
+            lineIndex = 0;
+            continue;
+        }
+
+        // End of line
+        if (c == '\n' || c == '\r') {
+            if ( inLine && lineIndex > 0 ) {
+                lineBuffer[ lineIndex ] = '\0';
+                Serial.println( lineBuffer );
+                if ( processHexLine( lineBuffer ) ) {
+                    return; // EOF reached
+                }
+            }
+            inLine = false;
+            lineIndex = 0;
+            continue;
+        }
+
+        // Accumulate line characters
+        if (inLine && lineIndex < sizeof(lineBuffer) - 1) {
+            lineBuffer[lineIndex++] = c;
+        }
+        // Ignore characters outside ihex lines
+    }
+}
+
+
+// Validate checksum and process data bytes
+static bool processHexLine( const char* hexLine ) {
+    static uint16_t startAddress = 0xFFFF;
+
+    uint8_t len = hexToByte( hexLine ); // Byte count
+    uint16_t addr = ( (uint16_t)hexToByte( hexLine + 2 ) << 8) | hexToByte( hexLine + 4 );
+    uint8_t type = hexToByte( hexLine + 6 );
+    // Calculate checksum
+    uint8_t calcChecksum = len + ( addr >> 8 ) + ( addr & 0xFF ) + type;
+    uint8_t dataChecksum = 0;
+
+    // Process data bytes if type is 00 (data record)
+    if (type == 0x00) {
+        if ( addr < startAddress )
+            startAddress = addr;
+        loadHL( addr );
+        // Process each data byte
+        for ( uint8_t i = 0; i < len; i++ ) {
+            uint8_t dataByte = hexToByte( hexLine + 8 + i * 2 );
+            loadByteToRAM( dataByte );
+            calcChecksum += dataByte;
+        }
+    }
+    else if (type == 0x01) {
+        // End of file record
+        Serial.printf( F( "Start address: 0x%04X\r\n" ), startAddress );
+        BootStrAddr = startAddress;
+        return true; // ready
+    }
+    else {
+        // Other record types (extended address, etc.)
+        // Handle if needed
+        Serial.printf( F( "Record type: 0x%02X\r\n" ), type );
+        dataChecksum = hexToByte( hexLine + 8 + len * 2 );
+    }
+
+    // Complete checksum calculation (two's complement)
+    calcChecksum = (~calcChecksum + 1) & 0xFF;
+    dataChecksum = hexToByte(hexLine + 8 + len * 2);
+    if (calcChecksum != dataChecksum)
+        Serial.printf( F( "Checksum error: calc=0x%02X, got=0x%02X\r\n" ),
+            calcChecksum, dataChecksum );
+
+    return false; // not yet done
+}
+
+
 
 // End of known world for this code - Hic Sunt Leones!
