@@ -107,6 +107,7 @@ S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
 2.0.260111        Ho-Ro: New versioning 2.0.YYMMDD, support for IOS User context
 2.0.260126        Ho-Ro: Add tinybasic to IOS flash ('T')
 2.0.260205        Ho-Ro: HEX loader in IOS replaces iLoad, add WozMon to IOS flash ('W')
+2.0.260206        Ho-Ro: Handle SD card errors on startup, open menu if SD boot requested
 --------------------------------------------------------------------------------- */
 // clang-format off
 
@@ -118,7 +119,7 @@ S220718-D090126   Ho-Ro: Refactor menu - tested with ATmega1284p @ 24 MHz
 #define HW_STRING "\r\n\nZ80-MBC2-NG - A040618 - ATmega1284p"
 #endif
 
-#define VERSION_STRING "2.0.260205"
+#define VERSION_STRING "2.0.260206"
 #define BUILD_STRING __DATE__ " " __TIME__
 
 // ------------------------------------------------------------------------------
@@ -546,7 +547,7 @@ void setup() {
     if ( EEPROM.read( autoexecFlagAddr ) > 1 )
         EEPROM.update( autoexecFlagAddr, 0 );       // Reset AUTOEXEC flag to OFF if invalid
     autoexecFlag = EEPROM.read( autoexecFlagAddr ); // Read the previous stored AUTOEXEC flag
-    Serial.printf( F( "IOS: CP/M Autoexec is %s\r\n" ), autoexecFlag ? "ON" : "OFF" );
+    Serial.printf( F( "IOS: CP/M Autoexec is %s" ), autoexecFlag ? "ON" : "OFF" );
 
     // ----------------------------------------
     // BOOT SELECTION AND SYS PARAMETERS MENU
@@ -589,20 +590,31 @@ void setup() {
     const uint8_t maxSDMode = 3;   // [0..3] Basic, Forth, CP/M etc, AutoBoot
     const uint8_t maxBootMode = 6; // [0..6] as above and tinybasic2 .. hexload
 
-    mountSD( &filesysSD ); // Try to mount the SD volume
-    mountSD( &filesysSD );
+    // Check if SD card can be mounted
+    errCodeSD = mountSD( &filesysSD );
+    if ( !errCodeSD ) { // no error
+        Serial.println( F( "\r\nIOS: SD card mounted" ) );
+    } else { // disable all systems loaded from SD card
+        printErrSD( 0, errCodeSD, nullptr ); // show error message
+        for ( uint8_t pos = 0; pos <= maxSDMode; ++pos )
+            menuCharSet[ pos + 1 ] = tolower( menuCharSet[ pos + 1 ] ); // set inactive
+    }
 
     bootMode = EEPROM.read( bootModeAddr ); // Read the previous stored boot mode
-    if ( ( bootSelection == 1 ) || ( bootMode > maxBootMode ) ) {
+    if ( ( bootSelection == 1 )
+        || ( bootMode > maxBootMode )
+        || ( bootMode <= maxSDMode && errCodeSD ) ) {
         // Enter in the boot selection menu if USER key was pressed at startup
-        //   or an invalid bootMode code was read from internal EEPROM
+        //  or an invalid bootMode code was read from internal EEPROM
+        //  or SD boot is requested but no SD card was found
         while ( Serial.available() > 0 ) { // Flush input serial Rx buffer
             Serial.read();
         }
         Serial.printf( F( "\r\nIOS: Select Boot Mode or System Parameters:\r\n\n" ) );
 
-        if ( bootMode <= maxBootMode ) { // valid boot mode found
-            Serial.printf( F( "  %c: Exit without change ('%c')\r\n\n" ), M_EXIT, menuCharSet[ bootMode + 1 ] );
+        if ( bootMode <= maxBootMode && ( bootMode > maxSDMode || !errCodeSD ) ) {
+            // valid boot mode found
+            Serial.printf( F( "  %c: Exit without change (->'%c')\r\n\n" ), M_EXIT, menuCharSet[ bootMode + 1 ] );
         } else { // disable EXIT option
             byte pos = findChar( M_EXIT, menuCharSet );
             if ( pos )
@@ -610,14 +622,17 @@ void setup() {
         }
         //
         // Boot programs from SD
-        Serial.printf( F( "  %c: Basic\r\n" ), M_BASIC );     // B
-        Serial.printf( F( "  %c: Forth\r\n" ), M_FORTH );     // F
-        Serial.printf( F( "  %c: Load/Set OS " ), M_DISKOS ); // O
-        printOsName( diskSet );
-        Serial.println();
-        Serial.printf( F( "  %c: Autoboot\r\n" ), M_AUTOBOOT );     // A
+        if ( !errCodeSD ) {
+            Serial.printf( F( "  %c: Basic\r\n" ), M_BASIC );     // B
+            Serial.printf( F( "  %c: Forth\r\n" ), M_FORTH );     // F
+            Serial.printf( F( "  %c: Load/Set OS " ), M_DISKOS ); // O
+            printOsName( diskSet );
+            Serial.println();
+            Serial.printf( F( "  %c: Autoboot\r\n" ), M_AUTOBOOT ); // A
+            Serial.println();
+        }
         // Boot programs from flash
-        Serial.printf( F( "  %c: TinyBasic2\r\n" ), M_TINYBASIC2 ); // T
+        Serial.printf( F( "  %c: TinyBASIC2\r\n" ), M_TINYBASIC2 ); // T
         Serial.printf( F( "  %c: WozMon\r\n" ), M_WOZMON );         // W
         // Hex loader from IOS
         Serial.printf( F( "  %c: HexLoad\r\n" ), M_HEXLOAD );       // H
@@ -736,13 +751,17 @@ void setup() {
         };
 
         // Save selectd boot program if changed
-        bootMode = findChar( inChar, menuCharSet ) - 2; // Calculate bootMode from inChar
+        bootMode = findChar( inChar, menuCharSet  ) - 2; // Calculate bootMode from inChar
         if ( verbosity )
             Serial.printf( F( "DEBUG: bootMode: %d\r\n" ), bootMode );
-        if ( bootMode <= maxBootMode )
+        if ( bootMode <= maxBootMode && ( bootMode > maxSDMode || !errCodeSD ) )
             EEPROM.update( bootModeAddr, bootMode ); // Save to the internal EEPROM if required
-        else
+        else if ( !errCodeSD )
             bootMode = EEPROM.read( bootModeAddr ); // Reload boot mode if '0' or > '5' choice selected
+        else {
+            Serial.println( F( "IOS: System halted, press RESET" ) );
+            for(;;); // halt the system, wait for reset
+        }
     }
 
     // Print current Disk Set and OS name (if OS boot is enabled)
@@ -900,7 +919,7 @@ void setup() {
             } while ( errCodeSD );
 
         // Read the selected file from SD and load it into RAM until an EOF is reached
-        Serial.printf( F( "IOS: Loading boot program (%s)..." ), fileNameSD );
+        Serial.printf( F( "\r\nIOS: Loading boot program (%s)..." ), fileNameSD );
         do {
             // If an error occurs repeat until error disappears (or the user forces a reset)
             do {
