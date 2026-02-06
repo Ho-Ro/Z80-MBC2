@@ -17,8 +17,8 @@ and organising the progress of our ongoing work.
 
 - ATmega32 with 16 / 20 MHz (Z80 clock 8 / 10 MHz) or ATmega1284p with 20 / 24 MHz (Z80 clock 10 / 12 MHz).
 - Z80 [TinyBASIC2](TinyBasic2/README.md) (improved Palo Alto Tiny BASIC) in IOS FLASH.
-- Z80 Monitor [WozMon](IOS-Z80-MBC2-NG/README_wozmon.md) in IOS FLASH.
-- Intel HEX file loader in IOS that can load to complete Z80 address range.
+- Z80 Monitor [WozMon](WozMon/README.md) in IOS FLASH.
+- Intel HEX file loader in IOS that can load to complete Z80 address range replaces the old iLoad.
 - Original BIOS source code in Z80 syntax (`*.MAC`) and using Z80 opcodes.
 - Two new physical serial devices `SIOA` and `SIOB`, connected to the `I2C` bus.
 - The SIOs provide 64 byte RX and TX buffer and (optional) automatic RTS/CTS handshake.

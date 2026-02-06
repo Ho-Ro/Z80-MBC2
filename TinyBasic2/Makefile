@@ -36,23 +36,9 @@ tinybasic2.h: tinybasic2.hex
 	./hex2header $< $@ tinybasic2 PROGMEM
 
 
-#tinybasic2.hex: tinybasic2.cim
-#	srec_cat $< -binary -output $@ -intel --address-length=2
-#	@grep ^BYTES_FREE tinybasic2.lst
-
-#tinybasic2.cim: tinybasic2.asm Makefile
-#	zmac -c -o $@ -o tinybasic2.lst $<
-
-#tinybasic2dms.hex: tinybasic2dms.cim
-#	srec_cat $< -binary -output $@ -intel --address-length=2
-#	@grep ^BYTES_FREE tinybasic2dms.lst #| cut -d: -f2
-
-#tinybasic2dms.cim: tinybasic2dms.asm Makefile
-#	zmac -8 -c -o $@ -o tinybasic2dms.lst $<
-
-
-README.md: README.8080.in README.z80.in tinybasic2.z80 tinybasic8080.asm Makefile
-	cp README.8080.in $@
+README.md: README.in README.8080.in README.z80.in tinybasic2.z80 tinybasic8080.asm Makefile
+	cp README.in $@
+	cat README.8080.in >> $@
 	@echo '```' >> $@
 	grep '.ASCII  "' tinybasic8080.asm | cut -d\I -f3- >> $@
 	@echo '```' >> $@

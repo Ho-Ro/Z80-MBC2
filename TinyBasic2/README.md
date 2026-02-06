@@ -1,5 +1,7 @@
 # Tiny BASIC
 
+ - [Palo Alto Tiny BASIC](#palo_alto_tiny_basic)
+ - [TinyBASIC2](#tinybasic2)
 ## Palo Alto Tiny BASIC
 
 ```
@@ -33,8 +35,9 @@ array `@()` that occupies the remaining free RAM space.
 
 ### Z80-MBC2 version `tinybasic8080.asm`
 
-The I/O functions `ROUTC` and `CHKIO` and the memory size were modified for the `iLoad` command of the
-[Z80-MBC2](https://github.com/Ho-Ro/Z80-MBC2). I made some formatting changes w/o functional impact.
+The I/O functions `ROUTC` and `CHKIO` were modified for the
+[Z80-MBC2](https://github.com/Ho-Ro/Z80-MBC2).
+I made some formatting changes w/o functional impact.
 
 ### Commands of the original Tiny BASIC
 
@@ -67,7 +70,9 @@ The I/O functions `ROUTC` and `CHKIO` and the memory size were modified for the 
 ```
 ## TinyBASIC2
 
-This Z80 version was built and tested with my [Z80 dongle](https://github.com/Ho-Ro/Z80_dongle).
+This Z80 version is contained in the IOS and can be used in systems without SD card.
+
+It was initially built and tested with my [Z80 dongle](https://github.com/Ho-Ro/Z80_dongle).
 Originally written in 8080 syntax I converted it to the nicer Z80 syntax using the
 [8080 z80](https://hc-ddr.hucki.net/wiki/doku.php/cpm/8080_z80) tool and assembled it with the
 [zmac](https://github.com/gp48k/zmac) assembler
@@ -146,8 +151,8 @@ OK
 
 ### Z80-MBC2 version
 
-The I/O functions `ROUTC` and `CHKIO` and the memory size were modified for the `iLoad` command of the
-[Z80-MBC2](https://github.com/Ho-Ro/Z80-MBC2).
+TinyBASIC2 supports 62 KB RAM (0x0800-0xFFFF). The I/O functions `ROUTC` and `CHKIO`
+were modified for the [Z80-MBC2](https://github.com/Ho-Ro/Z80-MBC2) IOS ports.
 
 *TinyBASIC2* can be build with the [zmac](https://github.com/gp48k/zmac) assembler.
 

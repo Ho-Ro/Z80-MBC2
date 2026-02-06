@@ -1,5 +1,3 @@
-# Tiny BASIC
-
 ## Palo Alto Tiny BASIC
 
 ```
@@ -33,8 +31,9 @@ array `@()` that occupies the remaining free RAM space.
 
 ### Z80-MBC2 version `tinybasic8080.asm`
 
-The I/O functions `ROUTC` and `CHKIO` and the memory size were modified for the `iLoad` command of the
-[Z80-MBC2](https://github.com/Ho-Ro/Z80-MBC2). I made some formatting changes w/o functional impact.
+The I/O functions `ROUTC` and `CHKIO` were modified for the
+[Z80-MBC2](https://github.com/Ho-Ro/Z80-MBC2).
+I made some formatting changes w/o functional impact.
 
 ### Commands of the original Tiny BASIC
 
