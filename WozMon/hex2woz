@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""
+hex2woz - Convert Intel HEX input to WozMon "addr: data data data ..." text format.
+
+Usage:
+    hex2woz < hexfile > datfile
+
+Output format:
+    ADDR: DD DD DD ... DD
+"""
+
+import sys
+
+def main():
+    base_addr = 0  # for extended linear address records
+
+    for lineno, line in enumerate(sys.stdin, 1):
+        line = line.strip()
+
+        if not line or not line.startswith(":"):
+            continue
+
+        try:
+            record = bytes.fromhex(line[1:])
+        except ValueError:
+            print(f"Warning: invalid HEX at line {lineno}", file=sys.stderr)
+            continue
+
+        length = record[0]
+        addr = (record[1] << 8) | record[2]
+        rectype = record[3]
+        data = record[4:4 + length]
+        checksum = record[4 + length]
+
+        # Verify checksum
+        if (sum(record) & 0xFF) != 0:
+            print(f"Warning: bad checksum at line {lineno}", file=sys.stderr)
+            continue
+
+        # Data record
+        if rectype == 0x00:
+            full_addr = base_addr + addr
+            bytes_str = " ".join(f"{b:02X}" for b in data)
+            print(f"{full_addr:04X}: {bytes_str}")
+
+        # EOF or other record types are ignored
+
+if __name__ == "__main__":
+    main()

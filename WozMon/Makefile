@@ -1,7 +1,6 @@
 all: wozmon.h
 
 HEX2HEADER = ./hex2header
-ILOAD = ./iload
 ZASM = ./zasm
 
 wozmon.h: wozmon.hex
@@ -11,11 +10,6 @@ wozmon.h: wozmon.hex
 wozmon.hex: wozmon.asm Makefile
 	$(ZASM) -uw --target=ram -x wozmon.asm -o wozmon.hex
 	fgrep '#CODE' wozmon.lst
-
-
-.PHONY: iload
-iload: wozmon.hex
-	$(ILOAD) $<
 
 
 .PHONY: clean

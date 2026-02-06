@@ -16,6 +16,7 @@ https://github.com/jefftranter/6502/blob/master/asm/wozmon/wozmon.s
  - [Usage](#usage)
  - [Building](#building)
  - [Running](#running-wozmon)
+ - [Load and store](#load-and-store)
 
 ## Usage
 
@@ -102,7 +103,7 @@ E000: 31
 R[JUMP]
 ```
 
-# Building
+## Building
 
 This project can be assembled using `ZASM by Megatokio`. 
 
@@ -114,9 +115,9 @@ https://github.com/Megatokio/zasm
 ./zasm -uw --target=ram -x wozmon.asm -o wozmon.hex
 ```
 
-# Running Wozmon
+## Running WozMon
 
-Load `wozmon.hex` into the Z80-MBC2 using the integrated hex loader.
+WozMon can be executed directly from the Z80-MBC2 menu with the command `'W'`.
 
 You should see wozmon start up with the backslash `'\'`.
 
@@ -167,3 +168,15 @@ FFB0: 01 F1 D3 00 C9 06 FE 00
 FFB8: F1 D3 00 C9 00 00 00 3E
 ```
 
+## Load and store
+
+The python tool `hex2woz` converts an Intel HEX file into a format that can be
+transfered with `iload` and will be read by WozMon.
+
+```
+./hex2woz < program.hex > program.woz
+./iload -r program.woz
+```
+
+To store Z80 programs from WozMon on the PC, display it in WozMon and copy/paste
+it in the PC editor; to restore it, use `iload`.
