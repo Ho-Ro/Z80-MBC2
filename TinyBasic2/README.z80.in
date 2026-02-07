@@ -1,5 +1,12 @@
 ## TinyBASIC2
 
+```
+TinyBASIC2
+
+OK
+>
+```
+
 This improved Z80 version is contained in the IOS and can be used in systems without SD card.
 
 It was initially built and tested with my [Z80 dongle](https://github.com/Ho-Ro/Z80_dongle).
@@ -15,19 +22,19 @@ using the format specifier `%n`, e.g. `PRINT %16,expression,...` prints in unsig
 up to the end of this `PRINT` statement.
 The BASIC statement `HALT` executes the Z80 opcode `HALT` that halts the CPU.
 
-*TinyBASIC2* supports
-the arithmetic operators `*`, `/`, `&` (level 3), `+`, `-`, `|` (level 2) and the logical operators
-`=`, `#` or `<>`, `<=`, `<`, `>=`, `>` (level 1) with decreasing priority level.
-*TinyBASIC2* interpreter with my additions still uses less than 2K ROM.
+*TinyBASIC2* supports these operators with decreasing priority level.
 
-```
-TinyBASIC2
+- arithmetic
+  - `*`, `/`, `&` (level 3)
+  - `+`, `-`, `|` (level 2)
 
-OK
->
-```
+- logical
+  - `=`, `#` or `<>`, `<=`, `<`, `>=`, `>` (level 1)
 
-### Tiny BASIC examples ###
+The *TinyBASIC2* interpreter with my additions still uses less than 2K ROM.
+
+
+### TinyBASIC2 examples ###
 
 This little code line uses my HW extensions to hex-dump the content of the program memory.
 
@@ -80,6 +87,11 @@ abcdefghijklmnopqrstuvwxyz
 
 OK
 ```
+
+*TinyBASIC2* has no intrinsic commands for saving and restoring code. To save BASIC
+programs, list the program code with the command `LIST` and copy&paste it into the
+PC editor. To restore a saved program clear the code space with `NEW` and than
+send the BASIC code using the `iload` tool.
 
 ### Z80-MBC2 version
 

@@ -70,24 +70,6 @@ I made some formatting changes w/o functional impact.
 ```
 ## TinyBASIC2
 
-This Z80 version is contained in the IOS and can be used in systems without SD card.
-
-It was initially built and tested with my [Z80 dongle](https://github.com/Ho-Ro/Z80_dongle).
-Originally written in 8080 syntax I converted it to the nicer Z80 syntax using the
-[8080 z80](https://hc-ddr.hucki.net/wiki/doku.php/cpm/8080_z80) tool and assembled it with the
-[zmac](https://github.com/gp48k/zmac) assembler
-(with [one fix](https://github.com/Ho-Ro/zmac/tree/fix_hash)). I also added some HW-oriented
-functionality like `GET(addr)`, `PUT addr,val,val,...` as well as char constants (`'x'`)
-and hex constants that are written as `$xxxx` and the possibility to print values as `uint16_t`
-in different number bases n=2..16 using the format specifier `%n`, e.g.
-`PRINT %16,expression,...` prints in unsigned hex up to the end of this `PRINT` statement.
-The BASIC statement `HALT` executes the Z80 opcode `HALT` that halts the CPU.
-
-*TinyBASIC2* supports
-the arithmetic operators `*`, `/`, `&` (level 3), `+`, `-`, `|` (level 2) and the logical operators
-`=`, `#` or `<>`, `<=`, `<`, `>=`, `>` (level 1) with decreasing priority level.
-*TinyBASIC2* interpreter with my additions still uses less than 2K ROM.
-
 ```
 TinyBASIC2
 
@@ -95,7 +77,34 @@ OK
 >
 ```
 
-### Tiny BASIC examples ###
+This improved Z80 version is contained in the IOS and can be used in systems without SD card.
+
+It was initially built and tested with my [Z80 dongle](https://github.com/Ho-Ro/Z80_dongle).
+Originally written in 8080 syntax I converted it to the nicer Z80 syntax using the
+[8080 z80](https://hc-ddr.hucki.net/wiki/doku.php/cpm/8080_z80) tool and assembled it with the
+[zmac](https://github.com/gp48k/zmac) assembler
+(with [one fix](https://github.com/Ho-Ro/zmac/tree/fix_hash)).
+
+I also added some HW-oriented functionality like `GET(addr)`, `PUT addr,val,val,...`
+as well as char constants (`'x'`) and hex constants that are written as `$xxxx`
+and the possibility to print values as `uint16_t` in different number bases n=2..16
+using the format specifier `%n`, e.g. `PRINT %16,expression,...` prints in unsigned hex
+up to the end of this `PRINT` statement.
+The BASIC statement `HALT` executes the Z80 opcode `HALT` that halts the CPU.
+
+*TinyBASIC2* supports these operators with decreasing priority level.
+
+- arithmetic
+  - `*`, `/`, `&` (level 3)
+  - `+`, `-`, `|` (level 2)
+
+- logical
+  - `=`, `#` or `<>`, `<=`, `<`, `>=`, `>` (level 1)
+
+The *TinyBASIC2* interpreter with my additions still uses less than 2K ROM.
+
+
+### TinyBASIC2 examples ###
 
 This little code line uses my HW extensions to hex-dump the content of the program memory.
 
@@ -125,8 +134,8 @@ Depending on the context `t.` could either be the constant `top` or the statemen
 same for `get()` and `goto`.
 
 The `USR()` function calls the Z80 opcode at address `TOP` (i.e. RAM end - 0x100) with the
-argument passed in register `HL` and returns the result in register `HL`.
-This not very useful example puts the Z80 opcodes `INC HL` and `RET` into the `USR` program space and calls it
+argument passed in register `HL` and returns the result in register `HL`. This not very useful
+example puts the Z80 opcodes `INC HL` and `RET` into the `USR` program space and calls it
 via the funtion `USR(123)`.
 
 ```
@@ -148,6 +157,11 @@ abcdefghijklmnopqrstuvwxyz
 
 OK
 ```
+
+*TinyBASIC2* has no intrinsic commands for saving and restoring code. To save BASIC
+programs, list the program code with the command `LIST` and copy&paste it into the
+PC editor. To restore a saved program clear the code space with `NEW` and than
+send the BASIC code using the `iload` tool.
 
 ### Z80-MBC2 version
 
