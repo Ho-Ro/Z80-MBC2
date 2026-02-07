@@ -21,8 +21,7 @@ eos				.equ	$00				; End of string
 cr				.equ	$0d				; Carriage return
 lf				.equ	$0a				; Line feed
 
-	ORG $0						; Force the HEX output of zasm to start at $8000
-	ORG $8000					;
+	ORG $8000
 
 	LD	SP, $84FF
 	LD	A,wverbose_opcode

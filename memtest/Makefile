@@ -1,14 +1,17 @@
 
 all: memtest.hex memloop.hex
 
+ZASM = zasm
+ILOAD = ./iload
+
 memtest.hex: memtest.asm
-	zasm -x $<
+	$(ZASM) -x --target=ram $<
 
 memloop.hex: memloop.asm
-	zasm -x $<
+	$(ZASM) -x --target=ram $<
 
 test: memtest.hex
-	./iload.py $<
+	$(ILOAD) $<
 
 loop: memloop.hex
-	./iload.py $<
+	$(ILOAD) $<

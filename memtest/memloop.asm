@@ -4,7 +4,7 @@
 ; how to build
 
 ; install zasm from https://github.com/Megatokio/zasm/releases
-; zasm -x memloop.asm
+; zasm -x --target=ram memloop.asm
 
 ; LOOPS THROUGH THE FOLLOWING REGIONS OF MEMORY:
 ; $8500 - $FFFF	COMMON			; Bit ugly but avoids this program and stack
@@ -45,8 +45,7 @@ upper_bottom	.equ	$8000
 upper_start	.equ	$8500
 upper_size	.equ	$7B00
 
-		ORG $0				; Force the HEX output of zasm to start at $8000
-		ORG upper_bottom		;
+		ORG upper_bottom
 
 		LD	SP,upper_start
 		LD	A,wverbose_opcode
