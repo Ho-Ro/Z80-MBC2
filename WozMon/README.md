@@ -121,7 +121,7 @@ WozMon can be executed directly from the Z80-MBC2 menu with the command `'W'`.
 
 You should see wozmon start up with the backslash `'\'`.
 
-Display its own code with `fe80.ffbf`:
+Display its own code with `fe80.ffbf` (in `WOZ` format):
 
 ```
 \
@@ -170,13 +170,27 @@ FFB8: F1 D3 00 C9 00 00 00 3E
 
 ## Load and store
 
-The python tool `hex2woz` converts an Intel HEX file into a format that can be
-transfered with `iload` and will be read by WozMon.
+The python tool `hex2woz` converts an Intel HEX file into the `WOZ` format that
+can be transfered with `iload` and will be read by WozMon.
 
 ```
 ./hex2woz < program.hex > program.woz
 ./iload -r program.woz
 ```
 
+Also recent `iload` versions support the output in `WOZ` format with the cmd line
+option `--woz` or `-w`.
+
+```
+./iload -r -w program.hex
+```
+
 To store Z80 programs from WozMon on the PC, display it in WozMon and copy/paste
 it in the PC editor; to restore it, use `iload`.
+
+### WOZ format
+
+The `WOZ` format consists of the 16 bit hex address followed by 8 bit hex data.
+
+    ADDR: DD DD DD DD ...
+

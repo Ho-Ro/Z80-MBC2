@@ -10,10 +10,7 @@
 ; Christian Welzel 2023 - www.welzel-online.ch
 ;
 ; Code can be compiled in Zasm assembler by following parameters:
-;./ zasm -uwy --target=ram -x wozmon.asm -o wozmon.hex
-
-; Optional "Wozmon" greeting at start-up added. (can be removed to save space)
-;
+; ./zasm -uw --target=ram -x wozmon.asm -o wozmon.hex
 
 ; IO map
 ;
@@ -74,10 +71,10 @@ NOTCR           cp      BS             ; Backspace key?
 
 ESCAPE          call    CRLFOUT
                 ld      a, BACKSL       ; "\".
-                call    OUTCH            ; Output it.
+                call    OUTCH           ; Output it.
 
 GETLIN          call    CRLFOUT
-                ld      iy, INBUF + 1    ; Initialize text index.
+                ld      iy, INBUF + 1   ; Initialize text index.
 
 BACKSPACE       dec     iy              ; Back up text index.
                 ld      b, iyl          ; Beyond start of line, reinitialize.
@@ -92,7 +89,7 @@ NEXTCHAR        call    GETCH           ; Read a char from "virtual" UART
                 call    z, BACKPACK
                 inc     iy
                 ld      (iy), a         ; Add to text buffer.
-                call    OUTCH            ; Display character.
+                call    OUTCH           ; Display character.
                 cp      CR              ; CR?
                 jr      nz, NOTCR       ; No.
 
@@ -163,7 +160,7 @@ QUIT            halt                    ; "Q": Quit
 
 
 CRLFOUT         ld      a, CR           ; CR.
-                call    OUTCH            ; Output it.
+                call    OUTCH           ; Output it.
 LFOUT           ld      a, LF           ; LF.
                 jr      OUTCH           ; Output it.
 
@@ -189,7 +186,7 @@ NXTPRNT         jp      nz, PRDATA      ; NE means no address to print.
                 ld      a, ixl          ; Low-order 'examine index' byte.
                 call    PRBYTE          ; Output it in hex format.
                 ld      a, COLON        ; ":".
-                call    OUTCH            ; Output it.
+                call    OUTCH           ; Output it.
 
 PRDATA          ld      a, SPC          ; Blank.
                 call    OUTCH           ; Output it.

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-iload.py - Send text, Intel HEX, or binary-as-Intel-HEX to a serial port.
-
-Uses pyserial for portable, reliable serial communications.
+iload.py - Serial loader for text, Intel HEX, WOZ, and binary files.
 
 Features:
-- Text mode with optional HEX checksum validation
-- Binary mode: convert .bin to Intel HEX starting at required address
-- Optional --eof adds a CTRL-Z byte after transfer
-- Configurable baudrate, line endings, delay, verbose debug
+- Auto-detect input lines: Intel HEX, WOZ, or plain text
+- Binary mode: binary -> Intel HEX or WOZ (start address required)
+- Optional WOZ output format (-w / --woz)
+- WOZ input: syntax check only, sent verbatim
+- Configurable baud rate, delay, line endings
+- Optional CTRL-Z EOF (--eof)
+- Uses pyserial
 """
 
 import sys
@@ -18,193 +19,166 @@ import re
 import serial
 import os
 
-# Intel HEX format detection
-HEX_LINE_RE = re.compile(r"^:[0-9A-Fa-f]{2}(?:[0-9A-Fa-f]{4}[0-9A-Fa-f]{2}(?:[0-9A-Fa-f]{2})*)?[0-9A-Fa-f]{2}$")
+# ---------- Regex patterns ----------
+HEX_RE = re.compile(r"^:[0-9A-Fa-f]+$")
+WOZ_RE = re.compile(r"^[0-9A-Fa-f]+:\s*(?:[0-9A-Fa-f]{2}\s*)*$")
 
-def is_hex_candidate(line: str) -> bool:
-    return bool(HEX_LINE_RE.match(line.strip()))
-
-def is_valid_intel_hex(line: str) -> bool:
-    line = line.strip()
-    if len(line) < 11:
-        return False
-    if not is_hex_candidate(line):
-        return False
+# ---------- Intel HEX helpers ----------
+def parse_intel_hex(line):
     try:
-        data = bytes.fromhex(line[1:])
+        raw = bytes.fromhex(line[1:])
     except ValueError:
-        return False
-    checksum = sum(data) & 0xFF
-    return checksum == 0
+        return None
 
-def make_hex_line(addr, chunk):
-    """Create a complete Intel HEX line for a given address and data block."""
-    ll = len(chunk)
-    a_hi = (addr >> 8) & 0xFF
-    a_lo = addr & 0xFF
-    record = [ll, a_hi, a_lo, 0x00] + list(chunk)
-    checksum = (-sum(record)) & 0xFF
-    hexdata = "".join(f"{b:02X}" for b in record)
-    return f":{hexdata}{checksum:02X}"
+    if (sum(raw) & 0xFF) != 0:
+        return None
 
+    length = raw[0]
+    addr = (raw[1] << 8) | raw[2]
+    rectype = raw[3]
+    data = raw[4:4 + length]
+    return rectype, addr, data
+
+def make_hex_line(addr, data):
+    ll = len(data)
+    rec = [ll, (addr >> 8) & 0xFF, addr & 0xFF, 0x00] + list(data)
+    checksum = (-sum(rec)) & 0xFF
+    return ":" + "".join(f"{b:02X}" for b in rec) + f"{checksum:02X}"
+
+# ---------- WOZ helpers ----------
+def parse_woz(line):
+    if not WOZ_RE.match(line):
+        return None
+    try:
+        addr_str, data_str = line.split(":", 1)
+        addr = int(addr_str.strip(), 16)
+        data = bytes(int(b, 16) for b in data_str.split())
+    except ValueError:
+        return None
+    return addr, data
+
+def make_woz_line(addr, data):
+    return f"{addr:04X}: " + " ".join(f"{b:02X}" for b in data)
+
+# ---------- Main ----------
 def main():
-    parser = argparse.ArgumentParser(
-        description="Send text, Intel HEX, or binary data to a serial port."
-    )
+    parser = argparse.ArgumentParser(description="Serial loader (HEX / WOZ / binary)")
 
-    parser.add_argument("textfile", nargs="?", help="Input file (or stdin if omitted)")
-    parser.add_argument("-p", "--port", default="/dev/ttyUSB0",
-                        help="Serial port (default: /dev/ttyUSB0)")
-    parser.add_argument("--baud", type=int, default=115200,
-                        help="Baud rate (default: 115200)")
-    parser.add_argument("-d", "--delay", type=float, default=5,
-                        help="Delay between lines in ms (default: 5)")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="Verbose output")
-    parser.add_argument("-t", "--text", action="store_true",
-                        help="Treat input as plain text (disable HEX checking)")
+    parser.add_argument("textfile", nargs="?", help="Input file (default: stdin)")
+    parser.add_argument("-p", "--port", default="/dev/ttyUSB0", help="Serial port")
+    parser.add_argument("--baud", type=int, default=115200, help="Baud rate")
+    parser.add_argument("-d", "--delay", type=float, default=5, help="Delay (ms)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    parser.add_argument("-b", "--binary", metavar="ADDR",
+                        help="Binary mode: start address (hex required)")
+    parser.add_argument("-w", "--woz", action="store_true",
+                        help="Output WOZ format instead of Intel HEX")
 
     parser.add_argument("--eof", action="store_true",
-                        help="Send CTRL-Z (0x1A) after transmission")
+                        help="Send CTRL-Z (0x1A) after transfer")
 
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("-c", "--crlf", action="store_true", help="Use CRLF (\\r\\n)")
-    group.add_argument("-l", "--lf", action="store_true", help="Use LF (\\n)")
-    group.add_argument("-r", "--cr", action="store_true", help="Use CR (\\r)")
-
-    parser.add_argument(
-        "-b", "--binary",
-        metavar="ADDR",
-        help="Binary mode: required starting hex address, e.g. -b 4000"
-    )
+    group.add_argument("-c", "--crlf", action="store_true")
+    group.add_argument("-l", "--lf", action="store_true")
+    group.add_argument("-r", "--cr", action="store_true")
 
     args = parser.parse_args()
-    delay_seconds = args.delay / 1000.0
+    delay = args.delay / 1000.0
 
-    # Decide line ending
-    if args.crlf:   forced_ending = b"\r\n"
-    elif args.lf:   forced_ending = b"\n"
-    elif args.cr:   forced_ending = b"\r"
-    else:           forced_ending = None
+    if args.crlf: newline = b"\r\n"
+    elif args.lf: newline = b"\n"
+    elif args.cr: newline = b"\r"
+    else: newline = b"\n"
 
-    #
-    # Open the serial port using pyserial
-    #
     try:
-        ser = serial.Serial(
-            port=args.port,
-            baudrate=args.baud,
-            timeout=1,
-            write_timeout=1
-        )
-    except serial.serialutil.SerialException as e:
+        ser = serial.Serial(args.port, args.baud, timeout=1, write_timeout=1)
+    except serial.SerialException as e:
         print(f"Serial error: {e}", file=sys.stderr)
         sys.exit(1)
 
     if args.verbose:
-        print(f"[VERBOSE] Opened port {args.port} at {args.baud} baud")
+        print(f"[VERBOSE] {args.port} @ {args.baud}", file=sys.stderr)
 
-    #
-    # ---- BINARY MODE ----
-    #
-    if args.binary is not None:
+    # ---------- Binary mode ----------
+    if args.binary:
         try:
-            start_addr = int(args.binary, 16)
+            addr = int(args.binary, 16)
         except ValueError:
-            print(f"Error: invalid hex address '{args.binary}'", file=sys.stderr)
+            print("Invalid binary start address", file=sys.stderr)
             sys.exit(1)
 
-        if args.textfile:
-            if not os.path.isfile(args.textfile):
-                print(f"Error: file '{args.textfile}' not found.", file=sys.stderr)
-                sys.exit(1)
-            with open(args.textfile, "rb") as f:
-                data = f.read()
-        else:
-            data = sys.stdin.buffer.read()
+        data = (open(args.textfile, "rb").read()
+                if args.textfile else sys.stdin.buffer.read())
 
-        if args.verbose:
-            print(f"[VERBOSE] Binary→HEX, start addr = 0x{start_addr:04X}, {len(data)} bytes")
+        for i in range(0, len(data), 16):
+            chunk = data[i:i + 16]
+            line = make_woz_line(addr, chunk) if args.woz else make_hex_line(addr, chunk)
 
-        addr = start_addr
-        block_size = 16
-
-        for offset in range(0, len(data), block_size):
-            chunk = data[offset : offset + block_size]
-            line = make_hex_line(addr, chunk)
-            ser.write(line.encode("ascii") + b"\n")
+            ser.write(line.encode() + newline)
             ser.flush()
             if args.verbose:
-                print(f"[HEX] {line}")
+                print(line)
             addr += len(chunk)
-            time.sleep(delay_seconds)
+            time.sleep(delay)
 
-        eof = ":00000001FF"
-        ser.write(eof.encode("ascii") + b"\n")
-        ser.flush()
-        if args.verbose:
-            print(f"[HEX] {eof}")
+        if not args.woz:
+            ser.write(b":00000001FF" + newline)
 
         if args.eof:
             ser.write(b"\x1A")
-            ser.flush()
-            if args.verbose:
-                print("[VERBOSE] Sent EOF byte (CTRL-Z)")
 
         ser.close()
         return
 
-    #
-    # ---- TEXT or TEXT+HEX MODE ----
-    #
-    infile = open(args.textfile, "r") if args.textfile else sys.stdin
+    # ---------- Text / HEX / WOZ input ----------
+    infile = open(args.textfile) if args.textfile else sys.stdin
 
-    for lineno, original_line in enumerate(infile, 1):
-        # Strip line ending
-        if original_line.endswith("\r\n"):
-            base = original_line[:-2]
-            original_ending = b"\r\n"
-        elif original_line.endswith("\n"):
-            base = original_line[:-1]
-            original_ending = b"\n"
-        elif original_line.endswith("\r"):
-            base = original_line[:-1]
-            original_ending = b"\r"
-        else:
-            base = original_line
-            original_ending = b""
+    base_addr = 0
+    for lineno, line in enumerate(infile, 1):
+        line = line.rstrip("\r\n")
 
-        stripped = base.strip()
-
-        if not args.text and is_hex_candidate(stripped):
-            if not is_valid_intel_hex(stripped):
-                print(f"Warning: invalid HEX checksum at line {lineno}, skipped.",
-                      file=sys.stderr)
+        # Intel HEX
+        if HEX_RE.match(line):
+            if args.verbose:
+                print(f"HEX: ", line, file=sys.stderr)
+            parsed = parse_intel_hex(line)
+            if not parsed:
+                print(f"Warning: bad HEX at line {lineno}", file=sys.stderr)
+                continue
+            rectype, addr, data = parsed
+            if rectype == 0x00:
+                full = base_addr + addr
+                out = make_woz_line(full, data) if args.woz else line
+            elif rectype == 0x04:
+                base_addr = int.from_bytes(data, "big") << 16
                 continue
             else:
-                if args.verbose:
-                    print(f"[VERBOSE] HEX OK line {lineno}")
+                continue
 
-        # Choose the outgoing newline
-        newline = forced_ending if forced_ending is not None else original_ending
+        # WOZ (syntax check only, no conversion)
+        elif WOZ_RE.match(line):
+            if args.verbose:
+                print(f"WOZ: ", line, file=sys.stderr)
+            if not parse_woz(line):
+                print(f"Warning: bad WOZ at line {lineno}", file=sys.stderr)
+            out = line
 
-        # Send
-        ser.write(base.encode("ascii", errors="replace") + newline)
+        # Plain text
+        else:
+            if args.verbose:
+                print(f"TXT: ", line, file=sys.stderr)
+            out = line
+
+        ser.write(out.encode(errors="replace") + newline)
         ser.flush()
-
-        if args.verbose:
-            print(f"[SEND] {repr(base + newline.decode(errors='replace'))}")
-
-        time.sleep(delay_seconds)
+        time.sleep(delay)
 
     if args.eof:
         ser.write(b"\x1A")
-        ser.flush()
-        if args.verbose:
-            print("[VERBOSE] Sent EOF byte (CTRL-Z)")
 
     ser.close()
 
-
 if __name__ == "__main__":
     main()
+
