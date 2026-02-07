@@ -1,16 +1,16 @@
 # Z80 WozMon
 
-An Adaption of Wozmon in Z80 assembly with Input/Output set up for for the Z80-MBC2.
+An Adaption of WozMon in Z80 assembly with Input/Output set up for for the Z80-MBC2.
 
-The Woz Monitor, also known as Wozmon, is a simple memory monitor
+The Woz Monitor, also known as WozMon, is a simple memory monitor
 and was the system software located in the 256 byte PROM on the Apple-1 from 1976.
-Wozmon is used to inspect and modify memory contents or to execute programs
+WozMon is used to inspect and modify memory contents or to execute programs
 already located in memory.
 
 The Z80 version occupies the high 512 byte of RAM where the address range `0xFE00-0xFE7F`
 is used as input buffer and the range `0xFE80-0xFFFF` is used for code, data and stack.
 
-The source code for the original Wozmon can be found here:
+The source code for the original WozMon can be found here:
 https://github.com/jefftranter/6502/blob/master/asm/wozmon/wozmon.s
 
  - [Usage](#usage)
@@ -20,25 +20,26 @@ https://github.com/jefftranter/6502/blob/master/asm/wozmon/wozmon.s
 
 ## Usage
 
-Wozmon operates and adheres to the same syntax as the original Wozmon on the Apple-1. The commands contain memory addresses and special characters for specifying whether to perform a read, write, or execute operation on them.
+WozMon operates and adheres to the same syntax as the original WozMon on the Apple-1. The commands contain memory addresses and special characters for specifying whether to perform a read, write, or execute operation on them.
 
-On startup Wozmon will display a backslash follow by a new line.
+On startup WozMon will display a backslash follow by a new line.
 
 ```
 \
 ```
 
-Wozmon will interpret any hex value as a memory address. If the provided hex value is greater then 4 digits, then the last 4 digits is used as the address.
+WozMon will interpret any hex value as a memory address. If the provided hex value is greater then 4 digits, then the last 4 digits is used as the address.
 
-Wozmon has 4 different modes.
+WozMon has 4 different modes.
  
  1. [Examine mode ](#examine-mode)
  2. [Block Examine mode](#block-examine-mode)
  3. [Store mode](#store-mode)
  4. [Execute mode](#executing-code)
 
- ### Examine mode
-  Entering a hex value and pressing enter will display the 1 byte value at that address
+### Examine mode
+
+Entering a hex value and pressing enter will display the 1 byte value at that address
 
 ```
 \
@@ -47,8 +48,9 @@ E000
 E000: 31
 ```
 
- ### Block Examine mode
- Entering a hex value followed by a `.` folowed by an hex value will display all bytes in that range.
+### Block Examine mode
+
+Entering a hex value followed by a `.` folowed by an hex value will display all bytes in that range.
 
 ```
 \
@@ -61,8 +63,10 @@ E018: E1 3E 0D CD 59 E1 3E 0A
 
 ```
 
- ### Store mode
-  Entering a hex value followed by a `:` will allow you to write bytes starting at that memory address. Wozmon will show what the first byte at the starting address was before the write
+### Store mode
+
+Entering a hex value followed by a `:` will allow you to write bytes starting at that memory address.
+WozMon will show what the first byte at the starting address was before the write.
 
 ```
 \
@@ -85,9 +89,9 @@ E018: E1 3E 0D CD 59 E1 3E 0A
 0008: 00 00 00 00 00 00 00 00
 ```
 
- ### Executing code
+### Executing code
 
- Entering `R` will jump to the last examined address
+Entering `R` will jump to the last examined address.
 
 ```
 \
