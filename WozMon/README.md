@@ -1,45 +1,45 @@
-# Z80 WozMon
-
-An Adaption of WozMon in Z80 assembly with Input/Output set up for for the Z80-MBC2.
-
-The Woz Monitor, also known as WozMon, is a simple memory monitor
-and was the system software located in the 256 byte PROM on the Apple-1 from 1976.
-WozMon is used to inspect and modify memory contents or to execute programs
-already located in memory.
-
-The Z80 version occupies the high 512 byte of RAM where the address range `0xFE00-0xFE7F`
-is used as input buffer and the range `0xFE80-0xFFFF` is used for code, data and stack.
-
-The source code for the original WozMon can be found here:
-https://github.com/jefftranter/6502/blob/master/asm/wozmon/wozmon.s
+# Z80 *WozMon*
 
  - [Usage](#usage)
  - [Building](#building)
  - [Running](#running-wozmon)
  - [Load and store](#load-and-store)
 
+An Adaption of *WozMon* in Z80 assembly with Input/Output set up for for the Z80-MBC2.
+
+The *Woz Monitor*, also known as *WozMon*, is a simple memory monitor
+and was the system software located in the 256 byte PROM on the Apple-1 from 1976.
+*WozMon* is used to inspect and modify memory contents or to execute programs
+already located in memory.
+
+The Z80 version occupies the high 512 byte of RAM where the address range `0xFE00-0xFE7F`
+is used as input buffer and the range `0xFE80-0xFFFF` is used for code, data and stack.
+
+The source code for the original *WozMon* can be found here:
+https://github.com/jefftranter/6502/blob/master/asm/wozmon/wozmon.s
+
 ## Usage
 
-WozMon operates and adheres to the same syntax as the original WozMon on the Apple-1. The commands contain memory addresses and special characters for specifying whether to perform a read, write, or execute operation on them.
+*WozMon* operates and adheres to the same syntax as the original *WozMon* on the Apple-1. The commands contain memory addresses and special characters for specifying whether to perform a read, write, or execute operation on them.
 
-On startup WozMon will display a backslash follow by a new line.
+On startup *WozMon* will display a backslash follow by a new line.
 
 ```
 \
 ```
 
-WozMon will interpret any hex value as a memory address. If the provided hex value is greater then 4 digits, then the last 4 digits is used as the address.
+*WozMon* will interpret any hex value as a memory address. If the provided hex value is greater then 4 digits, then the last 4 digits are used as the address.
 
-WozMon has 4 different modes.
+*WozMon* has 4 different modes.
  
  1. [Examine mode ](#examine-mode)
  2. [Block Examine mode](#block-examine-mode)
- 3. [Store mode](#store-mode)
+ 3. [Modify mode](#modify-mode)
  4. [Execute mode](#executing-code)
 
 ### Examine mode
 
-Entering a hex value and pressing enter will display the 1 byte value at that address
+Entering a hex value and pressing enter will display the byte value at that address
 
 ```
 \
@@ -50,7 +50,7 @@ E000: 31
 
 ### Block Examine mode
 
-Entering a hex value followed by a `.` folowed by an hex value will display all bytes in that range.
+Entering a hex value followed by a dot `'.'` folowed by an hex value will display all bytes in that range.
 
 ```
 \
@@ -63,10 +63,11 @@ E018: E1 3E 0D CD 59 E1 3E 0A
 
 ```
 
-### Store mode
+### Modify mode
 
-Entering a hex value followed by a `:` will allow you to write bytes starting at that memory address.
-WozMon will show what the first byte at the starting address was before the write.
+By entering a hexadecimal address followed by a colon `':'` and one or more bytes,
+you can write these values starting at that memory location.
+*WozMon* will then display the original value of the byte at the start address before writing.
 
 ```
 \
@@ -88,6 +89,8 @@ WozMon will show what the first byte at the starting address was before the writ
 0000: FF FF FF FF FF FF FF FF
 0008: 00 00 00 00 00 00 00 00
 ```
+
+The input can be terminated with `'^C'` without modifying the memory.
 
 ### Executing code
 
@@ -119,11 +122,11 @@ https://github.com/Megatokio/zasm
 ./zasm -uw --target=ram -x wozmon.asm -o wozmon.hex
 ```
 
-## Running WozMon
+## Running *WozMon*
 
-WozMon can be executed directly from the Z80-MBC2 menu with the command `'W'`.
+*WozMon* can be executed directly from the Z80-MBC2 menu with the command `'W'`.
 
-You should see wozmon start up with the backslash `'\'`.
+After starting, Wozmon displays a backslash `'\'` and waits for input.
 
 Display its own code with `fe80.ffbf` (in `WOZ` format):
 
@@ -175,7 +178,7 @@ FFB8: F1 D3 00 C9 00 00 00 3E
 ## Load and store
 
 The python tool `hex2woz` converts an Intel HEX file into the `WOZ` format that
-can be transfered with `iload` and will be read by WozMon.
+can be transfered with `iload` and will be read by *WozMon*.
 
 ```
 ./hex2woz < program.hex > program.woz
@@ -189,7 +192,7 @@ option `--woz` or `-w`.
 ./iload -r -w program.hex
 ```
 
-To store Z80 programs from WozMon on the PC, display it in WozMon and copy/paste
+To store Z80 programs from *WozMon* on the PC, display it in *WozMon* and copy/paste
 it in the PC editor; to restore it, use `iload`.
 
 ### WOZ format
