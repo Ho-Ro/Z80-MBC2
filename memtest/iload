@@ -134,7 +134,6 @@ def main():
     # ---------- Text / HEX / WOZ input ----------
     infile = open(args.textfile) if args.textfile else sys.stdin
 
-    base_addr = 0
     for lineno, line in enumerate(infile, 1):
         line = line.rstrip("\r\n")
 
@@ -148,11 +147,9 @@ def main():
                 continue
             rectype, addr, data = parsed
             if rectype == 0x00:
-                full = base_addr + addr
-                out = make_woz_line(full, data) if args.woz else line
-            elif rectype == 0x04:
-                base_addr = int.from_bytes(data, "big") << 16
-                continue
+                out = make_woz_line(addr, data) if args.woz else line
+            elif not args.woz and rectype == 0x01:
+                out = line
             else:
                 continue
 
