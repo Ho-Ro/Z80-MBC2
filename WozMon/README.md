@@ -1,9 +1,9 @@
 # Z80 *WozMon*
 
  - [Usage](#usage)
- - [Building](#building)
  - [Running](#running-wozmon)
- - [Load and store](#load-and-store)
+ - [Load and Store](#load-and-store)
+ - [Building](#building)
 
 An Adaption of *WozMon* in Z80 assembly with Input/Output set up for for the Z80-MBC2.
 
@@ -28,8 +28,6 @@ On startup *WozMon* will display a backslash follow by a new line.
 \
 ```
 
-*WozMon* will interpret any hex value as a memory address. If the provided hex value is greater then 4 digits, then the last 4 digits are used as the address.
-
 *WozMon* has 4 different modes.
  
  1. [Examine mode ](#examine-mode)
@@ -37,9 +35,11 @@ On startup *WozMon* will display a backslash follow by a new line.
  3. [Modify mode](#modify-mode)
  4. [Execute mode](#executing-code)
 
-### Examine mode
+### Examine Mode
 
-Entering a hex value and pressing enter will display the byte value at that address
+Entering a hex value and pressing enter will display the byte value at that address.
+*WozMon* will interpret any hex value as a memory address. If the provided hex value
+is greater then 4 digits, then the last 4 digits are used as the address.
 
 ```
 \
@@ -48,9 +48,10 @@ E000
 E000: 31
 ```
 
-### Block Examine mode
+### Block Examine Mode
 
-Entering a hex value followed by a dot `'.'` folowed by an hex value will display all bytes in that range.
+Entering a hex value followed by a dot `'.'` folowed by an hex value will display
+all bytes in that range.
 
 ```
 \
@@ -63,11 +64,11 @@ E018: E1 3E 0D CD 59 E1 3E 0A
 
 ```
 
-### Modify mode
+### Modify Mode
 
 By entering a hexadecimal address followed by a colon `':'` and one or more bytes,
-you can write these values starting at that memory location.
-*WozMon* will then display the original value of the byte at the start address before writing.
+you can write these values starting at that memory location. *WozMon* will then display
+the original value of the byte at the start address before writing.
 
 ```
 \
@@ -92,7 +93,7 @@ you can write these values starting at that memory location.
 
 The input can be terminated with `'^C'` without modifying the memory.
 
-### Executing code
+### Executing Code
 
 Entering `R` will jump to the last examined address.
 
@@ -110,17 +111,16 @@ E000: 31
 R[JUMP]
 ```
 
-## Building
+### Jump Table
 
-This project can be assembled using `ZASM by Megatokio`. 
+*WozMon* provides a jump table at the beginning with fixed addresses
+of useful subroutines for user programs:
 
-#### ZASM - Z80, 8080 Assembler
-
-https://github.com/Megatokio/zasm
-
-```
-./zasm -uw --target=ram -x wozmon.asm -o wozmon.hex
-```
+- XX80: RESET   (WozMon cold start)
+- XX83: GETCHAR (wait for char, return in A)
+- XX86: OUTCHAR (output char in A)
+- XX89: PRTBYTE (output byte in A as XX in HEX)
+- XX8C: CRLFOUT (output CR, LF)
 
 ## Running *WozMon*
 
@@ -128,52 +128,55 @@ https://github.com/Megatokio/zasm
 
 After starting, Wozmon displays a backslash `'\'` and waits for input.
 
-Display its own code with `fe80.ffbf` (in `WOZ` format):
+Display its own code with `fe80.ffb9` (in `WOZ` format):
+
 
 ```
 \
-fe80.ffbf
-FE80: C3 89 FE C3 AC FF DB 01
-FE88: C9 31 00 00 FD 21 00 FE
-FE90: 18 0E FE 08 28 19 FE 03
-FE98: 28 06 FD 45 CB 78 28 1A
-FEA0: CD 42 FF 3E 5C CD AC FF
-FEA8: CD 42 FF FD 21 01 FE FD
-FEB0: 2B FD 45 CB 78 20 F1 CD
-FEB8: 4D FF CD 86 FE FE FF 28
-FEC0: F9 FE 08 CC 4B FF FD 23
-FEC8: FD 77 00 CD AC FF FE 0D
-FED0: 20 C0 FD 21 00 FE 3E 00
-FED8: DD 6F CB 27 CB 27 32 B7
-FEE0: FF FD 23 FD 7E 00 FE 0D
-FEE8: 28 BE FE 2E 38 F3 28 EA
-FEF0: FE 3A 28 E8 FE 52 28 47
-FEF8: FE 51 CA 41 FF 21 00 00
-FF00: FD 22 B5 FF FD 7E 00 EE
-FF08: 30 FE 0A 38 08 F6 20 CE
-FF10: 89 FE F9 38 15 CB 27 CB
-FF18: 27 CB 27 CB 27 06 04 17
-FF20: CB 15 CB 14 10 F9 FD 23
-FF28: 18 DA FD 45 3A B5 FF B8
-FF30: CA A0 FE 3A B7 FF CB 77
-FF38: 28 1D 7D 12 13 18 A4 DD
-FF40: E9 76 3E 0D CD AC FF 3E
-FF48: 0A 18 61 FD 2B 3E 20 CD
-FF50: AC FF 3E 08 C3 AC FF CB
-FF58: 7F 20 26 54 5D E5 DD E1
-FF60: BF C2 76 FF CD 42 FF DD
-FF68: 7C CD 95 FF DD 7D CD 95
-FF70: FF 3E 3A CD AC FF 3E 20
-FF78: CD AC FF DD 7E 00 CD 95
-FF80: FF AF 32 B7 FF DD 7D BD
-FF88: DD 7C 9C 30 B0 DD 23 DD
-FF90: 7D E6 07 18 CC F5 CB 3F
-FF98: CB 3F CB 3F CB 3F CD A2
-FFA0: FF F1 E6 0F F6 30 FE 3A
-FFA8: 38 02 CE 07 F5 3E 01 D3
-FFB0: 01 F1 D3 00 C9 06 FE 00
-FFB8: F1 D3 00 C9 00 00 00 3E
+fe80.ffb9
+FE80: C3 96 FE C3 46 FF C3 AE
+FE88: FF C3 97 FF 3E 0D CD AE
+FE90: FF 3E 0A C3 AE FF 31 00
+FE98: 00 FD 21 00 FE 18 0E FE
+FEA0: 08 28 19 FE 03 28 06 FD
+FEA8: 45 CB 78 28 1A CD 8C FE
+FEB0: 3E 5C CD AE FF CD 8C FE
+FEB8: FD 21 01 FE FD 2B FD 45
+FEC0: CB 78 20 F1 CD 4F FF CD
+FEC8: 46 FF FE 08 CC 4D FF FD
+FED0: 23 FD 77 00 CD AE FF FE
+FED8: 0D 20 C4 FD 21 00 FE AF
+FEE0: DD 6F DD 67 CB 27 CB 27
+FEE8: 32 B9 FF FD 23 FD 7E 00
+FEF0: FE 0D 28 C1 FE 2E 38 F3
+FEF8: 28 EA FE 3A 28 E8 FE 52
+FF00: 20 02 DD E9 21 00 00 FD
+FF08: 22 B7 FF FD 7E 00 EE 30
+FF10: FE 0A 38 08 F6 20 CE 89
+FF18: FE F9 38 15 CB 27 CB 27
+FF20: CB 27 CB 27 06 04 17 CB
+FF28: 15 CB 14 10 F9 FD 23 18
+FF30: DA FD 45 3A B7 FF B8 CA
+FF38: AD FE 3A B9 FF CB 77 28
+FF40: 18 7D 12 13 18 A7 DB 01
+FF48: FE FF 28 FA C9 FD 2B 3E
+FF50: 20 CD AE FF 3E 08 C3 AE
+FF58: FF CB 7F 20 26 54 5D E5
+FF60: DD E1 BF C2 78 FF CD 8C
+FF68: FE DD 7C CD 97 FF DD 7D
+FF70: CD 97 FF 3E 3A CD AE FF
+FF78: 3E 20 CD AE FF DD 7E 00
+FF80: CD 97 FF AF 32 B9 FF DD
+FF88: 7D BD DD 7C 9C 30 B5 DD
+FF90: 23 DD 7D E6 07 18 CC F5
+FF98: CB 3F CB 3F CB 3F CB 3F
+FFA0: CD A4 FF F1 E6 0F F6 30
+FFA8: FE 3A 38 02 CE 07 F5 3E
+FFB0: 01 D3 01 F1 D3 00 C9 06
+FFB8: FE 00
+
 ```
+
 
 ## Load and store
 
@@ -200,4 +203,16 @@ it in the PC editor; to restore it, use `iload`.
 The `WOZ` format consists of the 16 bit hex address followed by 8 bit hex data.
 
     ADDR: DD DD DD DD ...
+
+## Building
+
+This project can be assembled using `ZASM by Megatokio`.
+
+#### ZASM - Z80, 8080 Assembler
+
+https://github.com/Megatokio/zasm
+
+```
+./zasm -uw --target=ram -x wozmon.asm -o wozmon.hex
+```
 

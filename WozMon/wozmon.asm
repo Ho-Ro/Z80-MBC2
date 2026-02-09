@@ -34,7 +34,6 @@ SPC             .EQU    ' '             ; Space
 DOT             .EQU    '.'             ; Period
 COLON           .EQU    ':'             ; Colon
 BACKSL          .EQU    $5C             ; back slash
-CTRLQ           .EQU    $11             ; Ctrl-Q to enter SYMON monitor
 
 
 INBUF           .EQU    $FE00           ; must start at 0xXX00
@@ -46,20 +45,29 @@ stack_top       .EQU    $0000           ; stack grows down
                 jp      RESET           ; coldstart
 
                                         ; I/O jump table
-                jp      OUTCH           ; XXX3: out char in A
+;----------------------------------------------------------------------------------
+; Z80-MBC2: RXD ROUTINE receives 1 byte from serial in to A REGISTER
+GETCHAR         jp      GETCH           ; XX83: Wait for char, ret in A
 
 ;----------------------------------------------------------------------------------
-;Z80-MBC2 IOS RXD ROUTINE receives 1 byte from serial in to A REGISTER
+; Z80-MBC2: TXD ROUTINE sends contents of A REGISTER to serial out
+OUTCHAR         jp      OUTCH           ; XX86: out char in A
 
-GETCH           in      a,(RXD)         ; XXX6: Get char (or 0xFF if no char)
-                ret
+;----------------------------------------------------------------------------------
+PRTBYTE         jp      PRBYT           ; XX89: out A as HEX
+
+;----------------------------------------------------------------------------------
+CRLFOUT         ld      a, CR           ; XX8C: out CR,LF
+                call    OUTCH
+LFOUT           ld      a, LF           ; destroys A (A=LF)
+                jp      OUTCH
 
 
-RESET           ld      sp,stack_top   ; Init Stack
+RESET           ld      sp,stack_top    ; Init Stack
                 ld      iy,INBUF
                 jr      ESCAPE
 
-NOTCR           cp      BS             ; Backspace key?
+NOTCR           cp      BS              ; Backspace key?
                 jr      z, BACKSPACE
                 cp      CTRLC           ; ^C?
                 jr      z, ESCAPE       ; Yes.
@@ -82,9 +90,7 @@ BACKSPACE       dec     iy              ; Back up text index.
                 jr      nz, GETLIN      ; jp if bit 7 is set (minus)
                 call    OVERWRITE       ; overwrite with SPC and BS
 
-NEXTCHAR        call    GETCH           ; Read a char from "virtual" UART
-                cp      $FF             ; Char? ($FF from UART = no char)
-                jr      z, NEXTCHAR     ; No, loop until valid character
+NEXTCHAR        call    GETCH           ; wait for char in A
                 cp      BS              ; Backspace key?
                 call    z, BACKPACK
                 inc     iy
@@ -94,25 +100,25 @@ NEXTCHAR        call    GETCH           ; Read a char from "virtual" UART
                 jr      nz, NOTCR       ; No.
 
                 ld      iy, INBUF       ; Reset text index. (DEFAULT ınbuf)
-                ld      a, $00          ; For XAM mode.
+                xor     a               ; For XAM mode.
                 ld      ixl, a          ; TAX  ; X=0.
-SETBLOCK        sla     a
-SETSTOR         sla     a               ; Leaves $7B if setting STOR mode.
+                ld      ixh, a          ; Init ix = 0 ('R' w/o address jumps to $0000)
+SETBLOCK        sla     a               ; Leaves $2E<<2 = $B8 if setting BLOK XAM
+SETSTOR         sla     a               ; Leaves $3A<<1 = $74 if setting STOR mode.
                 ld      (MODE), a       ; $00 = XAM, $74 = STOR, $B8 = BLOK XAM.
 BLSKIP          inc     iy              ; Advance text index.
 NEXTITEM        ld      a, (iy)         ; Get character.
                 cp      CR              ; CR?
                 jr      z, GETLIN       ; Yes, done this line.
-                cp      DOT             ; "."?
-                jr      c, BLSKIP       ; Skip delimiter.
+                cp      DOT             ; '.' (0x2E)?
+                jr      c, BLSKIP       ; all char < '.', skip delimiter.
                 jr      z, SETBLOCK     ; Set BLOCK XAM mode.
-                cp      COLON           ; ":"?
+                cp      COLON           ; ':' (0x3A)?
                 jr      z, SETSTOR      ; Yes, set STOR mode.
-                cp      'R'             ; "R"?
-                jr      z, RUN          ; Yes, run user program.
-                cp      'Q'             ; "Q"?
-                jp      z, QUIT         ; Yes, quit to user program.
-                ld      hl, $0000       ; $00 -> L and H.
+                cp      'R'             ; RUN?
+                jr      nz, NXTI1       ; No
+                jp      (ix)            ; Yes, run user program.
+NXTI1           ld      hl, $0000       ; $00 -> L and H.
                 ld      (YSAV), iy      ; Save Y for comparison
 
 NEXTHEX         ld      a, (iy)         ; Get character for hex test.
@@ -154,15 +160,10 @@ NOTHEX          ld      b, iyl          ; Check if L, H empty (no hex digits).
 TONEXTITEM      jr      NEXTITEM        ; Get next command item.
 
 
-RUN             jp      (ix)            ; "R": Run at current XAM index.
-
-QUIT            halt                    ; "Q": Quit
-
-
-CRLFOUT         ld      a, CR           ; CR.
-                call    OUTCH           ; Output it.
-LFOUT           ld      a, LF           ; LF.
-                jr      OUTCH           ; Output it.
+GETCH           in      a,(RXD)         ; Read a char from "virtual" UART
+                cp      $FF             ; Char? ($FF from UART = no char)
+                jr      z, GETCH        ; No, loop until valid character
+                ret
 
 
 ;Backspace bug removed with this code below
@@ -182,16 +183,16 @@ SETADR          ld      de, hl          ; Copy hex data to 'store index'.
 NXTPRNT         jp      nz, PRDATA      ; NE means no address to print.
                 call    CRLFOUT         ; Output it.
                 ld      a, ixh          ; 'Examine index' high-order byte.
-                call    PRBYTE          ; Output it in hex format.
+                call    PRBYT           ; Output it in hex format.
                 ld      a, ixl          ; Low-order 'examine index' byte.
-                call    PRBYTE          ; Output it in hex format.
+                call    PRBYT           ; Output it in hex format.
                 ld      a, COLON        ; ":".
                 call    OUTCH           ; Output it.
 
 PRDATA          ld      a, SPC          ; Blank.
                 call    OUTCH           ; Output it.
                 ld      a, (ix)         ; Get data byte at 'examine index'.
-                call    PRBYTE          ; Output it in hex format.
+                call    PRBYT           ; Output it in hex format.
 XAMNEXT         xor     a
                 ld      (MODE), a       ; 0 -> MODE (XAM mode).
                 ld      a, ixl
@@ -206,7 +207,7 @@ MOD8CHK         ld      a, ixl          ; Check low-order 'examine index' byte
                 and     a, $07          ; For MOD 8 = 0
                 jr      NXTPRNT         ; Always taken.
 
-PRBYTE          push    af              ; Save A for LSD.
+PRBYT           push    af              ; Save A for LSD.
                 srl     a
                 srl     a
                 srl     a               ; MSD to LSD position.
@@ -221,12 +222,8 @@ PRHEX           and     $0F             ; Mask LSD for hex print.
                 adc     $07             ; Add offset for letter
                                         ;  and fall-through to OUTCH.
 
-;-----------------------------------------------------------------------------------
-; HW IO routines for Z80-MBC2 IOS
-;-----------------------------------------------------------------------------------
-
 ;----------------------------------------------------------------------------------
-;TXD ROUTINE sends contents of A REGISTER to serial out
+; Z80-MBC2: TXD ROUTINE sends contents of A REGISTER to serial out
 
 OUTCH           push    af              ; Save TXD char
                 ld      a, OPC_TX       ; TXD opcode
@@ -235,8 +232,8 @@ OUTCH           push    af              ; Save TXD char
                 out     (EX_OPC),a      ; Execute TXD
                 ret
 
-YSAV            ds      2
-MODE            ds      1
+YSAV            dw      0
+MODE            db      0
 
 
                 .END
