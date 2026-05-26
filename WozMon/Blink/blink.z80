@@ -1,0 +1,55 @@
+; LED blink program for Z80
+
+; Z80_MBC2_IOS ports
+WR_OPC  equ     1               ; write opcode to this port
+RxD     equ     1
+WR_EXE  equ     0               ; write execute
+RD_EXE  equ     0               ; read execute
+
+WOZMON  equ     0FE80h          ; WozMon restart
+
+        ASEG
+        ORG     8000h           ; program starts at this address
+
+START:
+        LD      SP,STACK
+MAIN_LOOP:
+        XOR     A               ; 0 = OPC_USER_LED
+        OUT     (WR_OPC),A      ; write opcode
+        INC     A               ; A = 1
+        OUT     (WR_EXE),A      ; execute opcode (1: LED on)
+
+        LD      A,5             ; 5 delay loops
+        CALL    DELAY           ; wait
+
+        XOR     A               ; 0 = OPC_USER_LED
+        OUT     (WR_OPC),A      ; write opcode
+        OUT     (WR_EXE),A      ; execute opcode (0: LED off)
+
+        LD      A,5             ; 5 delay loops
+        CALL    DELAY           ; wait
+
+        IN      A,(RxD)         ; check input char
+        INC     A               ; FF: no char -> 00
+        JR      Z,MAIN_LOOP     ; loop if none
+
+        JP      WOZMON          ; exit
+
+
+DELAY:
+        ; input: A = loop count
+        LD      BC,0000h
+DELAY_INNER:
+        DEC     C               ; 4 Taktzyklen
+        JR      NZ,DELAY_INNER  ; 12/7 Taktzyklen
+        DEC     B               ; 4 Taktzyklen
+        JR      NZ,DELAY_INNER  ; 12/7 Taktzyklen
+        DEC     A
+        JR      NZ,DELAY_INNER
+        RET
+
+        ; stack space
+        DS      32
+STACK:
+
+        END
