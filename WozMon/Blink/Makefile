@@ -1,6 +1,10 @@
 
 TARGET = blink
 
+CPM.COM = ../../CPM.COM
+ZMAC = $(CPM.COM)/TNYLPO $(CPM.COM)/zmac
+
+ILOAD = ../../memtest/iload
 
 HEX = $(TARGET).hex
 Z80 = $(TARGET).z80
@@ -9,10 +13,21 @@ Z80 = $(TARGET).z80
 all: $(HEX)
 
 
+$(HEX): $(Z80) Makefile
+	$(ZMAC) $< /hp
+
+.PHONY: hexload
+hexload: $(HEX)
+	$(ILOAD) $<
+
+.PHONY: wozload
+wozload: $(HEX)
+	$(ILOAD) --woz $<
+
 .PHONY:	clean
 clean:
-	rm *.lst *.prn *.hex
+	rm -f *.prn *.hex
 
-$(HEX): $(Z80) Makefile
-	tnylpo zmac $< /hp
-
+.PHONY:	distclean
+distclean: clean
+	rm -f *~ .*~
