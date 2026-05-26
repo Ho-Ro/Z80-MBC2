@@ -25,6 +25,7 @@ import os
 HEX_RE = re.compile(r"^:[0-9A-Fa-f]+$")
 WOZ_RE = re.compile(r"^[0-9A-Fa-f]+:\s*(?:[0-9A-Fa-f]{2}\s*)*$")
 
+# max number of data bytes in woz line
 WOZ_SIZE = 16
 
 # ---------- Intel HEX helpers ----------
@@ -113,7 +114,7 @@ def main():
     if args.crlf: newline = b"\r\n"
     elif args.lf: newline = b"\n"
     elif args.cr: newline = b"\r"
-    else: newline = b"\n"
+    else: newline = b"\r"
 
     # Parse offset
     offset = 0
