@@ -2,7 +2,7 @@
 TARGET = blink
 
 CPM.COM = ../../CPM.COM
-ZMAC = $(CPM.COM)/TNYLPO $(CPM.COM)/zmac
+Z80ASM = $(CPM.COM)/TNYLPO $(CPM.COM)/z80asm
 
 ILOAD = ../../memtest/iload
 
@@ -14,7 +14,7 @@ all: $(HEX)
 
 
 $(HEX): $(Z80) Makefile
-	$(ZMAC) $< /hp
+	$(Z80ASM) $(TARGET)/fh
 
 .PHONY: hexload
 hexload: $(HEX)
@@ -26,7 +26,7 @@ wozload: $(HEX)
 
 .PHONY:	clean
 clean:
-	rm -f *.prn *.hex
+	rm -f *.lst *.hex
 
 .PHONY:	distclean
 distclean: clean
