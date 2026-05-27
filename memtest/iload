@@ -11,7 +11,8 @@ Features:
 - Optional CTRL-Z EOF (--eof)
 - Optional address offset for HEX/WOZ output (--offset)
 - WOZ output limited to 16 data bytes per line
-- Strips leading ^Z characters from HEX input
+- Strips trailing ^Z characters from input
+- Optional stdout output mode (-s / --stdout)
 """
 
 import sys
@@ -83,6 +84,44 @@ def make_woz_line(addr, data):
     """Create a single WOZ format line."""
     return f"{addr:04X}: " + " ".join(f"{b:02X}" for b in data)
 
+# ---------- Output helper ----------
+class OutputWriter:
+    """Handles output to either serial port or stdout."""
+    def __init__(self, to_stdout=False, ser=None, newline=b"\n"):
+        self.to_stdout = to_stdout
+        self.ser = ser
+        self.newline = newline
+
+    def write(self, data):
+        """Write data to the appropriate output."""
+        if self.to_stdout:
+            if isinstance(data, bytes):
+                sys.stdout.buffer.write(data + self.newline)
+            else:
+                sys.stdout.write(data + self.newline.decode())
+            sys.stdout.flush()
+        else:
+            if self.ser:
+                if isinstance(data, str):
+                    data = data.encode()
+                self.ser.write(data + self.newline)
+                self.ser.flush()
+
+    def write_raw(self, data):
+        """Write raw data without adding newline."""
+        if self.to_stdout:
+            if isinstance(data, bytes):
+                sys.stdout.buffer.write(data)
+            else:
+                sys.stdout.write(data)
+            sys.stdout.flush()
+        else:
+            if self.ser:
+                if isinstance(data, str):
+                    data = data.encode()
+                self.ser.write(data)
+                self.ser.flush()
+
 # ---------- Main ----------
 def main():
     parser = argparse.ArgumentParser(description="Serial loader (HEX / WOZ / binary)")
@@ -99,6 +138,8 @@ def main():
                         help="Output WOZ format instead of Intel HEX")
     parser.add_argument("-o", "--offset", metavar="OFFSET",
                         help="Address offset for HEX/WOZ output (hex, can be negative)")
+    parser.add_argument("-s", "--stdout", action="store_true",
+                        help="Send output to stdout instead of serial port")
 
     parser.add_argument("--eof", action="store_true",
                         help="Send CTRL-Z (0x1A) after transfer")
@@ -111,10 +152,13 @@ def main():
     args = parser.parse_args()
     delay = args.delay / 1000.0
 
+    # Set newline character (default is LF for stdout, CR for serial)
     if args.crlf: newline = b"\r\n"
     elif args.lf: newline = b"\n"
     elif args.cr: newline = b"\r"
-    else: newline = b"\r"
+    else:
+        # Default: LF for stdout, CR for serial
+        newline = b"\n" if args.stdout else b"\r"
 
     # Parse offset
     offset = 0
@@ -131,14 +175,21 @@ def main():
         if args.verbose:
             print(f"[VERBOSE] Address offset: {offset:#x} ({offset})", file=sys.stderr)
 
-    try:
-        ser = serial.Serial(args.port, args.baud, timeout=1, write_timeout=1)
-    except serial.SerialException as e:
-        print(f"Serial error: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Initialize output writer
+    ser = None
+    if not args.stdout:
+        try:
+            ser = serial.Serial(args.port, args.baud, timeout=1, write_timeout=1)
+        except serial.SerialException as e:
+            print(f"Serial error: {e}", file=sys.stderr)
+            sys.exit(1)
+        if args.verbose:
+            print(f"[VERBOSE] {args.port} @ {args.baud}", file=sys.stderr)
+    else:
+        if args.verbose:
+            print(f"[VERBOSE] Output to stdout", file=sys.stderr)
 
-    if args.verbose:
-        print(f"[VERBOSE] {args.port} @ {args.baud}", file=sys.stderr)
+    writer = OutputWriter(to_stdout=args.stdout, ser=ser, newline=newline)
 
     # ---------- Binary mode ----------
     if args.binary:
@@ -159,19 +210,20 @@ def main():
             lines = make_hex_lines(out_addr, data)
 
         for line in lines:
-            ser.write(line.encode() + newline)
-            ser.flush()
+            writer.write(line)
             if args.verbose:
                 print(line)
-            time.sleep(delay)
+            if not args.stdout:
+                time.sleep(delay)
 
         if not args.woz:
-            ser.write(b":00000001FF" + newline)
+            writer.write_raw(b":00000001FF")
 
         if args.eof:
-            ser.write(b"\x1A")
+            writer.write_raw(b"\x1A")
 
-        ser.close()
+        if ser:
+            ser.close()
         return
 
     # ---------- Text / HEX / WOZ input ----------
@@ -207,11 +259,11 @@ def main():
                     # Split into WOZ lines with max WOZ_SIZE bytes per line
                     woz_lines = make_woz_lines(out_addr, data, max_bytes=WOZ_SIZE)
                     for woz_line in woz_lines:
-                        ser.write(woz_line.encode(errors="replace") + newline)
-                        ser.flush()
+                        writer.write(woz_line)
                         if args.verbose:
                             print(woz_line)
-                        time.sleep(delay)
+                        if not args.stdout:
+                            time.sleep(delay)
                     continue
                 else:
                     out = make_hex_line(out_addr, data)
@@ -235,11 +287,11 @@ def main():
                     # Split into WOZ_SIZE byte chunks if needed
                     woz_lines = make_woz_lines(out_addr, data, max_bytes=WOZ_SIZE)
                     for woz_line in woz_lines:
-                        ser.write(woz_line.encode(errors="replace") + newline)
-                        ser.flush()
+                        writer.write(woz_line)
                         if args.verbose:
                             print(woz_line)
-                        time.sleep(delay)
+                        if not args.stdout:
+                            time.sleep(delay)
                     continue
                 else:
                     out = line
@@ -250,16 +302,17 @@ def main():
                 print(f"TXT: ", line, file=sys.stderr)
             out = line
 
-        ser.write(out.encode(errors="replace") + newline)
-        ser.flush()
-        time.sleep(delay)
+        writer.write(out)
+        if not args.stdout:
+            time.sleep(delay)
 
     if args.eof:
-        ser.write(b"\x1A")
+        writer.write_raw(b"\x1A")
         if args.verbose:
             print("[VERBOSE] Sent CTRL-Z (0x1A)", file=sys.stderr)
 
-    ser.close()
+    if ser:
+        ser.close()
 
 if __name__ == "__main__":
     main()
