@@ -6,7 +6,8 @@ Features:
 - Auto-detect input lines: Intel HEX, WOZ, or plain text
 - Binary mode: binary -> Intel HEX or WOZ (start address required)
 - Optional WOZ output format (-w / --woz)
-- WOZ input: syntax check only, sent verbatim
+- Optional HEX output format (-x / --hex) for WOZ input
+- WOZ input: passed through verbatim unless -x is used
 - Configurable baud rate, delay, line endings
 - Optional CTRL-Z EOF (--eof)
 - Optional address offset for HEX/WOZ output (--offset)
@@ -15,18 +16,10 @@ Features:
 - Optional stdout output mode (-s / --stdout)
 """
 
-import sys
-import time
-import argparse
-import re
-import serial
-import os
+import sys, time, argparse, re, serial, os
 
-# ---------- Regex patterns ----------
 HEX_RE = re.compile(r"^:[0-9A-Fa-f]+$")
 WOZ_RE = re.compile(r"^[0-9A-Fa-f]+:\s*(?:[0-9A-Fa-f]{2}\s*)*$")
-
-# max number of data bytes in woz line
 WOZ_SIZE = 16
 
 # ---------- Intel HEX helpers ----------
@@ -35,10 +28,8 @@ def parse_intel_hex(line):
         raw = bytes.fromhex(line[1:])
     except ValueError:
         return None
-
     if (sum(raw) & 0xFF) != 0:
         return None
-
     length = raw[0]
     addr = (raw[1] << 8) | raw[2]
     rectype = raw[3]
@@ -46,7 +37,6 @@ def parse_intel_hex(line):
     return rectype, addr, data
 
 def make_hex_lines(addr, data):
-    """Generate Intel HEX lines, splitting into 16-byte chunks."""
     lines = []
     for i in range(0, len(data), 16):
         chunk = data[i:i + 16]
@@ -54,7 +44,6 @@ def make_hex_lines(addr, data):
     return lines
 
 def make_hex_line(addr, data):
-    """Create a single Intel HEX line."""
     ll = len(data)
     rec = [ll, (addr >> 8) & 0xFF, addr & 0xFF, 0x00] + list(data)
     checksum = (-sum(rec)) & 0xFF
@@ -73,7 +62,6 @@ def parse_woz(line):
     return addr, data
 
 def make_woz_lines(addr, data, max_bytes=WOZ_SIZE):
-    """Generate WOZ format lines, splitting into chunks of max_bytes."""
     lines = []
     for i in range(0, len(data), max_bytes):
         chunk = data[i:i + max_bytes]
@@ -81,19 +69,16 @@ def make_woz_lines(addr, data, max_bytes=WOZ_SIZE):
     return lines
 
 def make_woz_line(addr, data):
-    """Create a single WOZ format line."""
     return f"{addr:04X}: " + " ".join(f"{b:02X}" for b in data)
 
 # ---------- Output helper ----------
 class OutputWriter:
-    """Handles output to either serial port or stdout."""
     def __init__(self, to_stdout=False, ser=None, newline=b"\n"):
         self.to_stdout = to_stdout
         self.ser = ser
         self.newline = newline
 
     def write(self, data):
-        """Write data to the appropriate output."""
         if self.to_stdout:
             if isinstance(data, bytes):
                 sys.stdout.buffer.write(data + self.newline)
@@ -108,7 +93,6 @@ class OutputWriter:
                 self.ser.flush()
 
     def write_raw(self, data):
-        """Write raw data without adding newline."""
         if self.to_stdout:
             if isinstance(data, bytes):
                 sys.stdout.buffer.write(data)
@@ -122,60 +106,42 @@ class OutputWriter:
                 self.ser.write(data)
                 self.ser.flush()
 
-# ---------- Main ----------
 def main():
-    parser = argparse.ArgumentParser(description="Serial loader (HEX / WOZ / binary)")
-
-    parser.add_argument("textfile", nargs="?", help="Input file (default: stdin)")
-    parser.add_argument("-p", "--port", default="/dev/ttyUSB0", help="Serial port")
-    parser.add_argument("--baud", type=int, default=115200, help="Baud rate")
-    parser.add_argument("-d", "--delay", type=float, default=5, help="Delay (ms)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-
-    parser.add_argument("-b", "--binary", metavar="ADDR",
-                        help="Binary mode: start address (hex required)")
-    parser.add_argument("-w", "--woz", action="store_true",
-                        help="Output WOZ format instead of Intel HEX")
-    parser.add_argument("-o", "--offset", metavar="OFFSET",
-                        help="Address offset for HEX/WOZ output (hex, can be negative)")
-    parser.add_argument("-s", "--stdout", action="store_true",
-                        help="Send output to stdout instead of serial port")
-
-    parser.add_argument("--eof", action="store_true",
-                        help="Send CTRL-Z (0x1A) after transfer")
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("textfile", nargs="?")
+    parser.add_argument("-p", "--port", default="/dev/ttyUSB0")
+    parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument("-d", "--delay", type=float, default=5)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-b", "--binary", metavar="ADDR")
+    parser.add_argument("-w", "--woz", action="store_true")
+    parser.add_argument("-x", "--hex", action="store_true")
+    parser.add_argument("-o", "--offset", metavar="OFFSET")
+    parser.add_argument("-s", "--stdout", action="store_true")
+    parser.add_argument("--eof", action="store_true")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-c", "--crlf", action="store_true")
     group.add_argument("-l", "--lf", action="store_true")
     group.add_argument("-r", "--cr", action="store_true")
-
     args = parser.parse_args()
     delay = args.delay / 1000.0
 
-    # Set newline character (default is LF for stdout, CR for serial)
     if args.crlf: newline = b"\r\n"
     elif args.lf: newline = b"\n"
     elif args.cr: newline = b"\r"
-    else:
-        # Default: LF for stdout, CR for serial
-        newline = b"\n" if args.stdout else b"\r"
+    else: newline = b"\n" if args.stdout else b"\r"
 
-    # Parse offset
     offset = 0
     if args.offset:
         try:
-            # Handle negative hex values
-            if args.offset.startswith('-'):
-                offset = -int(args.offset[1:], 16)
-            else:
-                offset = int(args.offset, 16)
+            offset = int(args.offset, 16) if not args.offset.startswith('-') else -int(args.offset[1:], 16)
         except ValueError:
-            print("Invalid offset value", file=sys.stderr)
+            print("Invalid offset", file=sys.stderr)
             sys.exit(1)
-        if args.verbose:
-            print(f"[VERBOSE] Address offset: {offset:#x} ({offset})", file=sys.stderr)
 
-    # Initialize output writer
+    output_woz = args.woz and not args.hex
+    output_hex = args.hex                     # only true when -x is given
+
     ser = None
     if not args.stdout:
         try:
@@ -183,12 +149,6 @@ def main():
         except serial.SerialException as e:
             print(f"Serial error: {e}", file=sys.stderr)
             sys.exit(1)
-        if args.verbose:
-            print(f"[VERBOSE] {args.port} @ {args.baud}", file=sys.stderr)
-    else:
-        if args.verbose:
-            print(f"[VERBOSE] Output to stdout", file=sys.stderr)
-
     writer = OutputWriter(to_stdout=args.stdout, ser=ser, newline=newline)
 
     # ---------- Binary mode ----------
@@ -198,56 +158,34 @@ def main():
         except ValueError:
             print("Invalid binary start address", file=sys.stderr)
             sys.exit(1)
-
-        data = (open(args.textfile, "rb").read()
-                if args.textfile else sys.stdin.buffer.read())
-
+        data = open(args.textfile, "rb").read() if args.textfile else sys.stdin.buffer.read()
         out_addr = addr + offset
-
-        if args.woz:
-            lines = make_woz_lines(out_addr, data, max_bytes=WOZ_SIZE)
-        else:
-            lines = make_hex_lines(out_addr, data)
-
+        lines = make_woz_lines(out_addr, data) if output_woz else make_hex_lines(out_addr, data)
         for line in lines:
             writer.write(line)
-            if args.verbose:
-                print(line)
-            if not args.stdout:
-                time.sleep(delay)
-
-        if not args.woz:
-            writer.write_raw(b":00000001FF")
-
-        if args.eof:
-            writer.write_raw(b"\x1A")
-
-        if ser:
-            ser.close()
+            if not args.stdout: time.sleep(delay)
+        if not output_woz:
+            eof = ":00000001FF"
+            if args.stdout: sys.stdout.write(eof + newline.decode()); sys.stdout.flush()
+            else: ser.write(eof.encode() + newline); ser.flush()
+        if args.eof: writer.write_raw(b"\x1A")
+        if ser: ser.close()
         return
 
     # ---------- Text / HEX / WOZ input ----------
     infile = open(args.textfile, "rb") if args.textfile else sys.stdin.buffer
-
-    # Read entire content and strip trailing ^Z characters
     content = infile.read()
     z_pos = content.find(b'\x1a')
-    if z_pos != -1:
-        content = content[:z_pos]
-    # Convert back to text lines
+    if z_pos != -1: content = content[:z_pos]
     lines = content.decode('latin-1').splitlines(True)
+
+    eof_sent = False   # track if we already output a HEX EOF record
 
     for lineno, line in enumerate(lines, 1):
         line = line.rstrip("\r\n")
+        if not line: continue
 
-        # Skip empty lines
-        if not line:
-            continue
-
-        # Intel HEX
         if HEX_RE.match(line):
-            if args.verbose:
-                print(f"HEX: ", line, file=sys.stderr)
             parsed = parse_intel_hex(line)
             if not parsed:
                 print(f"Warning: bad HEX at line {lineno}", file=sys.stderr)
@@ -255,64 +193,66 @@ def main():
             rectype, addr, data = parsed
             if rectype == 0x00:
                 out_addr = addr + offset
-                if args.woz:
-                    # Split into WOZ lines with max WOZ_SIZE bytes per line
-                    woz_lines = make_woz_lines(out_addr, data, max_bytes=WOZ_SIZE)
-                    for woz_line in woz_lines:
-                        writer.write(woz_line)
-                        if args.verbose:
-                            print(woz_line)
-                        if not args.stdout:
-                            time.sleep(delay)
+                if output_woz:
+                    for w in make_woz_lines(out_addr, data):
+                        writer.write(w)
+                        if not args.stdout: time.sleep(delay)
                     continue
-                else:
+                elif output_hex or offset != 0:
                     out = make_hex_line(out_addr, data)
-            elif rectype == 0x01 and not args.woz:
+                else:
+                    out = line
+            elif rectype == 0x01:
+                if output_woz:
+                    continue
                 out = line
+                eof_sent = True     # we are passing through an EOF record
             else:
                 continue
 
-        # WOZ (apply offset if specified)
         elif WOZ_RE.match(line):
-            if args.verbose:
-                print(f"WOZ: ", line, file=sys.stderr)
             parsed = parse_woz(line)
             if not parsed:
-                print(f"Warning: bad WOZ at line {lineno}", file=sys.stderr)
-                out = line
+                if not output_hex:
+                    out = line
+                else:
+                    continue
             else:
                 addr, data = parsed
-                if offset != 0 or len(data) > WOZ_SIZE:
-                    out_addr = addr + offset
-                    # Split into WOZ_SIZE byte chunks if needed
-                    woz_lines = make_woz_lines(out_addr, data, max_bytes=WOZ_SIZE)
-                    for woz_line in woz_lines:
-                        writer.write(woz_line)
-                        if args.verbose:
-                            print(woz_line)
-                        if not args.stdout:
-                            time.sleep(delay)
+                out_addr = addr + offset
+                if output_hex:                     # -x: convert to HEX
+                    for h in make_hex_lines(out_addr, data):
+                        writer.write(h)
+                        if not args.stdout: time.sleep(delay)
                     continue
+                elif output_woz:
+                    if offset != 0 or len(data) > WOZ_SIZE:
+                        for w in make_woz_lines(out_addr, data):
+                            writer.write(w)
+                            if not args.stdout: time.sleep(delay)
+                        continue
+                    else:
+                        out = line
                 else:
-                    out = line
+                    if offset != 0:
+                        out = make_woz_line(out_addr, data)
+                    else:
+                        out = line
 
-        # Plain text
         else:
-            if args.verbose:
-                print(f"TXT: ", line, file=sys.stderr)
             out = line
 
         writer.write(out)
-        if not args.stdout:
-            time.sleep(delay)
+        if not args.stdout: time.sleep(delay)
 
-    if args.eof:
-        writer.write_raw(b"\x1A")
-        if args.verbose:
-            print("[VERBOSE] Sent CTRL-Z (0x1A)", file=sys.stderr)
+    # Add HEX EOF only if -x was given and we didn't already output one
+    if output_hex and not eof_sent:
+        eof = ":00000001FF"
+        if args.stdout: sys.stdout.write(eof + newline.decode()); sys.stdout.flush()
+        else: ser.write(eof.encode() + newline); ser.flush()
 
-    if ser:
-        ser.close()
+    if args.eof: writer.write_raw(b"\x1A")
+    if ser: ser.close()
 
 if __name__ == "__main__":
     main()
