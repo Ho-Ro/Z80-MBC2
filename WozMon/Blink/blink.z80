@@ -1,4 +1,8 @@
-; LED blink program for Z80
+; LED Blink Program for Z80-MBC2 with WozMon
+; Blinks an LED at 1 Hz
+; Any key press terminates the program and returns to WozMon
+; using port 1 for opcode and port 0 for execution
+; Assumes a 12 MHz Z80 clock
 
 ; Z80_MBC2_IOS ports
 WR_OPC  equ     1               ; write opcode to this port
@@ -6,50 +10,68 @@ RxD     equ     1
 WR_EXE  equ     0               ; write execute
 RD_EXE  equ     0               ; read execute
 
+START   equ     0000h           ;
 WOZMON  equ     0FE80h          ; WozMon restart
 
         ASEG
-        ORG     8000h           ; program starts at this address
+        ORG     START           ; Start address: 0
 
-START:
-        LD      SP,STACK
+        LD      SP, STACK       ; Initialise stack pointer
+
+; --- Main loop ---
 MAIN_LOOP:
         XOR     A               ; 0 = OPC_USER_LED
         OUT     (WR_OPC),A      ; write opcode
         INC     A               ; A = 1
         OUT     (WR_EXE),A      ; execute opcode (1: LED on)
 
-        LD      A,5             ; 5 delay loops
-        CALL    DELAY           ; wait
+        CALL    DELAY_500       ; Delay for approximately 0.5 seconds
 
         XOR     A               ; 0 = OPC_USER_LED
         OUT     (WR_OPC),A      ; write opcode
         OUT     (WR_EXE),A      ; execute opcode (0: LED off)
 
-        LD      A,5             ; 5 delay loops
-        CALL    DELAY           ; wait
+        CALL    DELAY_500       ; Delay for approximately 0.5 seconds
 
         IN      A,(RxD)         ; check input char
         INC     A               ; FF: no char -> 00
         JR      Z,MAIN_LOOP     ; loop if none
 
-        JP      WOZMON          ; exit
+        JP      WOZMON          ; else exit
 
 
-DELAY:
-        ; input: A = loop count
-        LD      BC,0000h
-DELAY_INNER:
-        DEC     C               ; 4 Taktzyklen
-        JR      NZ,DELAY_INNER  ; 12/7 Taktzyklen
-        DEC     B               ; 4 Taktzyklen
-        JR      NZ,DELAY_INNER  ; 12/7 Taktzyklen
-        DEC     A
-        JR      NZ,DELAY_INNER
-        RET
+DELAY_500:
+        LD      DE,500
+;--------------------------------------------------------------
+; DELAY_MS - wait exactly DE milliseconds  (DE = 1 ... 65535)
+;               DE = 0 -> returns immediately
+;   Clock:      12 MHz   (12 000 T = 1 ms)
+;   Uses:       A, B, DE, flags
+;   Accuracy:   0 %  (all but last iteration: 12 000 T)
+;--------------------------------------------------------------
+DELAY_MS:
+        LD      A, D                ; 4
+        OR      E                   ; 4
+        RET     Z                   ; 5     return if DE == 0
 
-        ; stack space
-        DS      32
+DELAY_MS_LOOP:
+        LD      B, 164              ; 7     inner loop count = 164
+INNER:
+        JR      $+2                 ; 12    ; 5 x no-operation
+        JR      $+2                 ; 12
+        JR      $+2                 ; 12
+        JR      $+2                 ; 12
+        JR      $+2                 ; 12    ; 5 x 12 = 60 T
+        DJNZ    INNER               ; 13/8
+
+        DEC     DE                  ; 6     flags unchanged!
+        LD      A, D                ; 4
+        OR      E                   ; 4     Z = 1 if DE == 0
+        JR      NZ, DELAY_MS_LOOP   ; 12    (taken) / 7 (last)
+        RET                         ; 10
+
+
+        DS      20              ; stack space
 STACK:
 
         END

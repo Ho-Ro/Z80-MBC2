@@ -6,15 +6,19 @@ Z80ASM = $(CPM.COM)/TNYLPO $(CPM.COM)/z80asm
 
 ILOAD = ../../memtest/iload
 
-HEX = $(TARGET).hex
 Z80 = $(TARGET).z80
+HEX = $(TARGET).hex
+WOZ = $(TARGET).woz
 
 .PHONY:	all
-all: $(HEX)
+all: $(HEX) $(WOZ)
 
 
 $(HEX): $(Z80) Makefile
 	$(Z80ASM) $(TARGET)/fh
+
+$(WOZ): $(HEX)
+	$(ILOAD) --stdout --woz $< > $@
 
 .PHONY: hexload
 hexload: $(HEX)
@@ -24,10 +28,11 @@ hexload: $(HEX)
 wozload: $(HEX)
 	$(ILOAD) --woz $<
 
+
 .PHONY:	clean
 clean:
-	rm -f *.lst *.hex
+	rm -f *.lst *.prn
 
 .PHONY:	distclean
 distclean: clean
-	rm -f *~ .*~
+	rm -f $(HEX) $(WOZ) *~ .*~
