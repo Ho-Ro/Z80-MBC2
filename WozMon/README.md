@@ -93,22 +93,24 @@ the original value of the byte at the start address before writing.
 
 The input can be terminated with `'^C'` without modifying the memory.
 
-### Executing Code
+### Executing Code (Run)
 
-Entering `R` will jump to the last examined address.
+By entering a hexadecimal address followed by `R` you can jump to this address.
+*WozMon* will then display the value of the byte at the start address before jumping.
+If you omit the address, `R` will jump to address `0000` - but without displaying the content at this address. At reset IOS-Z80-MBC2 puts a jump to WozMon at this address,
+so the `R` alone resets WozMon unless the three bytes at 0000 were modified.
+
 
 ```
 \
 E000 R
 
-E000: 31[JUMP]
+E000: 31 (execute code at this address)
 ```
 ```
 \
-E000 
-
-E000: 31
-R[JUMP]
+R
+\
 ```
 
 ### Jump Table
