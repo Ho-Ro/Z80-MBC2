@@ -9,38 +9,72 @@
 ; inspired code from  Christian Welzel 2023
 ; Christian Welzel 2023 - www.welzel-online.ch
 ;
-; Code can be compiled in Zasm assembler by following parameters:
-; ./zasm -uw --target=ram -x wozmon.asm -o wozmon.hex
+; Modified for Z80-MBC2 I/O addresses
+; Macros for undocumented Z80 opcodes that use ixl, ixh, iyl and iyh:
+;  "db 0ddh" or "db 0fdh" and "ld REG, l" or "ld REG, h" or vice-versa.
+; Build on Linux with:
+;   ./zasm -uw --target=ram -x wozmon.z80 -o wozmon.hex
+; Code can be compiled with CP/M Z80ASM assembler by following parameters:
+;   z80asm wozmon/fh
+; or on Linux using ZCXX-0.5.8:
+;   zx80asm wozmon/fh
 
 ; IO map
 ;
-; Adresses and opcodes for serial I/O
+; Adresses and opcodes for Z80-MBC2 serial I/O
 ;
-EX_OPC          .EQU    $00             ; EXECUTE READ/WRITE OPCODE port
-STO_OPC         .EQU    $01             ; STORE OPCODE write port
-RXD             .EQU    $01             ; SERIAL RX read port
-OPC_TX          .EQU    $01             ; SERIAL TX opcode
-OPC_RXAVAIL     .EQU    $8B             ; Number if input char
+EX_OPC          EQU    00h              ; EXECUTE READ/WRITE OPCODE port
+STO_OPC         EQU    01h              ; STORE OPCODE write port
+RXD             EQU    01h              ; SERIAL RX read port
+OPC_TX          EQU    01h              ; SERIAL TX opcode
+OPC_RXAVAIL     EQU    8Bh              ; Number if input char
 
 ; Keys and Characters
 ;
-CTRLC           .EQU    $03             ; ^C
-BS              .EQU    $08             ; Backspace
-LF              .EQU    $0A             ; Line Feed
-CR              .EQU    $0D             ; Carriage Return
-FF              .EQU    $0C             ; Form feed
-ESC             .EQU    $1B             ; Escape
-SPC             .EQU    ' '             ; Space
-DOT             .EQU    '.'             ; Period
-COLON           .EQU    ':'             ; Colon
-BACKSL          .EQU    $5C             ; back slash
+CTRLC           EQU    03h              ; ^C
+BS              EQU    08h              ; Backspace
+LF              EQU    0Ah              ; Line Feed
+CR              EQU    0Dh              ; Carriage Return
+FF              EQU    0Ch              ; Form feed
+ESC             EQU    1Bh              ; Escape
+SPC             EQU    ' '              ; Space
+DOT             EQU    '.'              ; Period
+COLON           EQU    ':'              ; Colon
+BACKSL          EQU    5Ch              ; Backslash
 
 
-INBUF           .EQU    $FE00           ; must start at 0xXX00
-stack_top       .EQU    $0000           ; stack grows down
+INBUF           EQU    0FE00h           ; must start at 0xXX00
+STACKTOP        EQU    0000h            ; stack grows down
 
 
-                .ORG    INBUF+0x80
+mv_ixl          macro   R               ; move ixl -> R
+                db      0ddh            ; prefix IX
+                ld      R, l
+                endm
+
+mv_ixh          macro   R               ; move ixh -> R
+                db      0ddh            ; prefix IX
+                ld      R, h
+                endm
+
+mv_iyl          macro   R               ; move iyl -> R
+                db      0fdh            ; prefix IY
+                ld      R, l
+                endm
+
+
+ld_ixl          macro   R               ; ld ixl, R
+                db      0ddh            ; prefix IX
+                ld      l, R
+                endm
+
+ld_ixh          macro   R               ; ld ixh, R
+                db      0ddh            ; prefix IX
+                ld      h, R
+                endm
+
+
+                ORG     INBUF+80h       ; 128 byte input buffer
 
                 jp      RESET           ; coldstart
 
@@ -63,7 +97,7 @@ LFOUT           ld      a, LF           ; destroys A (A=LF)
                 jp      OUTCH
 
 
-RESET           ld      sp,stack_top    ; Init Stack
+RESET           ld      sp,STACKTOP     ; Init Stack
                 ld      iy,INBUF
                 jr      ESCAPE
 
@@ -73,7 +107,7 @@ NOTCR           cp      BS              ; Backspace key?
                 jr      z, ESCAPE       ; Yes.
                 ;inc     iy              ; Advance text index.
 
-                ld      b, iyl          ; Auto ESC if line longer than 127.
+                mv_iyl  b               ; Auto ESC if line longer than 127.
                 bit     7, b            ;   ...
                 jr      z, NEXTCHAR     ;     jp if bit 7 is not set (plus)
 
@@ -85,7 +119,7 @@ GETLIN          call    CRLFOUT
                 ld      iy, INBUF + 1   ; Initialize text index.
 
 BACKSPACE       dec     iy              ; Back up text index.
-                ld      b, iyl          ; Beyond start of line, reinitialize.
+                mv_iyl  b               ; Beyond start of line, reinitialize.
                 bit     7, b            ;   ...
                 jr      nz, GETLIN      ; jp if bit 7 is set (minus)
                 call    OVERWRITE       ; overwrite with SPC and BS
@@ -101,8 +135,8 @@ NEXTCHAR        call    GETCH           ; wait for char in A
 
                 ld      iy, INBUF       ; Reset text index. (DEFAULT ınbuf)
                 xor     a               ; For XAM mode.
-                ld      ixl, a          ; TAX  ; X=0.
-                ld      ixh, a          ; Init ix = 0 ('R' w/o address jumps to $0000)
+                ld_ixl  a               ; TAX  ; X=0.
+                ld_ixh  a               ; Init ix = 0 ('R' w/o address jumps to 0000)
 SETBLOCK        sla     a               ; Leaves $2E<<2 = $B8 if setting BLOK XAM
 SETSTOR         sla     a               ; Leaves $3A<<1 = $74 if setting STOR mode.
                 ld      (MODE), a       ; $00 = XAM, $74 = STOR, $B8 = BLOK XAM.
@@ -118,17 +152,17 @@ NEXTITEM        ld      a, (iy)         ; Get character.
                 cp      'R'             ; RUN?
                 jr      nz, NXTI1       ; No
                 jp      (ix)            ; Yes, run user program.
-NXTI1           ld      hl, $0000       ; $00 -> L and H.
+NXTI1           ld      hl, 0000h       ; $00 -> L and H.
                 ld      (YSAV), iy      ; Save Y for comparison
 
 NEXTHEX         ld      a, (iy)         ; Get character for hex test.
-                xor     $30             ; Map digits to $0-9.
-                cp      $0A             ; Digit?
+                xor     30h             ; Map digits to $0-9.
+                cp      10              ; Digit?
                 jr      c, DIG          ; Yes.
                                         ; A-F: $71-$76, a-f: $51-$56
-                or      $20             ; map both to $71-$76
-                adc     a, $89          ; Map letter "A"-"F" to $FA-FF.
-                cp      $F9             ; Hex letter?
+                or      20h             ; map both to $71-$76
+                adc     a, 89h          ; Map letter "A"-"F" to $FA-FF.
+                cp      0F9h            ; Hex letter?
                 jr      c, NOTHEX       ; No, character not hex.
 
 DIG             sla     a
@@ -144,7 +178,7 @@ HEXSHIFT        rla                     ; Hex digit left, MSB to carry.
                 inc     iy              ; Advance text index.
                 jr      NEXTHEX         ; Always taken. Check next character for hex.
 
-NOTHEX          ld      b, iyl          ; Check if L, H empty (no hex digits).
+NOTHEX          mv_iyl  b               ; Check if L, H empty (no hex digits).
                 ld      a, (YSAV)       ;   ...
                 cp      b               ;     ...
                 jp      z, ESCAPE       ; Yes, generate ESC sequence.
@@ -161,7 +195,7 @@ TONEXTITEM      jr      NEXTITEM        ; Get next command item.
 
 
 GETCH           in      a,(RXD)         ; Read a char from "virtual" UART
-                cp      $FF             ; Char? ($FF from UART = no char)
+                cp      0FFh            ; Char? ($FF from UART = no char)
                 jr      z, GETCH        ; No, loop until valid character
                 ret
 
@@ -175,16 +209,17 @@ OVERWRITE       ld      a, SPC          ; Send space (overwrite)
 
 NOTSTOR         bit     7, a
                 jr      nz, XAMNEXT     ; B7 = 0 for XAM, 1 for BLOCK XAM.
-SETADR          ld      de, hl          ; Copy hex data to 'store index'.
+SETADR          ld      d, h            ; Copy hex data to 'store index'.
+                ld      e, l
                 push    hl              ; And to 'XAM index'.
                 pop     ix              ;   ...
                 cp      a               ; Set zero flag
 
 NXTPRNT         jp      nz, PRDATA      ; NE means no address to print.
                 call    CRLFOUT         ; Output it.
-                ld      a, ixh          ; 'Examine index' high-order byte.
+                mv_ixh  a               ; 'Examine index' high-order byte.
                 call    PRBYT           ; Output it in hex format.
-                ld      a, ixl          ; Low-order 'examine index' byte.
+                mv_ixl  a               ; Low-order 'examine index' byte.
                 call    PRBYT           ; Output it in hex format.
                 ld      a, COLON        ; ":".
                 call    OUTCH           ; Output it.
@@ -195,17 +230,21 @@ PRDATA          ld      a, SPC          ; Blank.
                 call    PRBYT           ; Output it in hex format.
 XAMNEXT         xor     a
                 ld      (MODE), a       ; 0 -> MODE (XAM mode).
-                ld      a, ixl
+                mv_ixl  a
                 cp      l               ; Compare 'examine index' to hex data.
-                ld      a, ixh
+                mv_ixh  a
                 sbc     a, h
                 jr      nc, TONEXTITEM  ; Not less, so no more data to output.
 
                 inc     ix              ; Increment 'examine index'.
 
-MOD8CHK         ld      a, ixl          ; Check low-order 'examine index' byte
-                and     a, $07          ; For MOD 8 = 0
+MOD8CHK         mv_ixl  a               ; Check low-order 'examine index' byte
+                and     a, 07h          ; For MOD 8 = 0
                 jr      NXTPRNT         ; Always taken.
+
+
+;----------------------------------------------------------------------------------
+; Print one byte as HEX
 
 PRBYT           push    af              ; Save A for LSD.
                 srl     a
@@ -215,11 +254,11 @@ PRBYT           push    af              ; Save A for LSD.
                 call    PRHEX           ; Output hex digit.
                 pop     af              ; Restore A.
 
-PRHEX           and     $0F             ; Mask LSD for hex print.
-                or      $30             ; Add "0".
-                cp      $3A             ; Digit?
+PRHEX           and     0Fh             ; Mask LSD for hex print.
+                add     '0'             ; Add offset for digits.
+                cp      '9'+1           ; Digit?
                 jr      c, OUTCH        ; Yes, output it.
-                adc     $07             ; Add offset for letter
+                add     07h             ; Add offset for letter
                                         ;  and fall-through to OUTCH.
 
 ;----------------------------------------------------------------------------------
@@ -236,4 +275,4 @@ YSAV            dw      0
 MODE            db      0
 
 
-                .END
+                END
