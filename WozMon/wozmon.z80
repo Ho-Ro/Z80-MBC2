@@ -18,6 +18,11 @@
 ;   z80asm wozmon/fh
 ; or on Linux using ZCXX-0.5.8:
 ;   zx80asm wozmon/fh
+;
+; If you want to experiment with a REL file:
+;   zxcc zsm4 wozmon,wozmon=wozmon.z80
+;   ./rel2hex wozmon.rel wozmon.hex
+;
 
 ; IO map
 ;
@@ -74,7 +79,7 @@ ld_ixh          macro   R               ; ld ixh, R
                 endm
 
 
-                ORG     INBUF+80h       ; 128 byte input buffer
+                ORG     INBUF + 80h     ; 128 byte input buffer
 
                 jp      RESET           ; coldstart
 
@@ -194,7 +199,7 @@ NOTHEX          mv_iyl  b               ; Check if L, H empty (no hex digits).
 TONEXTITEM      jr      NEXTITEM        ; Get next command item.
 
 
-GETCH           in      a,(RXD)         ; Read a char from "virtual" UART
+GETCH           in      a, (RXD)        ; Read a char from "virtual" UART
                 cp      0FFh            ; Char? ($FF from UART = no char)
                 jr      z, GETCH        ; No, loop until valid character
                 ret
@@ -255,10 +260,10 @@ PRBYT           push    af              ; Save A for LSD.
                 pop     af              ; Restore A.
 
 PRHEX           and     0Fh             ; Mask LSD for hex print.
-                add     '0'             ; Add offset for digits.
+                add     a, '0'          ; Add offset for digits.
                 cp      '9'+1           ; Digit?
                 jr      c, OUTCH        ; Yes, output it.
-                add     07h             ; Add offset for letter
+                add     a, 07h          ; Add offset for letter
                                         ;  and fall-through to OUTCH.
 
 ;----------------------------------------------------------------------------------
@@ -266,13 +271,13 @@ PRHEX           and     0Fh             ; Mask LSD for hex print.
 
 OUTCH           push    af              ; Save TXD char
                 ld      a, OPC_TX       ; TXD opcode
-                out     (STO_OPC),a     ; Prepare execution
+                out     (STO_OPC), a    ; Prepare execution
                 pop     af
-                out     (EX_OPC),a      ; Execute TXD
+                out     (EX_OPC), a     ; Execute TXD
                 ret
 
-YSAV            dw      0
-MODE            db      0
+YSAV            dw      0               ; Save IY
+MODE            db      0               ; 00h = XAM, 74h = STOR, 0B8h = BLOK XAM.
 
 
                 END
