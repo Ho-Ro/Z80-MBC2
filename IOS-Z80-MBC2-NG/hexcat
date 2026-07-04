@@ -27,10 +27,19 @@ def cat_hex_files(filenames, output_file=None):
                 lines = f.readlines()
 
                 for line in lines:
+
+                    # Stop file at ^Z
+                    if ord( line[ 0 ] ) == 0x1a:
+                        break
+
                     line = line.rstrip('\n')  # Keep original formatting except newline
 
                     # Skip empty lines
                     if not line.strip():
+                        continue
+
+                    # Skip lines not starting with ':'
+                    if line[0] != ':':
                         continue
 
                     # For all files except the last one, skip the EOF record
