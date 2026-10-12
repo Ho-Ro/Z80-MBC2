@@ -114,7 +114,7 @@ tinybasic2.h: ../TinyBasic2/tinybasic2.z80
 	cp ../TinyBasic2/tinybasic2.h $@
 
 
-wozmon.h: ../WozMon/wozmon.asm
+wozmon.h: ../WozMon/wozmon.z80
 	$(MAKE) -C ../WozMon
 	cp ../WozMon/wozmon.h $@
 
