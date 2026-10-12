@@ -22,7 +22,8 @@ https://github.com/jefftranter/6502/blob/master/asm/wozmon/wozmon.s
 
 *WozMon* operates and adheres to the same syntax as the original *WozMon* on the Apple-1. The commands contain memory addresses and special characters for specifying whether to perform a read, write, or execute operation on them.
 
-On startup *WozMon* will display a backslash follow by a new line.
+On startup *WozMon* prints a `CR/LF` followed by a backslash `'\'`,
+which is its prompt.
 
 ```
 \
@@ -130,52 +131,51 @@ of useful subroutines for user programs:
 
 After starting, Wozmon displays a backslash `'\'` and waits for input.
 
-Display its own code with `fe80.ffb9` (in `WOZ` format):
+Display its own code with `fe80.ffb7` (in `WOZ` format):
 
 
 ```
 \
-fe80.ffb9
-FE80: C3 96 FE C3 46 FF C3 AE
-FE88: FF C3 97 FF 3E 0D CD AE
-FE90: FF 3E 0A C3 AE FF 31 00
-FE98: 00 FD 21 00 FE 18 0E FE
-FEA0: 08 28 19 FE 03 28 06 FD
-FEA8: 45 CB 78 28 1A CD 8C FE
-FEB0: 3E 5C CD AE FF CD 8C FE
-FEB8: FD 21 01 FE FD 2B FD 45
-FEC0: CB 78 20 F1 CD 4F FF CD
-FEC8: 46 FF FE 08 CC 4D FF FD
-FED0: 23 FD 77 00 CD AE FF FE
-FED8: 0D 20 C4 FD 21 00 FE AF
-FEE0: DD 6F DD 67 CB 27 CB 27
-FEE8: 32 B9 FF FD 23 FD 7E 00
-FEF0: FE 0D 28 C1 FE 2E 38 F3
-FEF8: 28 EA FE 3A 28 E8 FE 52
-FF00: 20 02 DD E9 21 00 00 FD
-FF08: 22 B7 FF FD 7E 00 EE 30
-FF10: FE 0A 38 08 F6 20 CE 89
-FF18: FE F9 38 15 CB 27 CB 27
-FF20: CB 27 CB 27 06 04 17 CB
-FF28: 15 CB 14 10 F9 FD 23 18
-FF30: DA FD 45 3A B7 FF B8 CA
-FF38: AD FE 3A B9 FF CB 77 28
-FF40: 18 7D 12 13 18 A7 DB 01
-FF48: FE FF 28 FA C9 FD 2B 3E
-FF50: 20 CD AE FF 3E 08 C3 AE
-FF58: FF CB 7F 20 26 54 5D E5
-FF60: DD E1 BF C2 78 FF CD 8C
-FF68: FE DD 7C CD 97 FF DD 7D
-FF70: CD 97 FF 3E 3A CD AE FF
-FF78: 3E 20 CD AE FF DD 7E 00
-FF80: CD 97 FF AF 32 B9 FF DD
-FF88: 7D BD DD 7C 9C 30 B5 DD
-FF90: 23 DD 7D E6 07 18 CC F5
-FF98: CB 3F CB 3F CB 3F CB 3F
-FFA0: CD A4 FF F1 E6 0F F6 30
-FFA8: FE 3A 38 02 CE 07 F5 3E
-FFB0: 01 D3 01 F1 D3 00 C9 06
-FFB8: FE 00
+fe80.ffb7
+FE80: C3 96 FE C3 44 FF C3 AC
+FE88: FF C3 95 FF 3E 0D CD AC
+FE90: FF 3E 0A C3 AC FF 31 00
+FE98: 00 18 0A FE 08 28 15 FE
+FEA0: 03 28 02 18 1A CD 8C FE
+FEA8: 3E 5C CD AC FF CD 8C FE
+FEB0: FD 21 01 FE FD 2B FD 45
+FEB8: CB 78 20 F1 CD 4D FF CD
+FEC0: 44 FF FE 08 CC 4B FF FD
+FEC8: 23 FD 45 CB 78 20 D6 FD
+FED0: 77 00 CD AC FF FE 0D 20
+FED8: C2 FD 21 00 FE AF DD 6F
+FEE0: DD 67 CB 27 CB 27 32 B7
+FEE8: FF FD 23 FD 7E 00 FE 0D
+FEF0: 28 BB FE 2E 38 F3 28 EA
+FEF8: FE 3A 28 E8 FE 52 20 02
+FF00: DD E9 21 00 00 FD 22 B5
+FF08: FF FD 7E 00 EE 30 FE 0A
+FF10: 38 08 F6 20 CE 89 FE F9
+FF18: 38 15 CB 27 CB 27 CB 27
+FF20: CB 27 06 04 17 CB 15 CB
+FF28: 14 10 F9 FD 23 18 DA FD
+FF30: 45 3A B5 FF B8 CA A5 FE
+FF38: 3A B7 FF CB 77 28 18 7D
+FF40: 12 13 18 A7 DB 01 FE FF
+FF48: 28 FA C9 FD 2B 3E 20 CD
+FF50: AC FF 3E 08 C3 AC FF CB
+FF58: 7F 20 26 54 5D E5 DD E1
+FF60: BF C2 76 FF CD 8C FE DD
+FF68: 7C CD 95 FF DD 7D CD 95
+FF70: FF 3E 3A CD AC FF 3E 20
+FF78: CD AC FF DD 7E 00 CD 95
+FF80: FF AF 32 B7 FF DD 7D BD
+FF88: DD 7C 9C 30 B5 DD 23 DD
+FF90: 7D E6 07 18 CC F5 CB 3F
+FF98: CB 3F CB 3F CB 3F CD A2
+FFA0: FF F1 E6 0F C6 30 FE 3A
+FFA8: 38 02 C6 07 F5 3E 01 D3
+FFB0: 01 F1 D3 00 C9 00 00 00
 
 ```
 
@@ -208,13 +208,29 @@ The `WOZ` format consists of the 16 bit hex address followed by 8 bit hex data.
 
 ## Building
 
-This project can be assembled using `ZASM by Megatokio`.
+The project can be assembled in two ways — both produce the identical
+`Intel HEX` image starting at `0xFE80`:
 
-#### ZASM - Z80, 8080 Assembler
+- with the `zasm` assembler (ZASM by Megatokio) that is **included** in the
+  project directory (ready to build, no extra install needed);
+- with `zx80asm`, the local wrapper around the SLR Z80ASM that ships with
+  `zxcc` (needs zxcc installed).
+
+#### ZASM (included)
 
 https://github.com/Megatokio/zasm
 
 ```
-./zasm -uw --target=ram -x wozmon.asm -o wozmon.hex
+./zasm -uw --target=ram -x wozmon.z80 -o wozmon.hex
 ```
+
+#### zx80asm (needs zxcc)
+
+```
+zx80asm wozmon/hfs
+```
+
+where `/h` generates the `Intel HEX` output file, `/f` selects a full
+listing (2 passes through the source) and `/s` generates an alphabetized
+symbol table (flags can be combined).
 

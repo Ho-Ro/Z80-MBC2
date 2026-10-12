@@ -103,18 +103,13 @@ LFOUT           ld      a, LF           ; destroys A (A=LF)
 
 
 RESET           ld      sp,STACKTOP     ; Init Stack
-                ld      iy,INBUF
                 jr      ESCAPE
 
 NOTCR           cp      BS              ; Backspace key?
                 jr      z, BACKSPACE
                 cp      CTRLC           ; ^C?
                 jr      z, ESCAPE       ; Yes.
-                ;inc     iy              ; Advance text index.
-
-                mv_iyl  b               ; Auto ESC if line longer than 127.
-                bit     7, b            ;   ...
-                jr      z, NEXTCHAR     ;     jp if bit 7 is not set (plus)
+                jr      NEXTCHAR
 
 ESCAPE          call    CRLFOUT
                 ld      a, BACKSL       ; "\".
@@ -133,6 +128,9 @@ NEXTCHAR        call    GETCH           ; wait for char in A
                 cp      BS              ; Backspace key?
                 call    z, BACKPACK
                 inc     iy
+                mv_iyl  b               ; Auto ESC if line longer than 127.
+                bit     7, b            ;   ...
+                jr      nz, ESCAPE      ; full -> abort, never store at 0xFE80
                 ld      (iy), a         ; Add to text buffer.
                 call    OUTCH           ; Display character.
                 cp      CR              ; CR?
