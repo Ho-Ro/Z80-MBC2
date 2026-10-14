@@ -74,7 +74,7 @@ BUILD = build/$(subst :,.,$(FQBN))
 
 # source code for the Arduino project
 INO = $(PRJ).ino
-HEADER = *.h tinybasic2.h wozmon.h
+HEADER = *.h tinybasic2.h mbc2mon.h wozmon.h
 SOURCE = *.cpp
 BOOTLOADER = mbc2boot_m$(ATMEGA).hex
 HEX = $(BUILD)/*.hex
@@ -117,6 +117,10 @@ tinybasic2.h: ../TinyBasic2/tinybasic2.z80
 wozmon.h: ../WozMon/wozmon.z80
 	$(MAKE) -C ../WozMon
 	cp ../WozMon/wozmon.h $@
+
+mbc2mon.h: ../MBC2Mon/mbc2mon.z80
+	$(MAKE) -C ../MBC2Mon
+	cp ../MBC2Mon/mbc2mon.h $@
 
 
 # update AVR via serial bootloader

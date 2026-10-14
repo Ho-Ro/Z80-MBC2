@@ -278,6 +278,9 @@ const byte    fCPU         = F_CPU / 1000000L;
 // Z80 WozMon (Apple 1 ROM monitor adapted for Z80)
 #include "wozmon.h"
 
+// Z80 MBC2Mon (enhanced monitor with MBC2 functions)
+#include "mbc2mon.h"
+
 
 // ------------------------------------------------------------------------------
 //
@@ -564,6 +567,7 @@ void setup() {
     //
     const char M_TINYBASIC2 = 'T';
     const char M_WOZMON = 'W';
+    const char M_MBC2MON = 'M';
     const char M_HEXLOAD = 'H';
     //
     const char M_CLOCK = 'C';
@@ -580,7 +584,7 @@ void setup() {
         // SD card boot
         M_BASIC, M_FORTH, M_DISKOS, M_AUTOBOOT,
         // IOS boot
-        M_TINYBASIC2, M_WOZMON,
+        M_TINYBASIC2, M_WOZMON, M_MBC2MON,
         // Intel HEX loader
         M_HEXLOAD,
         // settings
@@ -588,7 +592,7 @@ void setup() {
     };
 
     const uint8_t maxSDMode = 3;   // [0..3] Basic, Forth, CP/M etc, AutoBoot
-    const uint8_t maxBootMode = 6; // [0..6] as above and tinybasic2 .. hexload
+    const uint8_t maxBootMode = 7; // [0..7] as above and tinybasic2 .. hexload
 
     // Check if SD card can be mounted
     errCodeSD = mountSD( &filesysSD );
@@ -634,6 +638,7 @@ void setup() {
         // Boot programs from flash
         Serial.printf( F( "  %c: TinyBASIC2\r\n" ), M_TINYBASIC2 ); // T
         Serial.printf( F( "  %c: WozMon\r\n" ), M_WOZMON );         // W
+        Serial.printf( F( "  %c: MBC2Mon\r\n" ), M_MBC2MON );       // M
         // Hex loader from IOS
         Serial.printf( F( "  %c: HexLoad\r\n" ), M_HEXLOAD );       // H
         Serial.println();
@@ -841,7 +846,13 @@ void setup() {
         BootStrAddr = WozMonAddr;
         break;
 
-    case 6: // IOS HexLoad
+    case 6: // Load MBC2Mon from IOS FLASH
+        BootImage = MBC2Mon;
+        BootImageSize = MBC2MonSize;
+        BootStrAddr = MBC2MonAddr;
+        break;
+
+    case 7: // IOS HexLoad
         Serial.printf( F( "Intel-Hex Loader\r\n" ) );
         loadIntelHex();
         break;
