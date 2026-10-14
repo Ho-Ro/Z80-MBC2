@@ -1,0 +1,1390 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+
+;--------------------------------------------------------------
+;
+; Monitor program for CP/M or Z80-MBC2
+;
+; Accept strings from CONIN and execute them with CR.
+; BS/RUB deletes char to the left, other control chars are ignored.
+; ^C returns to CP/M (CP/M build) resp. restarts the monitor (MBC2 build).
+;
+; Use zasm (Linux):
+; zasm -uw --target=ram -x monitor.z80 -o monitor.hex
+;
+; Use SLR z80asm.com (CP/M) - this requires the .z80 extension
+; z80asm monitor/hfs
+;
+; Built-in commands
+;
+;
+;  V aaaa		-> View 16 bytes of Memory at address aaaa
+;  V			-> View next 16 bytes (also CR alone)
+;
+;  W aaaa		-> Show 16 bytes in Wozmon format (aaaa: dd dd ...)
+;  W			-> Show next 16 bytes (also CR alone)
+;
+;  aaaa: dd dd dd ...	-> Modify data byte(s) dd at address aaaa (WozMon fmt)
+;			   CR alone then shows 16 bytes in Wozmon format at aaaa
+;
+;  O cc dd		-> I/O write: store IOS opcode cc, write data byte dd (MBC2)
+;  Q cc [nn]		-> I/O read: store IOS opcode cc, print nn bytes (default 1)
+;
+;  G			-> Goto address in user context, e.g. last breakpoint
+;  G aaaa		-> Goto address aaaa
+;  G 0			-> Exit to CP/M or restart the Z80-MBC2 monitor
+;
+;  K or K0		-> Clear breaKpoint
+;  K aaaa		-> Set breaKpoint at aaaa
+;  K aaaa bbbb		-> as above, breaKpoint is reactivated at bbbb
+;
+;  R			-> Show Register contents
+;
+;  [A, B, C, D, E, H, L] dd	Set 8 bit register
+;  [X, Y] dddd			Set 16 bit register IX or iY
+;
+; Other input will generate an "?" message and be ignored.
+;
+;  2026-06-28	Martin Homuth-Rosemann
+;	1st development version
+;	dump, wozdump, modify, wozinput and execute
+;
+;  2026-07-06	Martin Homuth-Rosemann
+;	add breakpoint handling
+;
+;  2026-07-07	Martin Homuth-Rosemann
+;	add optional breakpoint reactivation after triggering
+;
+;  2026-07-10	Martin Homuth-Rosemann
+;	add cmd K to handle breakpoint and reactivation
+;
+;  2026-10-09	Martin Homuth-Rosemann
+;	fix modify/woz input and buffer overrun
+;	refactor breakpoint and context save/restore
+;	doc update
+;
+;  2026-10-12	Martin Homuth-Rosemann
+;	in_char input echo; add cmd O <OPC> <DAT>; add cmd Q <OPC> [<NUM<]
+;
+;  2026-10-13	Martin Homuth-Rosemann
+;	modify syntax to enable zasm build (syntax was SLR z80asm for CP/M)
+;	drop 'M' modify command due to difficult and dangerous syntax
+;	ignore control chars except BS/RUB/CR/^C; ^C restarts the monitor in MBC2
+;
+;--------------------------------------------------------------
+
+FALSE		equ	0
+TRUE		equ	0FFh
+
+; select either Z80-MBC2 I/O (+ cmd O, Q) or CP/M I/O
+;
+
+MBC2		equ	TRUE
+
+
+	if	MBC2
+CPM		equ	FALSE
+	else
+CPM		equ	TRUE
+	endif
+
+; Z80-MBC2 IO map
+;
+; Adresses and opcodes for Z80-MBC2 serial I/O
+;
+	if	MBC2
+EX_OPC		equ	00h		; EXECUTE READ/WRITE OPCODE port
+STO_OPC		equ	01h		; STORE OPCODE write port
+RXD		equ	01h		; SERIAL RX read port
+OPC_TX		equ	01h		; SERIAL TX opcode
+OPC_RXAVAIL	equ	8Bh		; Number if input char
+	endif
+
+; CP/M defines
+;
+	if	CPM
+BDOS		equ	0005h
+CONIN		equ	1
+CONOUT		equ	2
+	endif
+
+; Char defines
+CTRLC		equ     03h
+BS		equ	08h
+CR		equ	0Dh
+LF		equ	0Ah
+SPC		equ	20h
+RUB		equ	7Fh
+
+; Breakpoint defines
+;
+OPC_JP		equ	0c3h
+OPC_RST30	equ	0f7h
+OPC_RST28	equ	0efh
+
+;
+; CODE
+;
+
+		if	MBC2
+
+		org	0F800h
+
+		endif
+
+		if	CPM
+
+		org	0100h
+
+		endif
+
+;--------------------------------------------------------------
+;
+; Monitor entry-point with a jump list to user functions
+;
+; Init stack and breakpoint.
+; Append text into input_buffer until a newline is seen,
+; then handle the function and its arguments.
+;
+;--------------------------------------------------------------
+start:
+		jp	init			; cold start
+		jp	in_char			; wait for char in A
+		jp	out_char		; output char in A
+		jp	out_byte		; output A as 2 hex digits
+		jp	out_crlf		; output CR and LF
+		jp	out_word		; output HL as 4 hex digits
+		jp	out_string		; output null terminated string pointed by HL
+		jp	hex_to_bc		; convert 1..4 digit hex
+						; input: HL points to 1st hex char
+						; output: BC and A, HL points after hex char
+						; CY set when error, HL points to bad char
+start_msg:
+	if	MBC2
+		db	CR, LF, "MBC2 MON", 0
+	else
+		db	CR, LF, "CP/M MON", 0
+	endif
+init:
+		ld	sp, stack_top
+		ld	hl, start_msg
+		call	out_string
+
+		xor	a
+		ld	b, user_end-last_cmd	; clear all monitor regs
+		ld	hl, last_cmd
+init1:		ld	(hl), a
+		inc	hl
+		djnz	init1
+		ld	(user_sp), sp
+		ld	a, OPC_JP
+		ld	(30h), a		; at RST30
+		ld	(28h), a		; at RST28
+		ld	hl, breakpoint
+		ld	(31h), hl
+		ld	hl, reactivpoint
+		ld	(29h), hl
+monitor:
+		call	out_crlf
+monitor1:
+		ld	hl, (break_addr)
+		ld	a, h
+		or	l			; breakpoint set?
+		jr	z, no_brk		; no
+		ld	a, (break_opc) 		; get orginal opcode
+		ld	(hl), a			; restore it
+no_brk:
+		ld	hl, (reactiv_addr)
+		ld	a, h
+		or	l			; reactivpoint set?
+		jr	z, no_rst		; no
+		ld	a, (reactiv_opc) 	; get orginal opcode
+		ld	(hl), a			; restore it
+no_rst
+		ld	hl, 0
+		ld	(break_addr), hl	; clear breakpoint addr
+		ld	(reactiv_addr), hl	; clear reactivpoint addr
+		ld	(user_pc), hl		; clear user PC
+		; show the prompt
+prompt:		ld	a, '>'
+		call	out_char
+		ld	hl, input_buffer
+		ld	d, h
+		ld	e, l
+		xor	a
+		; overwrite an previous input line
+		ld	(hl), a
+		ld	(input_buffer+4), a	; remove ': from woz input'
+
+mon_inp_loop:
+		; read and store the new character
+		call	in_char
+		; break?  CP/M: return to CP/M    MBC2: restart the monitor
+		cp	CTRLC
+	if	CPM
+		jp	z, 0
+	else
+		jp	z, start
+	endif
+		call	handle_bs
+		jr	c, mon_inp_loop
+		; ignore control chars (BS/RUB handled above, CR ends the line)
+		cp	' '
+		jr	nc, to_upper
+		cp	CR
+		jr	nz, mon_inp_loop
+
+to_upper:
+		; is it lower-case?  If so upper-case it.
+		cp	'a'
+		jr	c, is_upper
+		cp	'z'+1
+		jr	nc, is_upper
+		and	5fh
+is_upper:
+
+		; guard against a line longer than the buffer
+		push	hl
+		push	de
+		ld	de, input_buffer_end
+		or	a
+		sbc	hl, de
+		pop	de
+		pop	hl
+		jr	c, store_char		; room left
+		cp	CR
+		jr	nz, mon_inp_loop	; full and not CR -> ignore
+store_char:
+		; add to line (in_char already echoed it: BDOS fct 1 on CP/M, IOS on MBC2)
+		ld	(hl),a
+
+		; was it return?  If so process
+		cp	CR
+		jr	z, process_input
+
+		; Otherwise loop for more input
+		inc	hl
+		jr	mon_inp_loop
+
+
+;--------------------------------------------------------------
+; HANDLE_BS - Process backspace/delete in input buffer
+;   Entry:  HL = pointer to current position in buffer
+;           DE = pointer to start of buffer
+;           A  = character entered (08h = BS, 7Fh = RUB)
+;   Exit:   HL = updated pointer (decremented if char deleted)
+;           A  = unchanged
+;           Carry set = character was processed (BS/RUB)
+;           Carry clear = not a BS/RUB
+;   Uses:   A, flags
+;--------------------------------------------------------------
+;
+handle_bs:
+		cp	08h			; backspace?
+		jr	z, do_backspace
+		cp	7fh			; RUB?
+		jr	z, do_backspace
+		or	a			; clear carry (not processed)
+		ret
+
+do_backspace:
+		push	hl				; save current position
+		or	a					; clear carry
+		sbc	hl, de				; HL = offset from start
+		jr	z, bs_cant_delete		; at start, cannot delete
+		jr	c, bs_cant_delete		; before start, cannot delete
+		ld	a, 08h				; backspace
+		call	out_char
+		ld	a, ' '				; space (erase displayed char)
+		call	out_char
+		ld	a, 08h				; backspace again
+		call	out_char
+		pop	hl				; restore original HL
+		dec	hl				; move back one character
+		ld	(hl), 0				; clear the character
+		scf					; set carry (processed)
+		ret
+
+bs_cant_delete:
+		pop	hl				; restore original HL
+		scf					; set carry (still processed)
+		ret
+
+;--------------------------------------------------------------
+; process_input is called when the monitor has received
+; a complete CR-terminated line of text.
+;
+; We process the contents by looking for commands we understand,
+; if we see input we don't recognize we show a message and return,
+; otherwise we invoke the appropriate handler.
+;
+;  V 				=> View memory
+;  W 				=> Wozdump memory
+;  aaaa: dd dd dd ...		=> Modify data
+;  G				=> Goto
+;  R				=> Register display
+;  [A, B, C, D, E, H, L, I] xx	=> Set 8 bit register
+;  [P, S, X, Y] xxxx		=> Set 16 bit register PC, SP, IX or IY
+;--------------------------------------------------------------
+;
+process_input:
+		; <addr>: - look for a colon (WozMon format)
+		; MUST come first due to commands A-F
+		ld	hl, input_buffer
+scan_woz:
+		ld	a, (hl)
+		cp	':'
+		jr	z, found_woz
+		cp	CR
+		jr	z, process0		; ok, check one-char commands
+		inc	hl
+		jr	scan_woz
+found_woz:
+		ld	(hl), ' '		; convert to hex separated by space
+		call	out_crlf
+		jp	woz_input
+
+process0:
+		ld	hl, input_buffer
+		ld	a, (hl)
+		cp	CR
+		jr	nz, process1
+		; handle CR as command repeat for some commands
+		ld	a, (last_cmd)
+		cp	'G'			; GOTO
+		jr	z, process_repeat
+		cp	'V'			; VIEW
+		jr	z, process_repeat
+		cp	'W'			; WOZDUMP
+		jr	z, process_repeat
+		; ignore
+		jp	prompt
+process_repeat:
+		ld	(hl), a
+		inc	hl
+		ld	(hl), CR
+		dec	hl
+		; the in_char CR echo already returned to column 0; the repeated
+		; output overwrites the prompt line instead of advancing
+		jr	process2
+
+process1:
+		ld	(last_cmd), a
+		call	out_crlf		; echo CR + LF (the CR echo alone may be dropped by terminals)
+
+process2:
+		ld	a, (hl)			; cmd char
+
+		; V == VIEW
+		cp	'V'
+		jp	z, dump_handler
+
+		; W == WOZDUMP
+		cp	'W'
+		jp	z, dump_handler
+
+		; G == GOTO
+		cp	'G'
+		jp	z, goto_handler
+
+		; K == BREAKPOINT
+		cp	'K'
+		jr	nz, process_O
+		call	break_handler
+		jp	prompt
+
+		; O == IOS output (MBC2 only)
+process_O:
+		cp	'O'
+	if	MBC2
+		jp	z, o_handler
+	else
+		jp	z, cmd_error
+	endif
+
+		; Q == IOS query (MBC2 only)
+		cp	'Q'
+	if	MBC2
+		jp	z, q_handler
+	else
+		jp	z, cmd_error
+	endif
+
+process_R:
+		; R == VIEW REGISTER
+		cp	'R'
+		jr	nz, process_A
+		call	display_regs
+		jp	prompt
+
+		; set user register
+process_A:
+		; A == AREG
+		cp	'A'
+		jr	nz, process_F
+		call	get_first_arg
+		jp	c, cmd_error
+		ld	(user_af+1), a
+		jp	prompt
+process_F:
+		; F == FLAGS
+		cp	'F'
+		jr	nz, process_B
+		call	get_first_arg
+		jp	c, cmd_error
+		ld	(user_af), a
+		jp	prompt
+process_B:
+		; B == BREG
+		cp	'B'
+		jr	nz, process_C
+		call	get_first_arg
+		jp	c, cmd_error
+		ld	(user_bc+1), a
+		jp	prompt
+process_C:
+		; C == CREG
+		cp	'C'
+		jr	nz, process_D
+		call	get_first_arg
+		jp	c, cmd_error
+		ld	(user_bc), a
+		jp	prompt
+process_D:
+		; D == DREG
+		cp	'D'
+		jr	nz, process_E
+		call	get_first_arg
+		jp	c, cmd_error
+		ld	(user_de+1), a
+		jp	prompt
+process_E:
+		; E == EREG
+		cp	'E'
+		jr	nz, process_H
+		call	get_first_arg
+		jr	c, cmd_error
+		ld	(user_de), a
+		jp	prompt
+process_H:
+		; H == HREG
+		cp	'H'
+		jr	nz, process_L
+		call	get_first_arg
+		jr	c, cmd_error
+		ld	(user_hl+1), a
+		jp	prompt
+process_L:
+		; L == LREG
+		cp	'L'
+		jr	nz, process_I
+		call	get_first_arg
+		jr	c, cmd_error
+		ld	(user_hl), a
+		jp	prompt
+process_I:
+		; I == IREG
+		cp	'I'
+		jr	nz, process_IX
+		call	get_first_arg
+		jr	c, cmd_error
+		ld	(user_i), a
+		jp	prompt
+process_IX:
+		; X == IXREG
+		cp	'X'
+		jr	nz, process_IY
+		call	get_first_arg
+		jr	c, cmd_error
+		ld	(user_ix), bc
+		jp	prompt
+process_IY:
+		; Y == IYREG
+		cp	'Y'
+		jr	nz, process_PC
+		call	get_first_arg
+		jr	c, cmd_error
+		ld	(user_iy), bc
+		jp	prompt
+process_PC:
+		; P == user PC
+		cp	'P'
+		jr	nz, process_SP
+		call	get_first_arg
+		jr	c, cmd_error
+		ld	(user_pc), bc
+		jp	prompt
+process_SP:
+		; S == user SP
+		cp	'S'
+		jr	nz, cmd_error
+		call	get_first_arg
+		jr	c, cmd_error
+		ld	(user_sp), bc
+		jp	prompt
+		;
+		; Unknown command - show error message
+		;
+cmd_error:
+		ld	a, '?'
+		call	out_char
+		call	out_crlf
+		jp	prompt
+
+
+
+;--------------------------------------------------------------
+;
+; get_first_arg - skip command and optional spaces
+; get_next_arg  - skip spaces
+; return arg value in BC and A, or CY set for error
+;
+;--------------------------------------------------------------
+;
+get_first_arg:
+		; Our input-buffer will start with the command,
+		; so we start looking at the next character.
+		ld	hl, input_buffer+1
+		; Skip spaces.
+get_next_arg:	ld	a, (hl)
+		cp	SPC
+		jr	nz, get_arg_rdy
+		inc	hl
+		jr	get_next_arg
+		; Read the address to call into BC
+get_arg_rdy:	call	hex_to_bc
+		ret
+
+
+;--------------------------------------------------------------
+;
+; SHOW 16 bytes from the current dump_address
+;
+; Called with either "V1234" or "W1234" to start at the given offset
+; or with "V" or "W" (or CR alone) to keep going where we left off.
+;
+;--------------------------------------------------------------
+;
+dump_handler:
+		call	get_first_arg
+		jp	c, dump_next
+		ld	(dump_address), bc
+dump_next:
+		; The address we start from
+		ld	hl, (dump_address)
+		; show the address
+		call	out_word
+		ld	a, (last_cmd)
+		cp	'W'
+		jr	nz, view_fmt
+		ld	a, ':'
+		jr	woz_fmt
+view_fmt:
+		ld	a, ' '
+woz_fmt:
+		call	out_char
+
+		; Loop to print the next 16 bytes at that address.
+		ld	b, 16
+dump_byte:
+		; show a space
+		ld	a, ' '
+		call	out_char
+
+		; show the memory-contents.
+		ld	a, (hl)
+		call	out_byte
+		inc	hl
+		djnz	dump_byte
+
+		ld	a, (last_cmd)
+		; if woz fmt then skip the ASCII display
+		cp	'W'
+		jr	z, dump_end
+
+		ld	hl, (dump_address)
+
+		ld	a, ' '
+		call	out_char
+		ld	a, ' '
+		call	out_char
+
+		; Loop to print the next 16 bytes at that address.
+		ld	b, 16
+dump_char:
+		; show the memory-contents as ASCII.
+		ld	a, (hl)
+		cp	' '
+		jr	c, dot
+		cp	7Fh
+		jr	nc, dot
+		jr	no_dot
+dot:		ld	a, '.'
+no_dot:		call	out_char
+		inc	hl
+		djnz	dump_char
+
+dump_end:
+		; store our updated/final address.
+		ld	(dump_address), hl
+		call	out_crlf
+		jp	prompt
+
+
+
+;--------------------------------------------------------------
+;
+; WOZ data input modifies data at a given address
+;
+; Usage is:
+;
+;  0123: 01 02 03 04 0F
+;
+; i.e. "<address>: byte1 byte2 .. byteN"
+;
+; A following bare CR then echoes the stored bytes in Wozmon
+; format (16 bytes) at the given address.
+;
+;--------------------------------------------------------------
+;
+woz_input:
+		ld	hl, input_buffer
+		call	hex_to_bc
+		jp	c, cmd_error
+		ld	(modify_address), bc
+		ld	(dump_address), bc	; bare CR echoes a W dump from the edit start
+		ld	a, 'W'
+		ld	(last_cmd), a		; CR alone repeats the Wozmon-format dump
+		; HL points at the space that replaced the colon
+		jr	modify_byte
+
+modify_byte:
+		; HL contains the a string.  Get the next byte
+		ld	a, (hl)
+		inc	hl
+
+		; space? skip
+		cp	' '
+		jr	z, modify_byte
+
+		; return? If so we're done
+		cp	CR
+		jp	z, prompt
+
+		; OK, do we have a hex number?
+		dec	hl
+		call	hex_to_bc
+		jp	c, cmd_error
+
+		; store the byte in RAM
+		ld	bc, (modify_address)
+		ld	(bc), a
+
+		; bump to the next address
+		inc	bc
+		ld	(modify_address), bc
+
+		; continue
+		jr	modify_byte
+
+
+
+;-------------------------------------------------------
+;
+; Convert 1..4 hexadecimal digits to 16-bit value.
+;
+; Entry:
+;       HL -> ASCII string terminated by CR or SPC
+;
+; Exit (success):
+;       BC = value
+;	A  = low(value)
+;       HL -> terminating char, typically SPACE or CR
+;
+; Exit (error):
+;       HL -> no-hex char
+;	CY set
+;
+; Modifies:
+;       AF,BC,HL
+;-------------------------------------------------------
+
+hex_to_bc:
+		push	de
+		ex	de,hl				; DE = input pointer
+		ld	hl,0				; accumulator
+
+		ld	a,(de)
+
+loop:		call	hexdig				; ASCII->HEX
+		jr	c,hex_err			; CY: non-hex digit
+
+		add	hl,hl				; HL << 4
+		add	hl,hl
+		add	hl,hl
+		add	hl,hl
+
+		add	a,l
+		ld	l,a
+		inc	de				; next char
+		ld	a, (de)
+		cp	SPC
+		jr	z, done
+		cp	CR
+		jr	z, done
+		jr	loop
+
+done:
+		ld	b,h
+		ld	c,l
+		ex	de,hl				; HL -> terminator
+		ld	a, c
+		pop	de
+		ret
+hex_err:
+		ex	de,hl				; HL -> bad char
+		pop	de
+		ret
+
+
+;-------------------------------------------------------
+; Convert ASCII hex digit to nibble.
+;
+; Entry:
+;       A = ASCII character
+;
+; Exit:
+;       CY = 0, A = 0..15
+;       CY = 1 if invalid
+;
+; Modifies:
+;       AF
+;-------------------------------------------------------
+
+hexdig:
+		cp	'0'
+		jr	c,bad
+
+		cp	'9'+1
+		jr	c,digit
+
+		cp	'A'
+		jr	c,bad
+
+		cp	'F'+1
+		jr	c,upper
+
+		cp	'a'
+		jr	c,bad
+
+		cp	'f'+1
+		jr	nc,bad
+
+		sub	'a'-10
+		or	a				; clear CY
+		ret
+
+upper:
+		sub	'A'-10
+		or	a
+		ret
+
+digit:
+		sub	'0'
+		or	a
+		ret
+
+bad:
+		scf
+		ret
+
+
+out_string:
+		ld	a, (hl)
+		or	a
+		ret	z
+		call	out_char
+		inc	hl
+		jr	out_string
+
+out_crlf:
+		ld	a, CR
+		call	out_char
+		ld	a, LF
+		jp	out_char
+
+
+;
+; Display the 16-bit number in HL as hex.
+;
+out_word:
+		ld	a,h
+		call	out_byte
+		ld	a,l
+; Display the 8-bit number in A as hex.
+out_byte:
+		push	af
+		rra
+		rra
+		rra
+		rra
+		call	out_nibble
+		pop	af
+out_nibble:
+		and	0Fh
+		cp	10
+		sbc	69h
+		daa
+
+out_char:
+	if	MBC2
+
+		push	af			; Save TXD char
+		ld	a, OPC_TX		; TXD opcode
+		out	(STO_OPC), a		; Prepare execution
+		pop	af
+		out	(EX_OPC), a		; Execute TXD
+		ret
+
+	endif
+
+	if	CPM
+
+		push	bc
+		push	de
+		push	hl
+		ld	c,CONOUT
+		ld	e,a
+		call	BDOS
+		pop	hl
+		pop	de
+		pop	bc
+		ret
+
+	endif
+
+in_char:
+	if	MBC2
+
+in_char_wait:
+		in	a, (RXD)		; Read a char from "virtual" UART
+		cp	0FFh			; Char? ($FF from UART = no char)
+		jr	z, in_char_wait		; No, loop until valid character
+		; Echo like CP/M BDOS fct 1 so callers need no build-specific logic.
+		cp	BS			; BS/RUB is echoed by the caller (handle_bs)
+		ret	z
+		cp	RUB
+		ret	z
+		cp	CR			; CR returns cursor to column 0
+		jr	z, in_char_echo
+		cp	' '			; other control chars are ignored by the caller
+		ret	c			; -> no echo
+in_char_echo:
+		jr	out_char			; echo typed char
+
+	endif
+
+	if	CPM
+
+		push	bc
+		push	de
+		push	hl
+		ld	c, CONIN		; console input, blocks (cooperative)
+		call	BDOS
+		pop	hl
+		pop	de
+		pop	bc
+		ret
+
+	endif
+
+
+;--------------------------------------------------------------
+;
+; IOS OUTPUT - O <CMD> <DATA>
+; store IOS opcode <CMD>, then execute a write with data byte <DATA>
+; e.g. O 00 01 -> USER LED on, O 00 00 -> USER LED off
+; (only in the MBC2 build; same port sequence as out_char)
+;
+;--------------------------------------------------------------
+;
+o_handler:
+	if	MBC2
+		call	get_first_arg		; CMD
+		jp	c, cmd_error
+		; store opcode (like out_char does with OPC_TX)
+		ld	a, c
+		out	(STO_OPC), a		; STORE Opcode
+		call	get_next_arg		; DATA
+		jp	c, cmd_error
+		; execute write with data byte
+		ld	a, c
+		out	(EX_OPC), a		; EXECUTE WRITE
+		jp	prompt
+	endif
+
+;--------------------------------------------------------------
+;
+; IOS QUERY - Q <CMD> [NN]
+; store IOS opcode <CMD>, then read NN bytes (default 1) from EX_OPC
+; e.g. Q 80  -> USER KEY, Q 84 7 -> DATETIME
+; (only in the MBC2 build)
+;
+;--------------------------------------------------------------
+;
+q_handler:
+	if	MBC2
+		call	get_first_arg		; CMD
+		jp	c, cmd_error
+		ld	a, c
+		out	(STO_OPC), a		; STORE Opcode
+		; byte count, default 1
+		ld	b, 1
+		call	get_next_arg		; optional NN
+		jr	c, q_read
+		ld	a, c
+		or	a
+		jp	z, cmd_error		; NN = 0 -> error
+		ld	b, a
+q_read:		in	a, (EX_OPC)		; EXECUTE READ / next byte
+		call	out_byte
+		ld	a, ' '
+		call	out_char
+		djnz	q_read
+		call	out_crlf
+		jp	prompt
+	endif
+
+
+;--------------------------------------------------------------
+;
+; GOTO is invoked with the (optional) start address
+; G - goto user PC
+; G 0 - exit to CP/M, restart on  Z80-MBC2
+; G aaaa - goto aaaa
+;
+;--------------------------------------------------------------
+;
+goto_handler:
+		call get_first_arg
+		; G alone, no arg -> goto address from user context
+		jr	c, goto_user
+		or	b			; G0 ?
+	if	CPM
+		jp	z, 0
+	else
+		jp	z, init
+	endif
+		; Gaaaa -> save address for later jump via restore_user_context
+		ld	(user_pc), bc
+		call	get_next_arg
+		jr	c, goto_user
+		call	brk_hndlr1
+goto_user:
+		ld	a, (user_pc)
+		ld	b, a
+		ld	a, (user_pc+1)
+		or	b
+		jp	z, cmd_error		; error if user PC not set
+		; set user stack, register, breakpoint; jp to (user_pc)
+		jp	restore_user_context
+
+
+;--------------------------------------------------------------
+;
+; set/reset BREAKPOINT
+; K - reset breakpoint
+; K 0 - reset breakpoint
+; K aaaa - set breakpoint at aaaa
+; K aaaa bbbb - set breakpoint at aaaa, restore at bbbb
+;
+;--------------------------------------------------------------
+;
+break_handler:
+		call	clr_brk		; clear old breakpoint
+		call	get_first_arg
+		; K alone, no arg -> kill breakpoint
+		ret	c			; K -> clear breakpoint
+brk_hndlr1:	or	b
+		ret	z			; K0 -> clear breakpoint
+		ld	(break_addr), bc	; Kaaaa -> set breakpoint
+		push	bc
+		ld	bc, 0
+		ld	(reactiv_addr), bc	; drop any previous reactivpoint
+		pop	bc
+		call	get_next_arg		; a: low
+		ret	c			; no hex -> no reactivpoint
+		or	b			; high
+		ret	z			; Kaaa 0 -> no reactivpoint
+
+		ld	(reactiv_addr), bc	; Kaaaa bbbb -> set reactivpoint
+		ret
+clr_brk:
+		ld	bc, 0
+		ld	(break_addr), bc
+		ld	(reactiv_addr), bc
+		ret
+
+
+;--------------------------------------------------------------
+;
+; RESTORE_USER_CONTEXT - Set up registers and breakpoint, jump to user code
+;
+;--------------------------------------------------------------
+restore_user_context:
+		; prepare breakpoint if set
+		ld	bc, (break_addr)
+		ld	a, b
+		or	c
+		jr	z, rest_regs		; no brkpt
+		ld	hl, (user_pc)
+		sbc	hl, bc
+		jr	z, chk_react		; at brkpt, set (opt.) reactivpoint
+		; exchange opcode with RST
+		ld	a, (bc)
+		ld	(break_opc), a		; save original opcode
+		ld	a, OPC_RST30
+		ld	(bc), a			; replace opcode with RST
+		jr	rest_regs
+
+chk_react:	; prepare reactivpoint if at breakpoint
+		ld	hl, (reactiv_addr)
+		ld	a, h
+		or	l
+		jr	z, rest_regs		; no reactivpoint
+		; exchange opcode with RST
+		ld	a, (hl)
+		ld	(reactiv_opc), a	; save original opcode
+		ld	a, OPC_RST28
+		ld	(hl), a			; replace opcode with RST
+rest_regs:
+		; restore user register
+		ld	a, (user_i)
+		ld	i, a
+		ex	af, af'
+		ld	hl, (user_af2)
+		push	hl
+		pop	af
+		ex	af, af'
+		ld	hl, (user_af)
+		push	hl
+		pop	af
+		; restore user stack
+		ld	sp, (user_sp)
+		; restore user PC
+		ld	hl, (user_pc)
+		; put it on stack for indirect jump via RET
+		push	hl
+
+		ld	iy, (user_iy)
+		ld	ix, (user_ix)
+		exx
+		ld	hl, (user_hl2)
+		ld	de, (user_de2)
+		ld	bc, (user_bc2)
+		exx
+		ld	hl, (user_hl)
+		ld	de, (user_de)
+		ld	bc, (user_bc)
+		; jump to the pushed address (user PC)
+		ret
+
+;--------------------------------------------------------------
+; BREAKPOINT - entered via RST 30h
+; Save context, restore original opcode, display register
+;--------------------------------------------------------------
+;
+breakpoint:
+		; Save complete user context
+		ld	(user_sp), sp
+		ld	sp, debug_stack			; switch to debug stack
+		ld	(user_iy), iy
+		ld	(user_ix), ix
+		exx					; save 2nd reg set
+		ld	(user_hl2), hl
+		ld	(user_de2), de
+		ld	(user_bc2), bc
+		exx
+		ld	(user_hl), hl
+		ld	(user_de), de
+		ld	(user_bc), bc
+
+		ex	af, af'
+		push	af
+		pop	hl
+		ld	(user_af2), hl
+		ex	af, af'
+		push	af
+		pop	hl
+		ld	(user_af), hl
+		ld	a, r
+		ld	(user_r), a
+		ld	a, i
+		ld	(user_i), a
+
+
+		; Get return address (points after RST 30h)
+		; "pop" de from user_sp
+		ld	hl, (user_sp)
+		ld	e, (hl)
+		inc	hl
+		ld	d, (hl)				; DE = return address
+		inc	hl
+		ld	(user_sp), hl			; corrected user SP
+		dec	de				; point to RST 30h instruction
+		; Save as user PC
+		ld	(user_pc), de
+
+		; Restore original byte where breakpoint was
+		ld	hl, (break_addr)
+		ld	a, (break_opc)
+		ld	(hl), a
+		ld	hl, (reactiv_addr)		; reactivpoint defined?
+		ld	a, h
+		or	l
+		jr	nz, brk_regs			; yes
+		ld	(break_addr), hl		; no, clr brkpt
+
+		; Display status
+brk_regs:	call	display_regs
+
+		; Return to debug prompt
+		jp	prompt
+
+
+;--------------------------------------------------------------
+; REACTIVPOINT - entered via RST 28H
+; Restore original opcode here, reactivate breakpoint, go on
+;--------------------------------------------------------------
+;
+reactivpoint:	push	af
+		push	hl
+		; Restore original byte where RST 28H was
+		ld	hl, (reactiv_addr)
+		ld	a, (reactiv_opc)
+		ld	(hl), a
+		; Check for active breakpoint
+		ld	a, (break_addr)
+		ld	l, a
+		ld	a, (break_addr+1)
+		or	l
+		jr	z, reactiv_ret		; breakpoint not set
+		; Reactivate breakpoint
+		ld	hl, (break_addr)
+		ld	a, (hl)
+		ld	(break_opc), a
+		ld	(hl), OPC_RST30		; replace opcode with RST 30H
+reactiv_ret:
+		pop	hl
+		pop	af
+		; return to the original opcode that was replaced by RST 28H
+		ex	(sp), hl
+		dec	hl
+		ex	(sp), hl
+
+		ret
+
+
+;--------------------------------------------------------------
+; DISPLAY_REGS - Show all user registers
+;--------------------------------------------------------------
+display_regs:
+		ld	hl, regs_msg1
+		call	out_string
+
+		ld	a, (user_af+1)
+		call	out_byte			; A
+		ld	a, ' '
+		call	out_char
+		ld	a, (user_af)
+		call	out_byte			; F
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_bc)
+		call	out_word			; BC
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_de)
+		call	out_word			; DE
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_hl)
+		call	out_word			; HL
+		ld	a, ' '
+		call	out_char
+		ld	a, (user_af2+1)
+		call	out_byte			; A'
+		ld	a, ' '
+		call	out_char
+		ld	a, (user_af2)
+		call	out_byte			; F'
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_bc2)
+		call	out_word			; BC'
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_de2)
+		call	out_word			; DE'
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_hl2)
+		call	out_word			; HL'
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_ix)
+		call	out_word			; IX
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_iy)
+		call	out_word			; IY
+		ld	a, ' '
+		call	out_char
+		ld	a, (user_i)
+		call	out_byte			; I
+		ld	a, ' '
+		call	out_char
+		ld	a, (user_r)
+		call	out_byte			; R
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_pc)
+		call	out_word			; PC
+		ld	a, ' '
+		call	out_char
+		ld	hl, (user_sp)
+		call	out_word			; SP
+		call	out_crlf
+		ld	a, (user_af)
+		call	display_flags
+		ld	hl, spaces13
+		call	out_string
+		ld	a, (user_af2)
+		call	display_flags
+		ld	hl, (break_addr)
+		ld	a, h
+		or	l
+		jr	z, disp_end
+		ld	hl, spaces13
+		call	out_string
+		ld	hl, spaces8
+		call	out_string
+		ld	hl, brk_msg
+		call	out_string
+		ld	hl, (break_addr)
+		call	out_word
+		ld	a, '/'
+		call	out_char
+		ld	hl, (reactiv_addr)
+		call	out_word
+disp_end:
+		jp	out_crlf
+
+
+;--------------------------------------------------------------
+; DISPLAY_FLAGS - Show the relevant flags Sign, Zero, P/V, and CY
+; All other flags are ignored und displayed as '.'
+; Upper case: flag set
+; Lower case: flag not set
+;--------------------------------------------------------------
+display_flags:
+		ld	b, a
+		bit	7, b
+		ld	a, 's'
+		jr	z, flagZ
+		ld	a, 'S'
+flagZ:		call	out_char
+		bit	6, b
+		ld	a, 'z'
+		jr	z, flag5
+		ld	a, 'Z'
+flag5:		call	out_char
+		ld	a, '.'
+flagH:		call	out_char
+		ld	a, '.'
+flag3:		call	out_char
+		ld	a, '.'
+flagP:		call	out_char
+		bit	2, b
+		ld	a, 'p'
+		jr	z, flagN
+		ld	a, 'P'
+flagN		call	out_char
+		ld	a, '.'
+flagC:		call	out_char
+		bit	0, b
+		ld	a, 'c'
+		jr	z, flagrdy
+		ld	a, 'C'
+flagrdy:	jp	out_char
+
+
+;--------------------------------------------------------------
+; DATA
+;--------------------------------------------------------------
+
+spaces13:	db	"     "
+spaces8:	db	"    "
+spaces4:	db	"    ", 0
+
+
+regs_msg1:	db	CR, LF
+		db	" A  F  BC   DE   HL  A' F'  BC'  DE'  HL' "
+		db	" IX   IY   I  R  PC   SP"
+		db	CR, LF, 0
+
+brk_msg:	db	" BrkPt: ", 0
+
+; last entered command character (for cmd repeat with CR only)
+last_cmd:
+		db	0
+; DUMP: We track of the address from which we're dumping.
+dump_address:
+		dw	0
+; INPUT: Keep track of the address to which we next write.
+modify_address:
+		dw	0
+
+break_addr:	dw	0
+break_opc:	db	0
+
+reactiv_addr:	dw	0
+reactiv_opc:	db	0
+
+
+;--------------------------------------------------------------
+; USER CONTEXT
+;--------------------------------------------------------------
+user_ctxt:
+user_i		db	0
+user_r		db	0
+user_af:	dw	0
+user_af2:	dw	0			; AF'
+user_bc:	dw	0
+user_de:	dw	0
+user_hl:	dw	0
+user_bc2:	dw	0     			; BC'
+user_de2:	dw	0     			; DE'
+user_hl2:	dw	0     			; HL'
+user_ix:	dw	0
+user_iy:	dw	0
+user_pc:	dw	0
+user_end:
+user_sp:	dw	stack_top
+
+;--------------------------------------------------------------
+; BSS - do not use "ds" b/c this would increase the hex size
+;--------------------------------------------------------------
+
+		;org	($+0fh) and 0fff0h	; TEST: advance to next 16 byte block
+
+stack_bottom	equ	$
+
+stack_top	equ	stack_bottom + 64	; stack for monitor
+
+debug_stack	equ	stack_top + 64		; stack for breakpoint
+
+; Command-line input buffer
+input_buffer	equ	debug_stack		; buffer grows up
+
+input_buffer_end equ	input_buffer + 128	; guard for overrun
+
